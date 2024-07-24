@@ -1,0 +1,84 @@
+apiVersion: v2
+description: Helm chart for mojafos infrastructure services
+name: mojafos-infra
+version: 15.0.0
+appVersion: "kafka: 19.0.2; console: 0.6.6; mongodb: 13.3.1; mongo-express: 3.1.1; elasticsearch:19.9.2; redis: 17.11.6"
+home: https://summerofcode.withgoogle.com/programs/2023/projects/oQk6Gmup
+icon: https://summerofcode.withgoogle.com/assets/media/logo.svg
+sources:
+- https://github.com/elijah0kello/mojafos
+maintainers:
+- name: Elijah Okello
+  email: elijahokello90@gmail.com
+dependencies:
+## kafka 
+- name: kafka
+  alias: kafka
+  condition: kafka.enabled
+  repository: https://charts.bitnami.com/bitnami
+  tags:
+  - mojafos
+  - dependency
+  - kafka
+  version: 19.0.2
+## redpanda kafka console 
+- name: console
+  alias: redpanda-console
+  condition: console.enabled
+  repository: https://charts.redpanda.com
+  tags:
+  - mojafos
+  - dependency
+  - kafka
+  - redpanda
+  version: 0.6.6
+## MongoDB
+- name: mongodb
+  alias: mongodb
+  condition: mongodb.enabled
+  repository: https://charts.bitnami.com/bitnami
+  tags:
+  - mojafos
+  - dependency
+  - mongodb
+  version: 13.3.1
+## Mongo-express
+- name: mongo-express
+  alias: mongo-express
+  condition: mongo-express.enabled
+  repository: https://cowboysysop.github.io/charts/
+  tags:
+  - mojafos
+  - dependency
+  - mongodb
+  version: 3.1.1
+## redis 
+- name: redis
+  alias: redis 
+  condition: redis.enabled
+  repository: https://charts.bitnami.com/bitnami
+  tags:
+  - mojafos
+  - dependency
+  - mongodb
+  version: 17.11.6
+## Elastic Search Kibana 
+- name: elasticsearch
+  alias: elasticsearch
+  condition: elasticsearch.enabled
+  repository: https://charts.bitnami.com/bitnami
+  tags:
+  - mojafos
+  - dependency
+  - elasticsearch
+  version: 19.9.2
+## MySQL
+- name: mysql
+  alias: mysql
+  condition: mysql.enabled
+  repository: https://charts.bitnami.com/bitnami
+  tags:
+  - mojafos
+  - dependency
+  - mysql
+  version: 9.4.5
