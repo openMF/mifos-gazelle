@@ -7,7 +7,7 @@ dependencies:
   version: 0.6.6
 - name: mongodb
   repository: https://charts.bitnami.com/bitnami
-  version: 13.3.1
+  version: 13.18.5
 - name: mongo-express
   repository: https://cowboysysop.github.io/charts/
   version: 3.1.1
@@ -20,5 +20,5 @@ dependencies:
 - name: mysql
   repository: https://charts.bitnami.com/bitnami
   version: 9.4.5
-digest: sha256:7ba3ea9a03eaa2abafee8c647e7976a22d7b82ad48fdd2a9dfbaa3bb65bbf910
-generated: "2023-09-06T11:55:49.830694633Z"
+digest: sha256:70f2bd59f4df5a4cf708c4174376f0b7d8427319922a017eae930f8b63a40f4d
+generated: "2024-07-26T08:48:11.376654683Z"

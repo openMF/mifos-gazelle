@@ -41,7 +41,7 @@ dependencies:
   - mojafos
   - dependency
   - mongodb
-  version: 13.3.1
+  version: 13.18.5
 ## Mongo-express
 - name: mongo-express
   alias: mongo-express
