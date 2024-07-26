@@ -81,4 +81,4 @@ dependencies:
   - mojafos
   - dependency
   - mysql
-  version: 9.4.5
+  version: 9.23.0
