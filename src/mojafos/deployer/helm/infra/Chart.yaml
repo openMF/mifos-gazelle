@@ -61,7 +61,7 @@ dependencies:
   - mojafos
   - dependency
   - mongodb
-  version: 17.11.6
+  version: 17.17.1
 ## Elastic Search Kibana 
 - name: elasticsearch
   alias: elasticsearch

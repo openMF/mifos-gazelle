@@ -13,12 +13,12 @@ dependencies:
   version: 3.1.1
 - name: redis
   repository: https://charts.bitnami.com/bitnami
-  version: 17.11.6
+  version: 17.17.1
 - name: elasticsearch
   repository: https://charts.bitnami.com/bitnami
   version: 19.9.2
 - name: mysql
   repository: https://charts.bitnami.com/bitnami
   version: 9.4.5
-digest: sha256:7ba3ea9a03eaa2abafee8c647e7976a22d7b82ad48fdd2a9dfbaa3bb65bbf910
-generated: "2023-09-06T11:55:49.830694633Z"
+digest: sha256:4e89bdb95617e15adda6c962c2ef6bf3c3225b0b6012e5b6aa360d73b57b7f0c
+generated: "2024-07-27T11:43:53.041394601Z"
