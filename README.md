@@ -25,13 +25,14 @@ git clone https://github.com/openMF/mojafos.git
 Inside the directory run the following command to execute the script.
 
 ```bash
-sudo ./run.sh -u $USER -m deploy -d true -a all -f 2 -e local
+sudo ./run.sh -u $USER -m deploy -d true -a all -f 1 -e local
 ```
 ### Options
 - `-u` This is used to pass in the user the script should use to execute it's commands. The value passed in is `$USER` which the current user of the shell
 - `-m` This option specifies the mode in which the script should execute. The available values are 
     - `deploy` - Deploy applications
-    - `cleanup` - Undo what deploy did and clean up resources
+    - `cleanapps` - Undo what deploy did and clean up all application resources without removing kubernetes infrastructure
+    - `cleanall` - Undo what deploy did and clean up all resources including kubernetes infrastructure
 - `-d` This flag tells the sccript whether to execute in verbose mode or not. The available values are :
     - true - Output should provide as much information as possible
     - false - Output should not be minimal
@@ -90,7 +91,7 @@ ensure that http / port 80 is accessible on the install system. For instance if 
 add the hosts listed below to an entry for the external/public ip address of that install system in the /etc/hosts file of the laptop you are using.
 For example if Mojaloop vNext is installed on a cloud VM with a public IP of 192.168.56.100 Then add an entry to your laptop's /etc/hosts similar to ...
 ```bash
-192.168.56.100  vnextadmin.local elasticsearch.local kibana.local mongoexpress.local kafkaconsole.local fspiop.local bluebank.local greenbank.local
+192.168.56.100  vnextadmin.local elasticsearch.local kibana.local mongoexpress.local kafkaconsole.local fspiop.local bluebank.local greenbank.local mifos.local 
 ```
 
 You should now be able to browse or curl to Mojaloop vNext admin url using http://vnextadmin you can also access the deloyed instances of the Mojaloop testing toolkit at http://bluebank.local and http://greenbank.local or access the mongo and kafka consoles.
@@ -185,7 +186,7 @@ Note you can only have one host per line so on windows 10 your hosts file should
 To tear down the infrastructure and all installed apps. You can run this command.
 
 ```bash
-sudo ./run.sh -u $USER -m cleanup -d true -e local
+sudo ./run.sh -u $USER -m cleanall -d true -e local
 ```
 
 This will delete all resources in the created namespaces and if the kubernetes cluster is `k3s` it will delete it as well.
