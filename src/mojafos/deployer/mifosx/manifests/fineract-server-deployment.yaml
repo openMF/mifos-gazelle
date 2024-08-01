@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: /home/azureuser/kompose --file docker-compose.yml convert
+    kompose.version: 1.34.0 (cbf2835db)
+  labels:
+    io.kompose.service: fineract-server
+  name: fineract-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: fineract-server
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: /home/azureuser/kompose --file docker-compose.yml convert
+        kompose.version: 1.34.0 (cbf2835db)
+      labels:
+        io.kompose.service: fineract-server
+    spec:
+      containers:
+        - env:
+
+
+            - name: FINERACT_DEFAULT_TENANTDB_DESCRIPTION
+              value: "Default Demo Tenant"
+            - name: FINERACT_DEFAULT_TENANTDB_HOSTNAME
+              value: "mysql.infra.svc.cluster.local"
+            - name: FINERACT_DEFAULT_TENANTDB_IDENTIFIER
+              value: "default"
+            - name: FINERACT_DEFAULT_TENANTDB_NAME
+              value: "fineract_default"
+            - name: FINERACT_DEFAULT_TENANTDB_PORT
+              value: "3306"
+            - name: FINERACT_DEFAULT_TENANTDB_TIMEZONE
+              value: Asia/Kolkata
+            - name: FINERACT_DEFAULT_TENANTDB_UID
+              value: "mifos"              
+            - name: FINERACT_DEFAULT_TENANTDB_PWD
+              value: "password"
+            - name: FINERACT_HIKARI_AUTO_COMMIT
+              value: "true"
+            - name: FINERACT_HIKARI_CONNECTION_TIMEOUT
+              value: "20000"
+            - name: FINERACT_HIKARI_DRIVER_SOURCE_CLASS_NAME
+              value: org.mariadb.jdbc.Driver
+            - name: FINERACT_HIKARI_DS_PROPERTIES_CACHE_PREP_STMTS
+              value: "true"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_CACHE_RESULT_SET_METADATA
+              value: "true"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_CACHE_SERVER_CONFIGURATION
+              value: "true"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_DUMP_QUERIES_IN_EXCEPTION
+              value: "true"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_ELIDE_SET_AUTO_COMMITS
+              value: "true"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_LOG_SLOW_QUERIES
+              value: "true"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_MAINTAIN_TIME_STATS
+              value: "false"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_PREP_STMT_CACHE_SIZE
+              value: "250"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_PREP_STMT_CACHE_SQL_LIMIT
+              value: "2048"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_REWRITE_BATCHED_STATEMENTS
+              value: "true"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_USE_LOCAL_SESSION_STATE
+              value: "true"
+            - name: FINERACT_HIKARI_DS_PROPERTIES_USE_SERVER_PREP_STMTS
+              value: "true"
+            - name: FINERACT_HIKARI_IDLE_TIMEOUT
+              value: "60000"
+            - name: FINERACT_HIKARI_JDBC_URL
+              value: jdbc:mariadb://mysql.infra.svc.cluster.local:3306/fineract_tenants
+            - name: FINERACT_HIKARI_MAXIMUM_POOL_SIZE
+              value: "10"
+            - name: FINERACT_HIKARI_MINIMUM_IDLE
+              value: "3"
+            - name: FINERACT_HIKARI_PASSWORD
+              value: "ethieTieCh8ahv"
+            - name: FINERACT_HIKARI_TEST_QUERY
+              value: SELECT 1
+            - name: FINERACT_HIKARI_USERNAME
+              value: "root"
+            - name: FINERACT_LOGGING_LEVEL
+              value: INFO
+            - name: FINERACT_NODE_ID
+              value: "1"
+            - name: FINERACT_SERVER_PORT
+              value: "8443"
+            - name: FINERACT_SERVER_SSL_ENABLED
+              value: "false"
+            - name: FINERACT_HIKARI_DRIVER_CLASS_NAME
+              value: org.mariadb.jdbc.Driver
+            - name:  FINERACT_SECURITY_BASICAUTH_ENABLED
+              value: "true" 
+          image: openmf/fineract:1.9.0
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - echo -e "Checking for the availability of Fineract server deployment"; while ! nc -z "fineract-server" 8443; do sleep 1; printf "-"; done; echo -e " >> Fineract server has started";
+            failureThreshold: 10
+            timeoutSeconds: 10
+          name: fineract-server
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          # volumeMounts:
+          #   - mountPath: /data
+          #     name: fineract-server-claim0
+      restartPolicy: Always
+      # volumes:
+      #   - name: fineract-server-claim0
+      #     persistentVolumeClaim:
+      #       claimName: fineract-server-claim0
