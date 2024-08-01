@@ -1,15 +1,14 @@
 # Mojafos is moving to mifos-gazelle 
 
 ## Notes : 
-- the mojafos dev branch is going to be the basis of the new mifos-gazelle utilities
-- the dev branch should contain a deployable version of the Mifosx deplpyed via local kubernetes manifests , (mojaloop) vNext Beta1 also from kubernetes manifests and a simplified held deployment of PHEE
+- the mojafos td-dev1 branch is the basis of the new mifos-gazelle utilities
+- the interim mifos-gazelle branch c4gt1 should contain a deployable version of the Mifosx app which is deployed via local kubernetes manifests , (mojaloop) vNext Beta1 also from kubernetes manifests and a simplified held deployment of PHEE
 
 ## status
-- the tom-dev1 branch in the git history is being merged into mojafos dev branch and then used as stated above as the basis for mifos-gazelle
-- all renaming to mifos-gazelle will happen in the mifos-gazelle repo
-- at the very start of Aug 2024 the Mojafos repo will be deprecated and all work go into mifos-gazelle
-- currently with PR https://github.com/openMF/mojafos/pull/56 these are the major  simplifications going into Mojafos dev
+- all renaming to mifos-gazelle will happen in the mifos-gazelle repo before merging to dev and of course the later release to main/master branch
+- at the very start of Aug 2024 the Mojafos repo will be deprecated and all work go into mifos-gazelle (this repo) 
 
+## What is in the c4gt branch of mifos-gazelle compared to Mojafos dev branch
 PHEE: 
     - simplified phee helm deployment, the operations-web UI is accessible via hostname ops.local BUT the application docker image currently has hardcoded URLs which mean that it will not currently work.  The operations-web image is being debugged to remove these but timeline is unknown.  postman collections should work against the operations-web UI
     - this deployment relies upon the c4gt-gazelle-dev branch of the ph-ee-template repo

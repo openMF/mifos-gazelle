@@ -1,4 +1,7 @@
-# A Deployable Package for Mifos/Fineract, Payment Hub EE, and Mojaloop (Mojafos)
+# NEEDS UPDATING FOR MIFOS-GAZELLE 
+
+
+# A Deployable Package for Mifos/Fineract, Payment Hub EE, and Mojaloop (Mifos-gazelle)
 
 ## Introduction
 
@@ -15,11 +18,11 @@ Make sure you have the following before you go through this guide.
 > NOTE: The deployment made by this script is meant for demo purposes and not for production
 
 ## Clone the repository
-To use Mojafos, you need to clone the repository to be able to run the software scripts.
+To use Mifos-gazelle, you need to clone the repository to be able to run the software scripts.
 Clone the repository into a directory of your choice.
 After cloning the repository,  you need to change the directory into the cloned repository.
 ``` 
-git clone https://github.com/openMF/mojafos.git
+git clone https://github.com/openMF/mifos-gazelle.git
 ```
 
 Inside the directory run the following command to execute the script.
@@ -42,7 +45,7 @@ sudo ./run.sh -u $USER -m deploy -d true -a all -f 1 -e local
 
 
 # App Deployment Modes -a
-There are three modes of deployment currently supported by Mojafos. This is relevant for the -a option
+There are three modes of deployment currently supported by Mifos-gazelle. This is relevant for the -a option
 - Only Mojaloop `moja`
 - Only Fineract `fin`
 - Only Payment Hub `ph`
@@ -60,7 +63,7 @@ After  the script has successfully executed it will print the following output
 
 ```
 ========================================================================
-Thank you for installing Mojaloop, Paymenthub and Fineract using Mojafos
+Thank you for installing Mojaloop, Paymenthub and Fineract using Mifos-gazelle
 ========================================================================
 
 
@@ -83,9 +86,9 @@ Copyright © 2023 The Mifos Initiative
 # USING THE DEPLOYED APPS
 
 ## Accessing Mojaloop
-The Mojafos scripts add the required host names to the 127.0.0.1 entry in the /etc/hosts of the "install system" i.e. the system where mojafos is run. To access Mojaloop from beyond this system it is necessary to:-
+The Mifos-gazelle scripts add the required host names to the 127.0.0.1 entry in the /etc/hosts of the "install system" i.e. the system where mifos-gazelle is run. To access Mojaloop from beyond this system it is necessary to:-
 
-ensure that http / port 80 is accessible on the install system. For instance if mojafos has installed Mojaloop onto a VM in the cloud then it will be necessary to ensure that the cloud network security rules allow inbound traffic on port 80 to that VM.
+ensure that http / port 80 is accessible on the install system. For instance if mifos-gazelle has installed Mojaloop onto a VM in the cloud then it will be necessary to ensure that the cloud network security rules allow inbound traffic on port 80 to that VM.
 
 ## MacOs and Linux
 add the hosts listed below to an entry for the external/public ip address of that install system in the /etc/hosts file of the laptop you are using.
@@ -150,14 +153,14 @@ Note you can only have one host per line so on windows 10 your hosts file should
 ```
 
 # Accessing Fineract
-To access the fineract instances you just deployed using mojafos, you will needs to make similar edits to your hosts file configuration of your computer.
+To access the fineract instances you just deployed using mifos-gazelle, you will needs to make similar edits to your hosts file configuration of your computer.
 
 ## MacOs and Linux
 add the hosts listed below to an entry for the external/public ip address of that install system in the /etc/hosts file of the laptop you are using.
 For example if one of the instances of fineract is installed on a cloud VM with a public IP of 192.168.56.100 Then add an entry to your laptop's /etc/hosts similar to ...
 
 ```bash
-192.168.56.100 1-communityapp.sandbox.fynarfin.io 1-fynams.sandbox.fynarfin.io
+192.168.56.100 mifos.local # TBD 
 ```
 Notice the 1 at the begining of the host name. This is automatically prepended at the begining of a fineract instance's host names to form it's ingress domain name.
 

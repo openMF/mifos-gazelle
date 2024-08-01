@@ -41,7 +41,7 @@ SQL_FILE="$BASE_DIR/src/mojafos/deployer/setup.sql"
 
 #fineract
 FIN_NAMESPACE="fineract"
-FIN_MANIFESTS_DIR=$APPS_DIR/mifosx/manifests
+FIN_MANIFESTS_DIR=$BASE_DIR/src/mojafos/deployer/mifosx/manifests
 # FIN_BRANCH="master"
 # FIN_REPO_LINK="https://github.com/fynarfin/fineract-env.git"
 # FIN_REPO_DIR="fineract"
