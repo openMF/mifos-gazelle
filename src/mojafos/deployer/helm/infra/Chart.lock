@@ -1,7 +1,7 @@
 dependencies:
 - name: kafka
   repository: https://charts.bitnami.com/bitnami
-  version: 19.0.2
+  version: 29.3.14
 - name: console
   repository: https://charts.redpanda.com
   version: 0.6.6
@@ -20,5 +20,5 @@ dependencies:
 - name: mysql
   repository: https://charts.bitnami.com/bitnami
   version: 9.4.5
-digest: sha256:7ba3ea9a03eaa2abafee8c647e7976a22d7b82ad48fdd2a9dfbaa3bb65bbf910
-generated: "2023-09-06T11:55:49.830694633Z"
+digest: sha256:c92290ea7702d7e2633342a7dc338d24fdee5dddfde22e8670351ba3ffa9d4d1
+generated: "2024-08-02T20:49:35.053375306Z"
