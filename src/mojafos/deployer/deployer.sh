@@ -383,7 +383,7 @@ function deployMojaloop() {
   echo "Deploying Mojaloop vNext application manifests"
   createNamespace "$MOJALOOP_NAMESPACE"
   echo
-  cloneRepo "$MOJALOOPBRANCH" "$MOJALOOP_REPO_LINK" "$APPS_DIR" "$MOJALOOPREPO_DIR"
+  cloneRepo "$MOJALOOPBRANCH" "$MOJALOOP_REPO_LINK" "$APPS_DIR" "$FIN_REPO_DIR"
   echo
   # renameOffToYaml "${MOJALOOP_LAYER_DIRS[0]}"
   echo
@@ -433,7 +433,7 @@ function DeployMifosXfromYaml() {
   echo "Deploying MifosX i.e. web-app and Fineract via application manifests"
   createNamespace "$FIN_NAMESPACE-$2"
   #echo
-  #cloneRepo "$MOJALOOPBRANCH" "$MOJALOOP_REPO_LINK" "$APPS_DIR" "$MOJALOOPREPO_DIR"
+  cloneRepo "$FIN_BRANCH" "$FIN_REPO_LINK" "$APPS_DIR" "$FIN_REPO_DIR"
   # TD: ideally the application manifests should be maintained in a Mifos repo 
   #     seperate from mifos-gazelle (mifosx-docker?) , this might also 
   #     bve the correct location for a potential k8s operator too.

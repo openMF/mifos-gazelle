@@ -41,14 +41,11 @@ SQL_FILE="$BASE_DIR/src/mojafos/deployer/setup.sql"
 
 #fineract
 FIN_NAMESPACE="fineract"
-FIN_MANIFESTS_DIR=$BASE_DIR/src/mojafos/deployer/mifosx/manifests
-# FIN_BRANCH="master"
-# FIN_REPO_LINK="https://github.com/fynarfin/fineract-env.git"
-# FIN_REPO_DIR="fineract"
-# FIN_NAMESPACE="fineract"
-# FIN_RELEASE_NAME="fineract"
-# FIN_VALUES_FILE="$BASE_DIR/src/mojafos/deployer/fin_values.yaml"
-
+FIN_MANIFESTS_DIR="$BASE_DIR/src/mojafos/deployer/apps/mifosx/kubernetes/manifests"
+#FIN_MANIFESTS_DIR=/home/azureuser/mifosx-docker/kubernetes/manifests
+FIN_BRANCH="mifos-gazelle_1"
+FIN_REPO_LINK="https://github.com/openMF/mifosx-docker.git"
+FIN_REPO_DIR="mifosx"
 
 ########################################################################
 # FUNCTIONS FOR CONFIGURATION MANAGEMENT
