@@ -423,7 +423,8 @@ function deployPH(){
 
 function DeployMifosXfromYaml() {
   manifests_dir=$1
-  num_instances=$2
+  num_instances="1"
+  #num_instances=$2
   # TODO re implement multiple instances of MifosX deployment in different 
   #      namespaces. In the move away from the helm charts to the simple yamls 
   #      I (Tom D) temporarily hardcoded this just so we could get something working
@@ -431,7 +432,7 @@ function DeployMifosXfromYaml() {
   #            kubernetes operator and thus multiple deployments would be a simple
   #            part of that process. 
   echo "Deploying MifosX i.e. web-app and Fineract via application manifests"
-  createNamespace "$FIN_NAMESPACE-$2"
+  createNamespace "$FIN_NAMESPACE-$num_instances"
   #echo
   cloneRepo "$FIN_BRANCH" "$FIN_REPO_LINK" "$APPS_DIR" "$FIN_REPO_DIR"
   # TD: ideally the application manifests should be maintained in a Mifos repo 
@@ -439,7 +440,7 @@ function DeployMifosXfromYaml() {
   #     bve the correct location for a potential k8s operator too.
 
   echo "Deploying files in $manifests_dir"
-  applyKubeManifests "$manifests_dir" "$FIN_NAMESPACE-$2"
+  applyKubeManifests "$manifests_dir" "$FIN_NAMESPACE-$num_instances"
 } 
 
 function deployFineract() {
@@ -508,10 +509,10 @@ function deployApps {
 
   if [ -z "$appsToDeploy" ]; then
     echo -e "${BLUE}Deploying all apps ...${RESET}"
-    deployInfrastructure
-    deployMojaloop
-    deployPH
-    DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
+    # deployInfrastructure
+    # deployMojaloop
+    # deployPH
+    # DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
     #deployFineract "$fin_num_instances"
   elif [[ "$appsToDeploy" == "all" ]]; then
     echo -e "${BLUE}Deploying all apps ...${RESET}"
@@ -524,20 +525,17 @@ function deployApps {
     deployInfrastructure
     deployMojaloop
   elif [[ "$appsToDeploy" == "fin" ]]; then 
-    deployInfrastructure
+    #deployInfrastructure
     DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
     #deployFineract "$fin_num_instances"
   elif [[ "$appsToDeploy" == "ph" ]]; then
+    echo "phee only "
     deployPH
   else 
     echo -e "${RED}Invalid option ${RESET}"
-    echo "Defaulting to all... "
-    deployInfrastructure
-    deployMojaloop
-    deployPH
-    DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
-    #deployFineract "$fin_num_instances"
+    showUsage
+    exit 
   fi
-  addKubeConfig >> /dev/null 2>&1
+  #addKubeConfig >> /dev/null 2>&1
   printEndMessage
 }
