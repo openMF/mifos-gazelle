@@ -112,7 +112,7 @@ function preparePaymentHubChart(){
   #cloneRepo "$PH_EE_ENV_LABS_REPO_BRANCH" "$PH_EE_ENV_LABS_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_LABS_REPO_DIR"
   echo "TDDEBUG> Cloning PHEE Templates repo Gazelle branch"
   echo "TDDBUG> clonerepo $PH_EE_ENV_TEMPLATE_REPO_BRANCH $PH_EE_ENV_TEMPLATE_REPO_LINK $APPS_DIR $PH_EE_ENV_TEMPLATE_REPO_DIR"
-  #cloneRepo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
+  cloneRepo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
 
   # Update helm dependencies and repo index for ph-ee-engine
   phEEenginePath="$APPS_DIR$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine"
@@ -255,6 +255,7 @@ function cloneRepo() {
     echo "TDDEBUG going to remove $target_directory/$cloned_directory_name" 
     rm -rf "$target_directory/$cloned_directory_name"
     #su - $k8s_user -c "git clone -b $branch $repo_link $cloned_directory_name" >> /dev/null 2>&1
+    echo "$k8s_user -c git clone -b $branch $repo_link $target_directory/$cloned_directory_name"
     su - $k8s_user -c "git clone -b $branch $repo_link $target_directory/$cloned_directory_name" 
   else
     #su - $k8s_user -c "git clone -b $branch $repo_link $cloned_directory_name" >> /dev/null 2>&1
@@ -536,6 +537,6 @@ function deployApps {
     showUsage
     exit 
   fi
-  #addKubeConfig >> /dev/null 2>&1
+  addKubeConfig >> /dev/null 2>&1
   printEndMessage
 }
