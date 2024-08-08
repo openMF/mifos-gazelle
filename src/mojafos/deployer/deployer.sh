@@ -526,7 +526,7 @@ function deployApps {
     deployInfrastructure
     deployMojaloop
   elif [[ "$appsToDeploy" == "fin" ]]; then 
-    #deployInfrastructure
+    deployInfrastructure
     DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
     #deployFineract "$fin_num_instances"
   elif [[ "$appsToDeploy" == "ph" ]]; then
