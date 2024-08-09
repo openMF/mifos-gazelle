@@ -244,10 +244,6 @@ function cloneRepo() {
   fi
   chown -R $k8s_user "$target_directory"
   
-  # Change to the target directory.
-  # echo " TDDEBUG: cd to $target_directory" 
-  # cd "$target_directory" || return 1
-
   # Clone the repository with the specified branch into the specified directory.
   if [ -d "$target_directory/$cloned_directory_name" ]; then
     echo -e "${YELLOW}$cloned_directory_name Repo exists deleting and re-cloning ${RESET}"
@@ -384,7 +380,7 @@ function deployMojaloop() {
   echo "Deploying Mojaloop vNext application manifests"
   createNamespace "$MOJALOOP_NAMESPACE"
   echo
-  cloneRepo "$MOJALOOPBRANCH" "$MOJALOOP_REPO_LINK" "$APPS_DIR" "$FIN_REPO_DIR"
+  cloneRepo "$MOJALOOPBRANCH" "$MOJALOOP_REPO_LINK" "$APPS_DIR" "$MOJALOOPREPO_DIR"
   echo
   # renameOffToYaml "${MOJALOOP_LAYER_DIRS[0]}"
   echo
@@ -434,48 +430,45 @@ function DeployMifosXfromYaml() {
   #            part of that process. 
   echo "Deploying MifosX i.e. web-app and Fineract via application manifests"
   createNamespace "$FIN_NAMESPACE-$num_instances"
-  #echo
+  echo
   cloneRepo "$FIN_BRANCH" "$FIN_REPO_LINK" "$APPS_DIR" "$FIN_REPO_DIR"
-  # TD: ideally the application manifests should be maintained in a Mifos repo 
-  #     seperate from mifos-gazelle (mifosx-docker?) , this might also 
-  #     bve the correct location for a potential k8s operator too.
 
   echo "Deploying files in $manifests_dir"
   applyKubeManifests "$manifests_dir" "$FIN_NAMESPACE-$num_instances"
 } 
 
-function deployFineract() {
-  echo -e "${BLUE}Deploying Fineract${RESET}"
+# function deployFineract() {
+#   echo -e "${BLUE}Deploying Fineract${RESET}"
 
-  #cloneRepo "$FIN_BRANCH" "$FIN_REPO_LINK" "$APPS_DIR" "$FIN_REPO_DIR"
-  configureFineract
+#   #cloneRepo "$FIN_BRANCH" "$FIN_REPO_LINK" "$APPS_DIR" "$FIN_REPO_DIR"
+#   configureFineract
 
-  num_instances=$1
+#   num_instances=$1
 
-  if [[ -z "$num_instances" ]];then
-    num_instances=2
-  fi
+#   if [[ -z "$num_instances" ]];then
+#     num_instances=2
+#   fi
 
-  echo -e "Deploying $num_instances instances of fineract"
+#   echo -e "Deploying $num_instances instances of fineract"
 
-  # Check if the input is a valid integer
-  for ((i=1; i<=num_instances; i++))
-  do
-    sed -i "s/\([0-9]-\)\?fynams.sandbox.fynarfin.io/$i-fynams.sandbox.fynarfin.io/" "$FIN_VALUES_FILE"
-    sed -i "s/\([0-9]-\)\?communityapp.sandbox.fynarfin.io/$i-communityapp.sandbox.fynarfin.io/" "$FIN_VALUES_FILE"
-    sed -i "s/\([0-9]-\)\?webapp.sandbox.fynarfin.io/$i-webapp.sandbox.fynarfin.io/" "$FIN_VALUES_FILE"
-    createNamespace "$FIN_NAMESPACE-$i"
-    if [ "$debug" = true ]; then
-      deployHelmChartFromDir "$APPS_DIR$FIN_REPO_DIR/helm/fineract" "$FIN_NAMESPACE-$i" "$FIN_RELEASE_NAME-$i" "$FIN_VALUES_FILE"
-    else 
-      deployHelmChartFromDir "$APPS_DIR$FIN_REPO_DIR/helm/fineract" "$FIN_NAMESPACE-$i" "$FIN_RELEASE_NAME-$i" "$FIN_VALUES_FILE" 
-    fi
+#   # Check if the input is a valid integer
+#   for ((i=1; i<=num_instances; i++))
+#   do
+#     sed -i "s/\([0-9]-\)\?fynams.sandbox.fynarfin.io/$i-fynams.sandbox.fynarfin.io/" "$FIN_VALUES_FILE"
+#     sed -i "s/\([0-9]-\)\?communityapp.sandbox.fynarfin.io/$i-communityapp.sandbox.fynarfin.io/" "$FIN_VALUES_FILE"
+#     sed -i "s/\([0-9]-\)\?webapp.sandbox.fynarfin.io/$i-webapp.sandbox.fynarfin.io/" "$FIN_VALUES_FILE"
+#     createNamespace "$FIN_NAMESPACE-$i"
+#     if [ "$debug" = true ]; then
+#       deployHelmChartFromDir "$APPS_DIR$FIN_REPO_DIR/helm/fineract" "$FIN_NAMESPACE-$i" "$FIN_RELEASE_NAME-$i" "$FIN_VALUES_FILE"
+#     else 
+#       deployHelmChartFromDir "$APPS_DIR$FIN_REPO_DIR/helm/fineract" "$FIN_NAMESPACE-$i" "$FIN_RELEASE_NAME-$i" "$FIN_VALUES_FILE" 
+#     fi
 
-      echo -e "\n${GREEN}============================"
-      echo -e "fineract-$i Deployed"
-      echo -e "============================${RESET}\n"
-  done
-}
+#       echo -e "\n${GREEN}============================"
+#       echo -e "fineract-$i Deployed"
+#       echo -e "============================${RESET}\n"
+#   done
+# }
 
 function test_ml {
   echo "TODO" #TODO Write function to test apps
@@ -504,31 +497,18 @@ function deployApps {
   fin_num_instances="$1"
   appsToDeploy="$2"
 
-  echo "TDDEBUG> fin instances: $fin_num_instances"
-  echo "TDDEBUG > appstodeploy: $fin_num_instances"
-  echo "in deployApps RUN_DIR is $RUN_DIR"
-
-  if [ -z "$appsToDeploy" ]; then
-    echo -e "${BLUE}Deploying all apps ...${RESET}"
-    # deployInfrastructure
-    # deployMojaloop
-    # deployPH
-    # DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
-    #deployFineract "$fin_num_instances"
-  elif [[ "$appsToDeploy" == "all" ]]; then
+  if [[ "$appsToDeploy" == "all" ]]; then
     echo -e "${BLUE}Deploying all apps ...${RESET}"
     deployInfrastructure
     deployMojaloop
     deployPH
     DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
-    #deployFineract "$fin_num_instances"
   elif [[ "$appsToDeploy" == "moja" ]];then
     deployInfrastructure
     deployMojaloop
   elif [[ "$appsToDeploy" == "fin" ]]; then 
     deployInfrastructure
     DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
-    #deployFineract "$fin_num_instances"
   elif [[ "$appsToDeploy" == "ph" ]]; then
     echo "phee only "
     deployPH

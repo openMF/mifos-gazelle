@@ -82,7 +82,9 @@ function replaceValuesInFiles() {
                 local changed=false
                 for old_value in "${!replacements[@]}"; do
                     if grep -q "$old_value" "$file"; then
-                        sed -i "s|$old_value|${replacements[$old_value]}|g" "$file"
+                        #sed -i "s|$old_value|${replacements[$old_value]}|g" "$file"
+                        #sed -i "s|.*$old_value.*|${replacements[$old_value]}|g" "$file"
+                        sed -i "s|^\(.*\)$old_value.*|\1${replacements[$old_value]}|g" "$file"
                         changed=true
                     fi
                 done
