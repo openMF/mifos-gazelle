@@ -248,7 +248,7 @@ function cloneRepo() {
   if [ -d "$target_directory/$cloned_directory_name" ]; then
     echo -e "${YELLOW}$cloned_directory_name Repo exists deleting and re-cloning ${RESET}"
     #echo "skipping reclone for now" 
-    echo "TDDEBUG going to remove $target_directory/$cloned_directory_name" 
+    echo "TDDEBUG going to remove $target_directory/$cloned_directory_name"
     rm -rf "$target_directory/$cloned_directory_name"
     #su - $k8s_user -c "git clone -b $branch $repo_link $cloned_directory_name" >> /dev/null 2>&1
     echo "$k8s_user -c git clone -b $branch $repo_link $target_directory/$cloned_directory_name"
@@ -412,7 +412,7 @@ function deployPH(){
   preparePaymentHubChart
   echo "TDDEBUG PHVALUES_FILE = $PH_VALUES_FILE"
   #deployPhHelmChartFromDir "$PH_NAMESPACE" "$g2pSandboxFinalChartPath" "$PH_VALUES_FILE"
-  deployPhHelmChartFromDir "$PH_NAMESPACE" "$gazelleChartPath" 
+  deployPhHelmChartFromDir "$PH_NAMESPACE" "$gazelleChartPath" "$PH_VALUES_FILE"
   echo -e "\n${GREEN}============================"
   echo -e "Paymenthub Deployed"
   echo -e "============================${RESET}\n"
