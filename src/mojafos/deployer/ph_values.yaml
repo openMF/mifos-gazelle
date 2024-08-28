@@ -1,26 +1,177 @@
-ph-ee-g2psandbox:
-  ph-ee-engine:
-  
-    elasticsearch:
-      volumeClaimTemplate:
-        storageClassName: "local-path"
-    
-    notifications:
-      limits:
-        cpu: "1000m"
-        memory: "2000M"
-      requests:
-        cpu: "1m"
-        memory: "1M"
+ph-ee-engine:
+  # Operations app
+  operations_app:
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        kubernetes.io/ingress.class: nginx
+        nginx.ingress.kubernetes.io/cors-allow-headers: 'platform-tenantid'
+        nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS, DELETE
+        nginx.ingress.kubernetes.io/cors-allow-origin: '*'
+        nginx.ingress.kubernetes.io/enable-cors: "true"
+      tls:
+        - secretName: sandbox-secret
+      hosts:
+        - host: ops-bk.local
+          paths:
+          - path: "/"
+            backend:
+              service:
+                name: "ph-ee-operations-app"
+                port:
+                  number: 80
 
-    operations_web:
-      ingress:
-        enabled: true
-    
-    operations_app:
-      limits:
-        cpu: "1000m"
-        memory: "2000M"
-      requests:
-        cpu: "1m"
-        memory: "1M" 
+  # Zeebe operations
+  zeebe_ops:
+    ingress:
+      enabled: true
+      className: nginx
+
+  # Vouchers
+  vouchers:
+    enabled: true
+    ingress:
+      enabled: true
+      className: nginx
+  
+  # Kibana
+  kibana:
+    ingress:
+      enabled: true
+    hosts:
+      - host: kibana.local
+
+  # Notifications
+  notifications:
+    enabled: true
+    imagePullPolicy: "Always"
+    SPRING_PROFILES_ACTIVE: "bb"
+    LOGGING_LEVEL_ROOT: "INFO"
+    MESSAGEGATEWAYCONFIG_HOST: "message-gateway-1"
+    NOTIFICATION_LOCAL_HOST: "ph-ee-connector-notifications"
+    NOTIFICATION_SUCCESS_ENABLED: "false"
+    NOTIFICATION_FAILURE_ENABLED: "true"   
+    hostname: "notifications.local"
+    includeResources: false
+    ingress:
+      enabled: true
+      className: nginx
+      annotations: 
+        kubernetes.io/ingress.class: nginx  
+      tls:
+        - secretName: sandbox-secret
+      hosts:
+        - host: notifications.local         
+          paths: 
+          - path: "/"
+            backend:
+              service:
+                name: "ph-ee-connector-notifications"
+                port:
+                  number: 80  
+    deployment:
+      annotations:
+        deployTime: "{{ .Values.deployTime }}"
+
+  # PH-EE Connector Mojaloop
+  ph_ee_connector_mojaloop:
+    ingress:
+      enabled: true
+      className: nginx
+
+  # Mockpayment
+  mockpayment:
+    hostname: "mockpayment.local"
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        kubernetes.io/ingress.class: nginx
+      tls:
+        - secretName: sandbox-secret
+      hosts:
+        - host: mockpayment.local
+          paths:
+            - path: "/"
+              backend:
+                service:
+                  name: ph-ee-connector-mock-payment-schema
+                  port:
+                    number: 80
+    deployment:
+      annotations:
+        deployTime: "{{ .Values.deployTime }}"
+  
+  # CRM
+  crm:
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        kubernetes.io/ingress.class: nginx
+
+  # Channel
+  channel:
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        kubernetes.io/ingress.class: nginx
+  
+  # Connector Bulk
+  connector_bulk:
+    ingress:
+      enabled: true
+      className: nginx
+
+  # Bill Pay
+  billPay:
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        kubernetes.io/ingress.class: nginx
+
+  # PH-EE Connector AMS Mifos
+  ph_ee_connector_ams_mifos:
+    ingress:
+      enabled: true
+      className: nginx
+
+  # Minio
+  minio:
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        kubernetes.io/ingress.class: "nginx"
+        nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+      hosts:
+        - minio.local
+
+  # Message Gateway
+  messagegateway:
+    ingress:
+      enabled: true
+      className: nginx
+
+# Account Mapper
+account_mapper:
+  enabled: true
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    tls:
+      - secretName: sandbox-secret
+    hosts:
+      - host: identity-mapper.local
+        paths:
+          - path: "/"
+            backend:
+              service:
+                name: ph-ee-identity-account-mapper
+                port:
+                  number: 80
