@@ -13,6 +13,8 @@ sudo ./postman_setup.sh <IP_OF_YOUR_VM/IP_OF_YOUR_INGRESS> -o <true/false>
 
 The `-o` flag is optional and is used to override the existing host entry in /etc/hosts file. If you want to override the existing host entry, then you can pass `true` as the value of the flag, otherwise you can pass `false`.
 
+NOTE: This script is intended to be run on a Linux system, specifically Ubuntu 22.04.4. If you are running on a different system, you can follow the steps below to setup the postman collections.
+
 ## Step 1: Adding Hosts
 Add the following hosts to your host file on your system:
 
@@ -43,7 +45,8 @@ NOTE: This directory and file appears only after you have run the installation, 
 
 
 ## Step 4: Importing Environment
-To import the environment for running the collection, you can go to Environments, then click on Import and then open the file `src/mojafos/deployer/apps/ph_template/PostmanCollections/Environment/PHEE_G2P_Demo.postman_environment.json`
+To import the environment for running the collection, you can go to Environments, then click on Import and then open the file `src/mojafos/deployer/apps/ph_template/PostmanCollections/Environment/PHEE_G2P_Demo.postman_environment.json`.
+
 NOTE: You may need to change some of the environment variables if the hosts are different.
 
 ## Step 5: Upload the BPMN Diagrams
