@@ -8,6 +8,7 @@ echo "BASE_DIR is $BASE_DIR"
 echo "in config.sh RUN_DIR is $RUN_DIR"
 
 APPS_DIR="$BASE_DIR/repos/"
+CONFIG_DIR="$BASE_DIR/config/"
 
 INFRA_NAMESPACE="infra"
 INFRA_RELEASE_NAME="mojafos-infra"
@@ -17,14 +18,14 @@ MOJALOOPBRANCH="beta1"
 MOJALOOPREPO_DIR="vnext"
 MOJALOOP_NAMESPACE="vnext"
 MOJALOOP_REPO_LINK="https://github.com/mojaloop/platform-shared-tools.git"
-MOJALOOP_LAYER_DIRS=("$APPS_DIR/vnext/packages/installer/manifests/crosscut" "$BASE_DIR/src/mojafos/deployer/apps/mojaloop/packages/installer/manifests/ttk" "$BASE_DIR/src/mojafos/deployer/apps/mojaloop/packages/installer/manifests/apps" "$BASE_DIR/src/mojafos/deployer/apps/mojaloop/packages/installer/manifests/reporting")
-MOJALOOP_VALUES_FILE="$BASE_DIR/src/mojafos/configurationManager/mojaloop_values.json"
+MOJALOOP_LAYER_DIRS=("$APPS_DIR/vnext/packages/installer/manifests/crosscut" "$APPS_DIR/vnext/packages/installer/manifests/ttk" "$APPS_DIR/vnext/packages/installer/manifests/apps" "$APPS_DIR/vnext/packages/installer/manifests/reporting")
+MOJALOOP_VALUES_FILE="$CONFIG_DIR/mojaloop_values.json"
 #paymenthubee
 PHBRANCH="master"
 PHREPO_DIR="ph"
 PH_NAMESPACE="paymenthub"
 PH_RELEASE_NAME="phee"
-PH_VALUES_FILE="$BASE_DIR/src/mojafos/deployer/ph_values.yaml"
+PH_VALUES_FILE="$CONFIG_DIR/ph_values.yaml"
 PH_REPO_LINK="https://github.com/openMF/ph-ee-env-labs.git"
 PH_EE_ENV_TEMPLATE_REPO_LINK="https://github.com/openMF/ph-ee-env-template.git"
 PH_EE_ENV_TEMPLATE_REPO_BRANCH="c4gt-gazelle-dev"
@@ -38,11 +39,11 @@ MAX_WAIT_SECONDS=60
 MYSQL_USER="root"
 MYSQL_PASSWORD="ethieTieCh8ahv"
 MYSQL_HOST="127.0.0.1"  # This is the localhost because we are port forwarding
-SQL_FILE="$BASE_DIR/src/mojafos/deployer/setup.sql"
+SQL_FILE="$BASE_DIR/src/deployer/setup.sql"
 
 #fineract
 FIN_NAMESPACE="fineract"
-FIN_MANIFESTS_DIR="$BASE_DIR/src/mojafos/deployer/apps/mifosx/kubernetes/manifests"
+FIN_MANIFESTS_DIR="$BASE_DIR/src/deployer/apps/mifosx/kubernetes/manifests"
 #FIN_MANIFESTS_DIR=/home/azureuser/mifosx-docker/kubernetes/manifests
 FIN_BRANCH="mifos-gazelle_1"
 FIN_REPO_LINK="https://github.com/openMF/mifosx-docker.git"

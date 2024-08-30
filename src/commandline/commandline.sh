@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 
-source "$RUN_DIR/src/mojafos/configurationManager/config.sh"
-source "$RUN_DIR/src/mojafos/environmentSetup/environmentSetup.sh"
-source "$RUN_DIR/src/mojafos/deployer/deployer.sh"
+source "$RUN_DIR/src/configurationManager/config.sh"
+source "$RUN_DIR/src/environmentSetup/environmentSetup.sh"
+source "$RUN_DIR/src/deployer/deployer.sh"
 
 echo "in commandline: RUN_DIR is $RUN_DIR"
 
-
 function welcome {
-  echo -e "${BLUE}"
-  echo -e "███    ███  ██████       ██  █████  ███████  ██████  ███████ "
-  echo -e "████  ████ ██    ██      ██ ██   ██ ██      ██    ██ ██      "
-  echo -e "██ ████ ██ ██    ██      ██ ███████ █████   ██    ██ ███████ "
-  echo -e "██  ██  ██ ██    ██ █   ██ ██   ██ ██      ██    ██      ██ "
-  echo -e "██      ██  ██████   █████  ██   ██ ██       ██████  ███████ "
-  echo -e "                                                              "
-  echo -e "                                                              ${RESET}"
+    echo -e "${BLUE}"
+    echo -e " ██████   █████  ███████ ███████ ██      ██      ███████ "
+    echo -e "██       ██   ██    ███  ██      ██      ██      ██      "
+    echo -e "██   ███ ███████   ███   █████   ██      ██      █████   "
+    echo -e "██    ██ ██   ██  ███    ██      ██      ██      ██      "
+    echo -e " ██████  ██   ██ ███████ ███████ ███████ ███████ ███████ "
+    echo -e " "
+    echo -e "${RESET}"
 }
 
 function showUsage {
@@ -24,16 +23,16 @@ function showUsage {
 		exit 1
 	else
 echo  "USAGE: $0 -m [mode] -u [user] -a [apps] -e [environment] -d [true/false]  
-Example 1 : sudo $0  -m deploy -u \$USER -d true # install mojafos with debug mode and user \$USER
+Example 1 : sudo $0  -m deploy -u \$USER -d true # install mifos-gazelle with debug mode and user \$USER
 Example 2 : sudo $0  -m cleanapps -u \$USER -d true # delete apps leave environment with debug mode and user \$USER
 Example 3 : sudo $0  -m cleanall -u \$USER # delete all apps, and all kubernetes artifacts and server
 Example 4 : sudo $0  -m deploy -u \$USER  -a ph # install PHEE only, user \$USER
-Example 5 : sudo $0  -m deploy -u \$USER  -a all # install all apps i.e. moja, phee and fineract user \$USER
+Example 5 : sudo $0  -m deploy -u \$USER  -a all # install all apps i.e. vNext, phee and fineract user \$USER
 
 Options:
 -m mode ............... deploy|cleanapps|cleanall (-m is required)
 -u user................ user that the process will use for execution (-u required)
--a apps................ moja|ph|fin (apps that can be independantly deployed -a required )
+-a apps................ vnext|ph|fin (apps that can be independantly deployed -a required )
 -e environment ........ currently local is the only value supported and is the default
 -d debug............... debug mode. if set debug is true, if not set debug is false
 -h|H .................. display this message

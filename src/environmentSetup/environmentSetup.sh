@@ -2,7 +2,7 @@
 
 function check_arch_ok {
     if [[ ! "$k8s_arch" == "x86_64" ]]; then
-        printf " **** Warning : mojafos only works properly with x86_64 today but vNext should be ok *****\n"
+        printf " **** Warning : mifos-gazelle only works properly with x86_64 today but vNext should be ok *****\n"
     fi
 }
 
@@ -14,15 +14,15 @@ function check_resources_ok {
 
     # Check RAM
     if [[ "$total_ram" -lt "$MIN_RAM" ]]; then
-        printf " ** Error : mojafos currently requires $MIN_RAM GBs to run properly \n"
-        printf "    Please increase RAM available before trying to run mojafos \n"
+        printf " ** Error : mifos-gazelle currently requires $MIN_RAM GBs to run properly \n"
+        printf "    Please increase RAM available before trying to run mifos-gazelle \n"
         exit 1
     fi
     # Check free space
         if [[  "$free_space" -lt "$MIN_FREE_SPACE" ]] ; then
-        printf " ** Warning : mojafos currently requires %sGBs free storage in %s home directory  \n"  "$MIN_FREE_SPACE" "$k8s_user"
+        printf " ** Warning : mifos-gazelle currently requires %sGBs free storage in %s home directory  \n"  "$MIN_FREE_SPACE" "$k8s_user"
         printf "    but only found %sGBs free storage \n"  "$free_space"
-        printf "    mojafos installation will continue , but beware it might fail later due to insufficient storage \n"
+        printf "    mifos-gazelle installation will continue , but beware it might fail later due to insufficient storage \n"
     fi
 }
 
@@ -58,11 +58,11 @@ function set_linux_os_distro {
 }
 
 function check_os_ok {
-    printf "\r==> checking OS and kubernetes distro is tested with mojafos scripts\n"
+    printf "\r==> checking OS and kubernetes distro is tested with mifos-gazelle scripts\n"
     set_linux_os_distro
 
     if [[ ! $LINUX_OS == "Ubuntu" ]]; then
-        printf "** Error , mojafos $MINILOOP_VERSION is only tested with Ubuntu OS at this time   **\n"
+        printf "** Error , mifos-gazelle $MINILOOP_VERSION is only tested with Ubuntu OS at this time   **\n"
         exit 1
     fi
 }
@@ -174,7 +174,7 @@ function set_k8s_version {
     # printf "========================================================================================\n"
     # printf " set the k8s version to install  \n"
     # printf "========================================================================================\n\n"
-    # Users who want to run non-current versions of kubernetes will need to use earlier releases of mojafos and
+    # Users who want to run non-current versions of kubernetes will need to use earlier releases of mifos-gazelle and
     # and be aware that these are not being actively maintained
     if [ ! -z ${k8s_user_version+x} ] ; then
         # strip off any leading characters
@@ -379,8 +379,8 @@ function add_helm_repos {
 }
 
 function configure_k8s_user_env {
-    start_message="# ML_START start of config added by mojafos #"
-    grep "start of config added by mojafos" $k8s_user_home/.bashrc >/dev/null 2>&1
+    start_message="# ML_START start of config added by mifos-gazelle #"
+    grep "start of config added by mifos-gazelle" $k8s_user_home/.bashrc >/dev/null 2>&1
     if [[ $? -ne 0  ]]; then
         printf "==> Adding configuration for %s to %s .bashrc\n" "$k8s_distro" "$k8s_user"
         printf "%s\n" "$start_message" >> $k8s_user_home/.bashrc
@@ -389,8 +389,8 @@ function configure_k8s_user_env {
         echo "complete -F __start_kubectl k " >>  $k8s_user_home/.bashrc
         echo "alias ksetns=\"kubectl config set-context --current --namespace\" " >>  $k8s_user_home/.bashrc
         echo "alias ksetuser=\"kubectl config set-context --current --user\" "  >>  $k8s_user_home/.bashrc
-        echo "alias cdml=\"cd $k8s_user_home/mojafos\" " >>  $k8s_user_home/.bashrc
-        printf "#ML_END end of config added by mojafos #\n" >> $k8s_user_home/.bashrc
+        echo "alias cdml=\"cd $k8s_user_home/mifos-gazelle\" " >>  $k8s_user_home/.bashrc
+        printf "#ML_END end of config added by mifos-gazelle #\n" >> $k8s_user_home/.bashrc
     else
         printf "\r==> Configuration for .bashrc for %s for user %s already exists ..skipping\n" "$k8s_distro" "$k8s_user"
     fi
@@ -506,10 +506,10 @@ function setup_k8s_cluster {
 }
 
 function deleteAppResources(){
-    deleteResourcesInNamespaceMatchingPattern "fineract"
-    deleteResourcesInNamespaceMatchingPattern "mojaloop"
-    deleteResourcesInNamespaceMatchingPattern "paymenthub"
-    deleteResourcesInNamespaceMatchingPattern "infra"
+    deleteResourcesInNamespaceMatchingPattern "$FIN_NAMESPACE"
+    deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
+    deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
+    deleteResourcesInNamespaceMatchingPattern $INFRA_NAMESPACE
     deleteResourcesInNamespaceMatchingPattern "default"
 }
 
