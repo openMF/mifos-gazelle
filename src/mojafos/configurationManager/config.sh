@@ -7,16 +7,17 @@ BASE_DIR=$(pwd)
 echo "BASE_DIR is $BASE_DIR" 
 echo "in config.sh RUN_DIR is $RUN_DIR"
 
-APPS_DIR="$BASE_DIR/src/mojafos/deployer/apps/"
+APPS_DIR="$BASE_DIR/repos/"
+
 INFRA_NAMESPACE="infra"
 INFRA_RELEASE_NAME="mojafos-infra"
 NGINX_VALUES_FILE="$BASE_DIR/src/mojafos/deployer/nginx_values.yaml"
 #mojaloop
 MOJALOOPBRANCH="beta1"
-MOJALOOPREPO_DIR="mojaloop"
-MOJALOOP_NAMESPACE="mojaloop"
+MOJALOOPREPO_DIR="vnext"
+MOJALOOP_NAMESPACE="vnext"
 MOJALOOP_REPO_LINK="https://github.com/mojaloop/platform-shared-tools.git"
-MOJALOOP_LAYER_DIRS=("$BASE_DIR/src/mojafos/deployer/apps/mojaloop/packages/installer/manifests/crosscut" "$BASE_DIR/src/mojafos/deployer/apps/mojaloop/packages/installer/manifests/ttk" "$BASE_DIR/src/mojafos/deployer/apps/mojaloop/packages/installer/manifests/apps" "$BASE_DIR/src/mojafos/deployer/apps/mojaloop/packages/installer/manifests/reporting")
+MOJALOOP_LAYER_DIRS=("$APPS_DIR/vnext/packages/installer/manifests/crosscut" "$BASE_DIR/src/mojafos/deployer/apps/mojaloop/packages/installer/manifests/ttk" "$BASE_DIR/src/mojafos/deployer/apps/mojaloop/packages/installer/manifests/apps" "$BASE_DIR/src/mojafos/deployer/apps/mojaloop/packages/installer/manifests/reporting")
 MOJALOOP_VALUES_FILE="$BASE_DIR/src/mojafos/configurationManager/mojaloop_values.json"
 #paymenthubee
 PHBRANCH="master"

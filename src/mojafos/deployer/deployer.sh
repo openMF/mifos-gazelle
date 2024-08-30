@@ -187,10 +187,8 @@ function deployPH(){
   echo "Deploying PaymentHub EE"
   checkPHEEDependencies
   createNamespace "$PH_NAMESPACE"
-  #cloneRepo "$PHBRANCH" "$PH_REPO_LINK" "$APPS_DIR" "$PHREPO_DIR"
   preparePaymentHubChart
   configurePH "$APPS_DIR$PHREPO_DIR/helm"
-  #echo "TDDEBUG PHVALUES_FILE = $PH_VALUES_FILE"
   #deployPhHelmChartFromDir "$PH_NAMESPACE" "$g2pSandboxFinalChartPath" "$PH_VALUES_FILE"
   deployPhHelmChartFromDir "$PH_NAMESPACE" "$gazelleChartPath" "$PH_VALUES_FILE"
   echo -e "\n${GREEN}============================"
@@ -219,6 +217,7 @@ function createNamespace () {
 function deployInfrastructure () {
   printf "==> Deploying infrastructure \n"
   createNamespace $INFRA_NAMESPACE
+  
 
   if [ "$debug" = true ]; then
     deployHelmChartFromDir "$RUN_DIR/src/mojafos/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME"
