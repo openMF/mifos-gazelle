@@ -22,6 +22,9 @@ ph-ee-engine:
                 port:
                   number: 80
 
+  camunda-platform:
+    enabled: true
+    
   # Zeebe operations
   zeebe_ops:
     ingress:

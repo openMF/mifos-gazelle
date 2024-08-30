@@ -22,8 +22,7 @@ function deleteResourcesInNamespaceMatchingPattern() {
         if [[ $namespace == "default" ]]; then
             echo "Handling Prometheus Operator resources in default namespace"
             LATEST=$(curl -s https://api.github.com/repos/prometheus-operator/prometheus-operator/releases/latest | jq -cr .tag_name)
-            su - "$k8s_user" -c "curl -sL https://github.com/prometheus-operator/prometheus-operator/releases/download/${LATEST}/bundle.yaml | kubectl -n default delete -f -" \
-                > /dev/null 2>&1
+            su - "$k8s_user" -c "curl -sL https://github.com/prometheus-operator/prometheus-operator/releases/download/${LATEST}/bundle.yaml | kubectl -n default delete -f -" 
             if [ $? -eq 0 ]; then
                 echo "Prometheus Operator resources in default namespace deleted successfully."
             else
@@ -109,6 +108,8 @@ function deployHelmChartFromDir() {
 function preparePaymentHubChart(){
   # Clone the repositories
   #echo "TDDBUG> currently NOT doing clonerepo $PH_EE_ENV_LABS_REPO_BRANCH $PH_EE_ENV_LABS_REPO_LINK $APPS_DIR $PH_EE_ENV_LABS_REPO_DIR"
+  echo "Clone PH ENV LABS" 
+  cloneRepo "$PHBRANCH" "$PH_REPO_LINK" "$APPS_DIR" "$PHREPO_DIR"
   #cloneRepo "$PH_EE_ENV_LABS_REPO_BRANCH" "$PH_EE_ENV_LABS_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_LABS_REPO_DIR"
   echo "TDDEBUG> Cloning PHEE Templates repo Gazelle branch"
   echo "TDDBUG> clonerepo $PH_EE_ENV_TEMPLATE_REPO_BRANCH $PH_EE_ENV_TEMPLATE_REPO_LINK $APPS_DIR $PH_EE_ENV_TEMPLATE_REPO_DIR"
@@ -116,12 +117,10 @@ function preparePaymentHubChart(){
 
   # Update helm dependencies and repo index for ph-ee-engine
   phEEenginePath="$APPS_DIR$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine"
-  #pushd "$phEEenginePath"
   echo "TDDEBUG about to run helm dep update on ph-ee-engine in template dir"
   su - $k8s_user -c "cd $phEEenginePath;  helm dep update" 
   su - $k8s_user -c "cd $phEEenginePath;  helm repo index ."
   echo "TDDEBUG working dir is : `pwd`"
-  #popd
   echo "TDDEBUG done running helm dep update on ph-ee-engine in template dir"
 
   # TEMPLATE => Update helm dependencies and repo index for gazelle chart in ph-ee-env-template repo 
@@ -132,25 +131,9 @@ function preparePaymentHubChart(){
   su - $k8s_user -c "cd $gazelleChartPath ; helm dep update" 
   su - $k8s_user -c "cd $gazelleChartPath ; helm repo index ."
   echo "TDDEBUG done dep update on gazelle chart, `pwd`"
-
-  # TDDEBUG <<<<<<<<<   delete this block after sufficient testing of gazelle
-  # PHEE-LABS Update helm dependencies and repo index for g2p-sandbox-fynarfin-SIT in ph-ee-env-labs
-  # g2pSandboxFinalChartPath="$APPS_DIR$PH_EE_ENV_LABS_REPO_DIR/helm/g2p-sandbox-fynarfin-SIT"
-  # awk '/repository:/ && c == 0 {sub(/repository: .*/, "repository: file://../../../'$PH_EE_ENV_TEMPLATE_REPO_DIR'/helm/g2p-sandbox"); c++} {print}' "$g2pSandboxFinalChartPath/Chart.yaml" > "$g2pSandboxFinalChartPath/Chart.yaml.tmp" && mv "$g2pSandboxFinalChartPath/Chart.yaml.tmp" "$g2pSandboxFinalChartPath/Chart.yaml"
-  # #awk '/name: ph-ee-g2psandbox/{f=1} f&&/version:/{$2="\"1.5.0\""; f=0} 1' "$g2pSandboxFinalChartPath/Chart.yaml" > "$g2pSandboxFinalChartPath/Chart.yaml.tmp" && mv "$g2pSandboxFinalChartPath/Chart.yaml.tmp" "$g2pSandboxFinalChartPath/Chart.yaml"
-  # awk '/name: ph-ee-g2psandbox/{f=1} f&&/version:/{match($0, /^[[:space:]]*/); spaces=substr($0, RSTART, RLENGTH); $0=spaces"version: \"1.5.0\""; f=0} 1' "$g2pSandboxFinalChartPath/Chart.yaml" > "$g2pSandboxFinalChartPath/Chart.yaml.tmp" && mv "$g2pSandboxFinalChartPath/Chart.yaml.tmp" "$g2pSandboxFinalChartPath/Chart.yaml"
-  # echo "TDDEBUG about to run helm dep update on labs dir g2p-sandbox-fynarfin-SIT"
-  # su - $k8s_user -c "cd $g2pSandboxFinalChartPath ; helm dep update "
-  # su - $k8s_user -c "cd $g2pSandboxFinalChartPath ; helm repo index ."
-  # >>>>>>>>>>>>>>
 }
 
-function deployPhHelmChartFromDir(){
-  # Parameters
-  local namespace="$1"
-  local chartDir="$2"      # Directory containing the Helm chart
-  local valuesFile="$3"    # Values file for the Helm chart
-
+function checkPHEEDependencies() {
   # Check if Helm is installed
   if ! command -v helm &>/dev/null; then
     echo "Helm is not installed. Please install Helm first."
@@ -173,13 +156,21 @@ function deployPhHelmChartFromDir(){
       exit 1 
   fi
 
+}
+
+function deployPhHelmChartFromDir(){
+  # Parameters
+  local namespace="$1"
+  local chartDir="$2"      # Directory containing the Helm chart
+  local valuesFile="$3"    # Values file for the Helm chart
+
   # Install the Helm chart from the local directory
   if [ -z "$valuesFile" ]; then
     echo "TDDEBUG NO values file > $k8s_user -c helm install $PH_RELEASE_NAME $chartDir -n $namespace"
     su - "$k8s_user" -c "helm install $PH_RELEASE_NAME $chartDir -n $namespace"
   else
     echo "TDDEBUG using values file > $k8s_user -c helm install $PH_RELEASE_NAME $chartDir -n $namespace -f $valuesFile "
-    su - "$k8s_user" -c "helm install $PH_RELEASE_NAME $chartDir -n $namespace -f $valuesFile --debug "
+    su - "$k8s_user" -c "helm install $PH_RELEASE_NAME $chartDir -n $namespace -f $valuesFile "
   fi
 
   # Check deployment status
@@ -190,6 +181,21 @@ function deployPhHelmChartFromDir(){
     echo -e "${RED}Helm chart deployment failed.${RESET}"
     cleanUp
   fi
+}
+
+function deployPH(){
+  echo "Deploying PaymentHub EE"
+  checkPHEEDependencies
+  createNamespace "$PH_NAMESPACE"
+  #cloneRepo "$PHBRANCH" "$PH_REPO_LINK" "$APPS_DIR" "$PHREPO_DIR"
+  preparePaymentHubChart
+  configurePH "$APPS_DIR$PHREPO_DIR/helm"
+  #echo "TDDEBUG PHVALUES_FILE = $PH_VALUES_FILE"
+  #deployPhHelmChartFromDir "$PH_NAMESPACE" "$g2pSandboxFinalChartPath" "$PH_VALUES_FILE"
+  deployPhHelmChartFromDir "$PH_NAMESPACE" "$gazelleChartPath" "$PH_VALUES_FILE"
+  echo -e "\n${GREEN}============================"
+  echo -e "Paymenthub Deployed"
+  echo -e "============================${RESET}\n"
 }
 
 function createNamespace () {
@@ -247,16 +253,10 @@ function cloneRepo() {
   # Clone the repository with the specified branch into the specified directory.
   if [ -d "$target_directory/$cloned_directory_name" ]; then
     echo -e "${YELLOW}$cloned_directory_name Repo exists deleting and re-cloning ${RESET}"
-    #echo "skipping reclone for now" 
-    echo "TDDEBUG going to remove $target_directory/$cloned_directory_name"
     rm -rf "$target_directory/$cloned_directory_name"
-    #su - $k8s_user -c "git clone -b $branch $repo_link $cloned_directory_name" >> /dev/null 2>&1
-    echo "$k8s_user -c git clone -b $branch $repo_link $target_directory/$cloned_directory_name"
+    #echo "$k8s_user -c git clone -b $branch $repo_link $target_directory/$cloned_directory_name"
     su - $k8s_user -c "git clone -b $branch $repo_link $target_directory/$cloned_directory_name" 
   else
-    #su - $k8s_user -c "git clone -b $branch $repo_link $cloned_directory_name" >> /dev/null 2>&1
-    #echo "td-debug> su - $k8s_user -c git clone -b $branch $repo_link $cloned_directory_name"
-    pwd
     su - $k8s_user -c "git clone -b $branch $repo_link $target_directory/$cloned_directory_name" 
   fi
 
@@ -333,7 +333,7 @@ function addKubeConfig(){
 
 #Function to run kong migrations in Kong init container 
 function runKongMigrations(){
-  echo "Fixing Kong Migrations"
+  echo ">>>>>>> Fixing Kong Migrations"
   #StoreKongPods
   kongPods=$(kubectl get pods --no-headers -o custom-columns=":metadata.name" -n $PH_NAMESPACE | grep moja-ph-kong)
   dBcontainerName="wait-for-db"
@@ -402,21 +402,7 @@ function deployMojaloop() {
   echo -e "============================${RESET}\n"
 }
 
-function deployPH(){
-  echo "Deploying PaymentHub EE"
-  createNamespace "$PH_NAMESPACE"
-  cloneRepo "$PHBRANCH" "$PH_REPO_LINK" "$APPS_DIR" "$PHREPO_DIR"
-  echo "TDDEBUG did this repo clone ok ?"
-  configurePH "$APPS_DIR$PHREPO_DIR/helm"
-  #deployPhHelmChartFromRepo "$PH_NAMESPACE"
-  preparePaymentHubChart
-  echo "TDDEBUG PHVALUES_FILE = $PH_VALUES_FILE"
-  #deployPhHelmChartFromDir "$PH_NAMESPACE" "$g2pSandboxFinalChartPath" "$PH_VALUES_FILE"
-  deployPhHelmChartFromDir "$PH_NAMESPACE" "$gazelleChartPath" "$PH_VALUES_FILE"
-  echo -e "\n${GREEN}============================"
-  echo -e "Paymenthub Deployed"
-  echo -e "============================${RESET}\n"
-}
+
 
 function DeployMifosXfromYaml() {
   manifests_dir=$1
@@ -436,39 +422,6 @@ function DeployMifosXfromYaml() {
   echo "Deploying files in $manifests_dir"
   applyKubeManifests "$manifests_dir" "$FIN_NAMESPACE-$num_instances"
 } 
-
-# function deployFineract() {
-#   echo -e "${BLUE}Deploying Fineract${RESET}"
-
-#   #cloneRepo "$FIN_BRANCH" "$FIN_REPO_LINK" "$APPS_DIR" "$FIN_REPO_DIR"
-#   configureFineract
-
-#   num_instances=$1
-
-#   if [[ -z "$num_instances" ]];then
-#     num_instances=2
-#   fi
-
-#   echo -e "Deploying $num_instances instances of fineract"
-
-#   # Check if the input is a valid integer
-#   for ((i=1; i<=num_instances; i++))
-#   do
-#     sed -i "s/\([0-9]-\)\?fynams.sandbox.fynarfin.io/$i-fynams.sandbox.fynarfin.io/" "$FIN_VALUES_FILE"
-#     sed -i "s/\([0-9]-\)\?communityapp.sandbox.fynarfin.io/$i-communityapp.sandbox.fynarfin.io/" "$FIN_VALUES_FILE"
-#     sed -i "s/\([0-9]-\)\?webapp.sandbox.fynarfin.io/$i-webapp.sandbox.fynarfin.io/" "$FIN_VALUES_FILE"
-#     createNamespace "$FIN_NAMESPACE-$i"
-#     if [ "$debug" = true ]; then
-#       deployHelmChartFromDir "$APPS_DIR$FIN_REPO_DIR/helm/fineract" "$FIN_NAMESPACE-$i" "$FIN_RELEASE_NAME-$i" "$FIN_VALUES_FILE"
-#     else 
-#       deployHelmChartFromDir "$APPS_DIR$FIN_REPO_DIR/helm/fineract" "$FIN_NAMESPACE-$i" "$FIN_RELEASE_NAME-$i" "$FIN_VALUES_FILE" 
-#     fi
-
-#       echo -e "\n${GREEN}============================"
-#       echo -e "fineract-$i Deployed"
-#       echo -e "============================${RESET}\n"
-#   done
-# }
 
 function test_ml {
   echo "TODO" #TODO Write function to test apps
@@ -510,7 +463,6 @@ function deployApps {
     deployInfrastructure
     DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
   elif [[ "$appsToDeploy" == "ph" ]]; then
-    echo "phee only "
     deployPH
   else 
     echo -e "${RED}Invalid option ${RESET}"
