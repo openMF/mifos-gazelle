@@ -509,7 +509,7 @@ function deleteAppResources(){
     deleteResourcesInNamespaceMatchingPattern "$FIN_NAMESPACE"
     deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
     deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
-    deleteResourcesInNamespaceMatchingPattern $INFRA_NAMESPACE
+    deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
     deleteResourcesInNamespaceMatchingPattern "default"
 }
 

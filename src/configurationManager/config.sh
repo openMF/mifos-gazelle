@@ -11,15 +11,15 @@ APPS_DIR="$BASE_DIR/repos/"
 CONFIG_DIR="$BASE_DIR/config/"
 
 INFRA_NAMESPACE="infra"
-INFRA_RELEASE_NAME="mojafos-infra"
-NGINX_VALUES_FILE="$BASE_DIR/src/mojafos/deployer/nginx_values.yaml"
+INFRA_RELEASE_NAME="infra"
+NGINX_VALUES_FILE="$CONFIG_DIR/nginx_values.yaml"
 #mojaloop
-MOJALOOPBRANCH="beta1"
-MOJALOOPREPO_DIR="vnext"
-MOJALOOP_NAMESPACE="vnext"
-MOJALOOP_REPO_LINK="https://github.com/mojaloop/platform-shared-tools.git"
-MOJALOOP_LAYER_DIRS=("$APPS_DIR/vnext/packages/installer/manifests/crosscut" "$APPS_DIR/vnext/packages/installer/manifests/ttk" "$APPS_DIR/vnext/packages/installer/manifests/apps" "$APPS_DIR/vnext/packages/installer/manifests/reporting")
-MOJALOOP_VALUES_FILE="$CONFIG_DIR/mojaloop_values.json"
+VNEXTBRANCH="beta1"
+VNEXTREPO_DIR="vnext"
+VNEXT_NAMESPACE="vnext"
+VNEXT_REPO_LINK="https://github.com/mojaloop/platform-shared-tools.git"
+VNEXT_LAYER_DIRS=("$APPS_DIR/vnext/packages/installer/manifests/crosscut" "$APPS_DIR/vnext/packages/installer/manifests/ttk" "$APPS_DIR/vnext/packages/installer/manifests/apps" "$APPS_DIR/vnext/packages/installer/manifests/reporting")
+VNEXT_VALUES_FILE="$CONFIG_DIR/mojaloop_values.json"
 #paymenthubee
 PHBRANCH="master"
 PHREPO_DIR="ph"
@@ -41,10 +41,9 @@ MYSQL_PASSWORD="ethieTieCh8ahv"
 MYSQL_HOST="127.0.0.1"  # This is the localhost because we are port forwarding
 SQL_FILE="$BASE_DIR/src/deployer/setup.sql"
 
-#fineract
+#fineract / MifosX 
 FIN_NAMESPACE="fineract"
-FIN_MANIFESTS_DIR="$BASE_DIR/src/deployer/apps/mifosx/kubernetes/manifests"
-#FIN_MANIFESTS_DIR=/home/azureuser/mifosx-docker/kubernetes/manifests
+FIN_MANIFESTS_DIR="$APPS_DIR/mifosx/kubernetes/manifests"
 FIN_BRANCH="mifos-gazelle_1"
 FIN_REPO_LINK="https://github.com/openMF/mifosx-docker.git"
 FIN_REPO_DIR="mifosx"
@@ -54,7 +53,7 @@ FIN_REPO_DIR="mifosx"
 ########################################################################
 function replaceValuesInFiles() {
     local directories=("$@")
-    local json_file="$MOJALOOP_VALUES_FILE"
+    local json_file="$VNEXT_VALUES_FILE"
 
     # Check if jq is installed, if not, exit with an error message
     if ! command -v jq &>/dev/null; then
@@ -100,8 +99,8 @@ function replaceValuesInFiles() {
     done
 }
 
-function configureMojaloop() {
-  replaceValuesInFiles "${MOJALOOP_LAYER_DIRS[0]}" "${MOJALOOP_LAYER_DIRS[2]}" "${MOJALOOP_LAYER_DIRS[3]}"
+function configurevNext() {
+  replaceValuesInFiles "${VNEXT_LAYER_DIRS[0]}" "${VNEXT_LAYER_DIRS[2]}" "${VNEXT_LAYER_DIRS[3]}"
 }
 
 

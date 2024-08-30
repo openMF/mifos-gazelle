@@ -43,12 +43,6 @@ function deleteResourcesInNamespaceMatchingPattern() {
 }
 
 function deployHelmChartFromDir() {
-  # Check if Helm is installed
-  if ! command -v helm &>/dev/null; then
-    echo "Helm is not installed. Please install Helm first."
-    exit 1
-  fi
-
   # Check if the chart directory exists
   local chart_dir="$1"
   local namespace="$2"
@@ -60,10 +54,6 @@ function deployHelmChartFromDir() {
 
   # Check if a values file has been provided
   values_file="$4"
-
-  # Enter the chart directory
-  cd "$chart_dir" || exit 1
-  pwd
 
   # Run helm dependency update to fetch dependencies
   echo "Updating Helm chart dependencies..."
@@ -77,7 +67,6 @@ function deployHelmChartFromDir() {
 
   # Determine whether to install or upgrade the chart also check whether to apply a values file
   su - $k8s_user -c "helm list -n $namespace"
-  echo "TDDEBUG 1"
   if [ -n "$values_file" ]; then
       echo "Installing Helm chart using values: $values_file..."
       su - $k8s_user -c "helm install $release_name $chart_dir -n $namespace -f $values_file"
@@ -86,9 +75,7 @@ function deployHelmChartFromDir() {
       su - $k8s_user -c "helm install $release_name $chart_dir -n $namespace "
   fi
 
-  # #tomd todo : is the chartt really deployed ok, need a test
-  # echo -e "==> Helm chart installed"
-
+  # tomd todo : is the chart really deployed ok, need a test
   # Use kubectl to get the resource count in the specified namespace
   #resource_count=$(kubectl get pods -n "$namespace" --ignore-not-found=true 2>/dev/null | grep -v "No resources found" | wc -l)
   resource_count=$(sudo -u $k8s_user kubectl get pods -n "$namespace" --ignore-not-found=true 2>/dev/null | grep -v "No resources found" | wc -l)
@@ -100,14 +87,10 @@ function deployHelmChartFromDir() {
     cleanUp
   fi
 
-  # Exit the chart directory
-  cd - || exit 1
-
 }
 
 function preparePaymentHubChart(){
   # Clone the repositories
-  #echo "TDDBUG> currently NOT doing clonerepo $PH_EE_ENV_LABS_REPO_BRANCH $PH_EE_ENV_LABS_REPO_LINK $APPS_DIR $PH_EE_ENV_LABS_REPO_DIR"
   echo "Clone PH ENV LABS" 
   cloneRepo "$PHBRANCH" "$PH_REPO_LINK" "$APPS_DIR" "$PHREPO_DIR"
   #cloneRepo "$PH_EE_ENV_LABS_REPO_BRANCH" "$PH_EE_ENV_LABS_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_LABS_REPO_DIR"
@@ -120,11 +103,9 @@ function preparePaymentHubChart(){
   echo "TDDEBUG about to run helm dep update on ph-ee-engine in template dir"
   su - $k8s_user -c "cd $phEEenginePath;  helm dep update" 
   su - $k8s_user -c "cd $phEEenginePath;  helm repo index ."
-  echo "TDDEBUG working dir is : `pwd`"
   echo "TDDEBUG done running helm dep update on ph-ee-engine in template dir"
 
   # TEMPLATE => Update helm dependencies and repo index for gazelle chart in ph-ee-env-template repo 
-  echo "TDDEBUG about to run helm dep update on gazelle chart"
   gazelleChartPath="$APPS_DIR$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/gazelle"
   #awk '/repository:/ && c == 0 {sub(/repository: .*/, "repository: file://../ph-ee-engine"); c++} {print}' "$gazelleChartPath/Chart.yaml" > "$gazelleChartPath/Chart.yaml.tmp" && mv "$gazelleChartPath/Chart.yaml.tmp" "$gazelleChartPath/Chart.yaml"
   #pushd "$gazelleChartPath"
@@ -220,9 +201,9 @@ function deployInfrastructure () {
   
 
   if [ "$debug" = true ]; then
-    deployHelmChartFromDir "$RUN_DIR/src/mojafos/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME"
+    deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME"
   else 
-    deployHelmChartFromDir "$RUN_DIR/src/mojafos/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" 
+    deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" 
   fi
   echo -e "\n${GREEN}============================"
   echo -e "Infrastructure Deployed"
@@ -375,29 +356,29 @@ function postPaymenthubDeploymentScript(){
   runFailedSQLStatements
 }
 
-function deployMojaloop() {
+function deployvnext() {
   echo "Deploying Mojaloop vNext application manifests"
-  createNamespace "$MOJALOOP_NAMESPACE"
+  createNamespace "$VNEXT_NAMESPACE"
   echo
-  cloneRepo "$MOJALOOPBRANCH" "$MOJALOOP_REPO_LINK" "$APPS_DIR" "$MOJALOOPREPO_DIR"
+  cloneRepo "$VNEXTBRANCH" "$VNEXT_REPO_LINK" "$APPS_DIR" "$VNEXTREPO_DIR"
   echo
-  # renameOffToYaml "${MOJALOOP_LAYER_DIRS[0]}"
+  # renameOffToYaml "${VNEXT_LAYER_DIRS[0]}"
   echo
-  configureMojaloop
+  configurevNext
 
-  for index in "${!MOJALOOP_LAYER_DIRS[@]}"; do
-    folder="${MOJALOOP_LAYER_DIRS[index]}"
+  for index in "${!VNEXT_LAYER_DIRS[@]}"; do
+    folder="${VNEXT_LAYER_DIRS[index]}"
     echo "Deploying files in $folder"
-    applyKubeManifests "$folder" "$MOJALOOP_NAMESPACE"
+    applyKubeManifests "$folder" "$VNEXT_NAMESPACE"
     if [ "$index" -eq 0 ]; then
-      echo -e "${BLUE}Waiting for Mojaloop cross cutting concerns to come up${RESET}"
+      echo -e "${BLUE}Waiting for vnext cross cutting concerns to come up${RESET}"
       sleep 10
       echo -e "Proceeding ..."
     fi
   done
 
   echo -e "\n${GREEN}============================"
-  echo -e "Mojaloop Deployed"
+  echo -e "vnext Deployed"
   echo -e "============================${RESET}\n"
 }
 
@@ -452,12 +433,12 @@ function deployApps {
   if [[ "$appsToDeploy" == "all" ]]; then
     echo -e "${BLUE}Deploying all apps ...${RESET}"
     deployInfrastructure
-    deployMojaloop
+    deployvnext
     deployPH
     DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
-  elif [[ "$appsToDeploy" == "moja" ]];then
+  elif [[ "$appsToDeploy" == "vnext" ]];then
     deployInfrastructure
-    deployMojaloop
+    deployvnext
   elif [[ "$appsToDeploy" == "fin" ]]; then 
     deployInfrastructure
     DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
