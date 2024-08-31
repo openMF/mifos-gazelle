@@ -113,7 +113,7 @@ for f in $LOC1; do
 done
 
 LOC2="$BASE_DIR/repos/ph_env_labs/orchestration/feel/example/*.bpmn"
-#LOC2=../src/mojafos/deployer/apps/ph_env_labs/orchestration/feel/example/*.bpmn
+#LOC2=../src/deployer/apps/ph_env_labs/orchestration/feel/example/*.bpmn
 for f in $LOC2; do
     deploy $f
 done
