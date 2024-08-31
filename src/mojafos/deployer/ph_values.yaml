@@ -121,12 +121,15 @@ ph-ee-engine:
       className: nginx
       annotations:
         kubernetes.io/ingress.class: nginx
+        nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
   
   # Connector Bulk
   connector_bulk:
     ingress:
       enabled: true
       className: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 
   # Bill Pay
   billPay:
