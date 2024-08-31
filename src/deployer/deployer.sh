@@ -91,19 +91,19 @@ function deployHelmChartFromDir() {
 
 function preparePaymentHubChart(){
   # Clone the repositories
-  echo "Clone PH ENV LABS" 
+  #echo "Clone PH ENV LABS" 
   cloneRepo "$PHBRANCH" "$PH_REPO_LINK" "$APPS_DIR" "$PHREPO_DIR"
   #cloneRepo "$PH_EE_ENV_LABS_REPO_BRANCH" "$PH_EE_ENV_LABS_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_LABS_REPO_DIR"
-  echo "TDDEBUG> Cloning PHEE Templates repo Gazelle branch"
-  echo "TDDBUG> clonerepo $PH_EE_ENV_TEMPLATE_REPO_BRANCH $PH_EE_ENV_TEMPLATE_REPO_LINK $APPS_DIR $PH_EE_ENV_TEMPLATE_REPO_DIR"
-  cloneRepo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
+  #echo "TDDEBUG> Cloning PHEE Templates repo Gazelle branch"
+  #echo "TDDBUG> clonerepo $PH_EE_ENV_TEMPLATE_REPO_BRANCH $PH_EE_ENV_TEMPLATE_REPO_LINK $APPS_DIR $PH_EE_ENV_TEMPLATE_REPO_DIR"
+  #cloneRepo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
 
   # Update helm dependencies and repo index for ph-ee-engine
   phEEenginePath="$APPS_DIR$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine"
-  echo "TDDEBUG about to run helm dep update on ph-ee-engine in template dir"
-  su - $k8s_user -c "cd $phEEenginePath;  helm dep update" 
+  #echo "TDDEBUG about to run helm dep update on ph-ee-engine in template dir"
+  su - $k8s_user -c "cd $phEEenginePath;  helm dep update" >> /dev/null 2>&1 
   su - $k8s_user -c "cd $phEEenginePath;  helm repo index ."
-  echo "TDDEBUG done running helm dep update on ph-ee-engine in template dir"
+  #echo "TDDEBUG done running helm dep update on ph-ee-engine in template dir"
 
   # TEMPLATE => Update helm dependencies and repo index for gazelle chart in ph-ee-env-template repo 
   gazelleChartPath="$APPS_DIR$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/gazelle"
@@ -111,7 +111,7 @@ function preparePaymentHubChart(){
   #pushd "$gazelleChartPath"
   su - $k8s_user -c "cd $gazelleChartPath ; helm dep update" 
   su - $k8s_user -c "cd $gazelleChartPath ; helm repo index ."
-  echo "TDDEBUG done dep update on gazelle chart, `pwd`"
+  #echo "TDDEBUG done dep update on gazelle chart, `pwd`"
 }
 
 function checkPHEEDependencies() {
@@ -276,28 +276,28 @@ function applyKubeManifests() {
     fi
 }
 
-function runFailedSQLStatements(){
-  echo "Fxing Operations App MySQL Race condition"
-  operationsDeplName=$(kubectl get deploy --no-headers -o custom-columns=":metadata.name" -n $PH_NAMESPACE | grep operations-app)
-  kubectl exec -it mysql-0 -n infra -- mysql -h mysql -uroot -pethieTieCh8ahv < src/mojafos/deployer/setup.sql
+# function runFailedSQLStatements(){
+#   echo "Fxing Operations App MySQL Race condition"
+#   operationsDeplName=$(kubectl get deploy --no-headers -o custom-columns=":metadata.name" -n $PH_NAMESPACE | grep operations-app)
+#   kubectl exec -it mysql-0 -n infra -- mysql -h mysql -uroot -pethieTieCh8ahv < src/deployer/setup.sql
 
-  if [ $? -eq 0 ];then
-    echo "SQL File execution successful"
-  else 
-    echo "SQL File execution failed"
-    exit 1
-  fi
+#   if [ $? -eq 0 ];then
+#     echo "SQL File execution successful"
+#   else 
+#     echo "SQL File execution failed"
+#     exit 1
+#   fi
 
-  echo "Restarting Deployment for Operations App"
-  kubectl rollout restart deploy/$operationsDeplName -n $PH_NAMESPACE
+#   echo "Restarting Deployment for Operations App"
+#   kubectl rollout restart deploy/$operationsDeplName -n $PH_NAMESPACE
 
-  if [ $? -eq 0 ];then
-    echo "Deployment Restart successful"
-  else 
-    echo "Deployment Restart failed"
-    exit 1
-  fi
-}
+#   if [ $? -eq 0 ];then
+#     echo "Deployment Restart successful"
+#   else 
+#     echo "Deployment Restart failed"
+#     exit 1
+#   fi
+# }
 
 function addKubeConfig(){
   K8sConfigDir="$k8s_user_home/.kube"
@@ -312,49 +312,49 @@ function addKubeConfig(){
 }
 
 #Function to run kong migrations in Kong init container 
-function runKongMigrations(){
-  echo ">>>>>>> Fixing Kong Migrations"
-  #StoreKongPods
-  kongPods=$(kubectl get pods --no-headers -o custom-columns=":metadata.name" -n $PH_NAMESPACE | grep moja-ph-kong)
-  dBcontainerName="wait-for-db"
-  for pod in $kongPods; 
-  do 
-    podName=$(kubectl get pod $pod --no-headers -o custom-columns=":metadata.labels.app" -n $PH_NAMESPACE)
-    if [[ "$podName" == "moja-ph-kong" ]]; then 
-        initContainerStatus=$(kubectl get pod $pod  --no-headers -o custom-columns=":status.initContainerStatuses[0].ready" -n $PH_NAMESPACE)
-      while [[ "$initContainerStatus" != "true" ]]; do
-        printf "\rReady State: $initContainerStatus Waiting for status to become true ..."
-        initContainerStatus=$(kubectl get pod $pod  --no-headers -o custom-columns=":status.initContainerStatuses[0].ready" -n $PH_NAMESPACE)
-        sleep 5
-      done
-      echo "Status is now true"
-      while  kubectl get pod "$podName" -o jsonpath="{:status.initContainersStatuses[1].name}" | grep -q "$dBcontainerName" ; do
-        printf "\r Waiting for Init DB container to be created ..."
-        sleep 5
-      done
+# function runKongMigrations(){
+#   echo ">>>>>>> Fixing Kong Migrations"
+#   #StoreKongPods
+#   kongPods=$(kubectl get pods --no-headers -o custom-columns=":metadata.name" -n $PH_NAMESPACE | grep moja-ph-kong)
+#   dBcontainerName="wait-for-db"
+#   for pod in $kongPods; 
+#   do 
+#     podName=$(kubectl get pod $pod --no-headers -o custom-columns=":metadata.labels.app" -n $PH_NAMESPACE)
+#     if [[ "$podName" == "moja-ph-kong" ]]; then 
+#         initContainerStatus=$(kubectl get pod $pod  --no-headers -o custom-columns=":status.initContainerStatuses[0].ready" -n $PH_NAMESPACE)
+#       while [[ "$initContainerStatus" != "true" ]]; do
+#         printf "\rReady State: $initContainerStatus Waiting for status to become true ..."
+#         initContainerStatus=$(kubectl get pod $pod  --no-headers -o custom-columns=":status.initContainerStatuses[0].ready" -n $PH_NAMESPACE)
+#         sleep 5
+#       done
+#       echo "Status is now true"
+#       while  kubectl get pod "$podName" -o jsonpath="{:status.initContainersStatuses[1].name}" | grep -q "$dBcontainerName" ; do
+#         printf "\r Waiting for Init DB container to be created ..."
+#         sleep 5
+#       done
 
-      echo && echo $pod
-      statusCode=1
-      while [ $statusCode -eq 1 ]; do
-        printf "\rRunning Migrations ..."
-        kubectl exec $pod -c $dBcontainerName -n $PH_NAMESPACE -- kong migrations bootstrap >> /dev/null 2>&1
-        statusCode=$?
-        if [ $statusCode -eq 0 ]; then
-          echo "\nKong Migrations Successful"
-        fi
-      done
-    else
-      continue
-    fi
-  done
-}
+#       echo && echo $pod
+#       statusCode=1
+#       while [ $statusCode -eq 1 ]; do
+#         printf "\rRunning Migrations ..."
+#         kubectl exec $pod -c $dBcontainerName -n $PH_NAMESPACE -- kong migrations bootstrap >> /dev/null 2>&1
+#         statusCode=$?
+#         if [ $statusCode -eq 0 ]; then
+#           echo "\nKong Migrations Successful"
+#         fi
+#       done
+#     else
+#       continue
+#     fi
+#   done
+# }
 
-function postPaymenthubDeploymentScript(){
-  #Run migrations in Kong Pod
-  runKongMigrations
-  # Run failed MySQL statements.
-  runFailedSQLStatements
-}
+# function postPaymenthubDeploymentScript(){
+#   #Run migrations in Kong Pod
+#   runKongMigrations
+#   # Run failed MySQL statements.
+#   runFailedSQLStatements
+# }
 
 function deployvnext() {
   echo "Deploying Mojaloop vNext application manifests"
@@ -416,9 +416,9 @@ function test_fin {
 }
 
 function printEndMessage {
-  echo -e "==========================="
-  echo -e "Thank you for using Mojafos"
-  echo -e "===========================\n\n"
+  echo -e "================================="
+  echo -e "Thank you for using mifos-gazelle"
+  echo -e "=================================\n\n"
   echo -e "CHECK DEPLOYMENTS USING kubectl"
   echo -e "kubectl get pods -n mojaloop #For testing mojaloop"
   echo -e "kubectl get pods -n paymenthub #For testing paymenthub"

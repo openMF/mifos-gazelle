@@ -119,8 +119,6 @@ trap "trapCtrlc" 2
 function main {
   welcome 
   getoptions "$@"
-  echo "APPS=$apps"
-  echo "fineract_instances=$fineract_instances"
 
   if [ $mode == "deploy" ]; then
     echo -e "${YELLOW}"
@@ -132,10 +130,10 @@ function main {
     echo "deployApps $fineract_instances $apps"
     deployApps "$fineract_instances" "$apps"
   elif [ $mode == "cleanapps" ]; then  
-    logWithVerboseCheck $debug info "Cleaning up Mojafos applications only"
+    logWithVerboseCheck $debug info "Cleaning up mifos-gazelle applications only"
     envSetupMain "$mode" "k3s" "1.30" "$environment"
   elif [ $mode == "cleanall" ]; then
-    logWithVerboseCheck $debug info "Cleaning up all traces of Mojafos"
+    logWithVerboseCheck $debug info "Cleaning up all traces of mifos-gazelle "
     envSetupMain "$mode" "k3s" "1.30" "$environment"
   else
     showUsage

@@ -131,7 +131,7 @@ function install_prerequisites {
 }
 
 function add_hosts {
-    printf "==> Mojafos : update hosts file \n"
+    printf "==> Mifos-gazelle : update hosts file \n"
     ENDPOINTSLIST=(127.0.0.1   ml-api-adapter.local central-ledger.local account-lookup-service.local account-lookup-service-admin.local
     quoting-service.local central-settlement-service.local transaction-request-service.local central-settlement.local bulk-api-adapter.local
     moja-simulator.local sim-payerfsp.local sim-payeefsp.local sim-testfsp1.local sim-testfsp2.local sim-testfsp3.local sim-testfsp4.local
@@ -239,7 +239,7 @@ function do_microk8s_install {
 
 function do_k3s_install {
     printf "========================================================================================\n"
-    printf "Mojafos k3s install : Installing Kubernetes k3s engine and tools (helm/ingress etc) \n"
+    printf "Mifos-gazelle k3s install : Installing Kubernetes k3s engine and tools (helm/ingress etc) \n"
     printf "========================================================================================\n"
     # ensure k8s_user has clean .kube/config
     rm -rf $k8s_user_home/.kube >> /dev/null 2>&1
@@ -464,9 +464,9 @@ function print_end_message {
 }
 
 function print_end_message_tear_down {
-  echo -e "\n\n=============================================="
-  echo -e "Thank you for using Mojafos cleanup successful"
-  echo -e "==============================================\n\n"
+  echo -e "\n\n=================================================="
+  echo -e "Thank you for using Mifos-gazelle cleanup successful"
+  echo -e "======================================================\n\n"
   echo -e "Copyright © 2023 The Mifos Initiative"
 }
 

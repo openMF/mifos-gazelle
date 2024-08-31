@@ -1,5 +1,11 @@
 #!/bin/bash
 
+RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"  # the directory that this script is in 
+echo "RUN_DIR is $RUN_DIR"
+BASE_DIR="$( cd $(dirname "$RUN_DIR") ; pwd )"
+echo "BASE_DIR is $BASE_DIR"
+
+exit 
 # Check if the script is run with root privileges
 if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root" >&2
@@ -100,12 +106,14 @@ deploy(){
     #If curl response is not 200 it should fail the eval cmd
 }
 
-LOC=../src/mojafos/deployer/apps/ph_env_labs/orchestration/feel/*.bpmn
-for f in $LOC; do
+LOC1="$BASE_DIR/repos/ph_env_labs/orchestration/feel/*.bpmn"
+#LOC1=../src/deployer/apps/ph_env_labs/orchestration/feel/*.bpmn
+for f in $LOC1; do
     deploy $f
 done
 
-LOC2=../src/mojafos/deployer/apps/ph_env_labs/orchestration/feel/example/*.bpmn
+LOC2="$BASE_DIR/repos/ph_env_labs/orchestration/feel/example/*.bpmn"
+#LOC2=../src/mojafos/deployer/apps/ph_env_labs/orchestration/feel/example/*.bpmn
 for f in $LOC2; do
     deploy $f
 done
