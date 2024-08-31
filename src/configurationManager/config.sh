@@ -4,22 +4,20 @@
 # GLOBAL VARS
 ########################################################################
 BASE_DIR=$(pwd)
-echo "BASE_DIR is $BASE_DIR" 
-echo "in config.sh RUN_DIR is $RUN_DIR"
-
 APPS_DIR="$BASE_DIR/repos/"
 CONFIG_DIR="$BASE_DIR/config/"
-
 INFRA_NAMESPACE="infra"
 INFRA_RELEASE_NAME="infra"
 NGINX_VALUES_FILE="$CONFIG_DIR/nginx_values.yaml"
-#mojaloop
+
+# Mojaloop vNext 
 VNEXTBRANCH="beta1"
 VNEXTREPO_DIR="vnext"
 VNEXT_NAMESPACE="vnext"
 VNEXT_REPO_LINK="https://github.com/mojaloop/platform-shared-tools.git"
 VNEXT_LAYER_DIRS=("$APPS_DIR/vnext/packages/installer/manifests/crosscut" "$APPS_DIR/vnext/packages/installer/manifests/ttk" "$APPS_DIR/vnext/packages/installer/manifests/apps" "$APPS_DIR/vnext/packages/installer/manifests/reporting")
-VNEXT_VALUES_FILE="$CONFIG_DIR/mojaloop_values.json"
+VNEXT_VALUES_FILE="$CONFIG_DIR/vnext_values.json"
+
 #paymenthubee
 PHBRANCH="master"
 PHREPO_DIR="ph"
@@ -30,11 +28,13 @@ PH_REPO_LINK="https://github.com/openMF/ph-ee-env-labs.git"
 PH_EE_ENV_TEMPLATE_REPO_LINK="https://github.com/openMF/ph-ee-env-template.git"
 PH_EE_ENV_TEMPLATE_REPO_BRANCH="c4gt-gazelle-dev"
 PH_EE_ENV_TEMPLATE_REPO_DIR="ph_template"
+
 # Define Kubernetes service and MySQL connection details
 MYSQL_SERVICE_NAME="mysql"  # Replace with your MySQL service name
 MYSQL_SERVICE_PORT="3306"           # Replace with the MySQL service port
 LOCAL_PORT="3307"                   # Local port to forward to
 MAX_WAIT_SECONDS=60
+
 # MySQL Connection Details
 MYSQL_USER="root"
 MYSQL_PASSWORD="ethieTieCh8ahv"
