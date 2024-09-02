@@ -65,13 +65,13 @@ function deployHelmChartFromDir() {
   su - $k8s_user -c "helm dependency build ."  >> /dev/null 2>&1
   echo -e "==> Helm chart dependencies built"
 
-  # Determine whether to install or upgrade the chart also check whether to apply a values file
-  su - $k8s_user -c "helm list -n $namespace"
+  # TODO Determine whether to install or upgrade the chart also check whether to apply a values file
+  #su - $k8s_user -c "helm list -n $namespace"
   if [ -n "$values_file" ]; then
       echo "Installing Helm chart using values: $values_file..."
       su - $k8s_user -c "helm install $release_name $chart_dir -n $namespace -f $values_file"
   else
-      echo "Installing Helm chart usimg default values file ..."
+      echo "Installing Helm chart using default values file ..."
       su - $k8s_user -c "helm install $release_name $chart_dir -n $namespace "
   fi
 
@@ -91,41 +91,20 @@ function deployHelmChartFromDir() {
 
 function preparePaymentHubChart(){
   # Clone the repositories
-  #echo "Clone PH ENV LABS" 
   cloneRepo "$PHBRANCH" "$PH_REPO_LINK" "$APPS_DIR" "$PHREPO_DIR"
-  #cloneRepo "$PH_EE_ENV_LABS_REPO_BRANCH" "$PH_EE_ENV_LABS_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_LABS_REPO_DIR"
-  #echo "TDDEBUG> Cloning PHEE Templates repo Gazelle branch"
-  #echo "TDDBUG> clonerepo $PH_EE_ENV_TEMPLATE_REPO_BRANCH $PH_EE_ENV_TEMPLATE_REPO_LINK $APPS_DIR $PH_EE_ENV_TEMPLATE_REPO_DIR"
-  #cloneRepo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
 
   # Update helm dependencies and repo index for ph-ee-engine
   phEEenginePath="$APPS_DIR$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine"
-  #echo "TDDEBUG about to run helm dep update on ph-ee-engine in template dir"
   su - $k8s_user -c "cd $phEEenginePath;  helm dep update" >> /dev/null 2>&1 
   su - $k8s_user -c "cd $phEEenginePath;  helm repo index ."
-  #echo "TDDEBUG done running helm dep update on ph-ee-engine in template dir"
 
-  # TEMPLATE => Update helm dependencies and repo index for gazelle chart in ph-ee-env-template repo 
   gazelleChartPath="$APPS_DIR$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/gazelle"
-  #awk '/repository:/ && c == 0 {sub(/repository: .*/, "repository: file://../ph-ee-engine"); c++} {print}' "$gazelleChartPath/Chart.yaml" > "$gazelleChartPath/Chart.yaml.tmp" && mv "$gazelleChartPath/Chart.yaml.tmp" "$gazelleChartPath/Chart.yaml"
-  #pushd "$gazelleChartPath"
-  su - $k8s_user -c "cd $gazelleChartPath ; helm dep update" 
+  su - $k8s_user -c "cd $gazelleChartPath ; helm dep update >> /dev/null 2>&1 " 
   su - $k8s_user -c "cd $gazelleChartPath ; helm repo index ."
-  #echo "TDDEBUG done dep update on gazelle chart, `pwd`"
 }
 
 function checkPHEEDependencies() {
-  # Check if Helm is installed
-  if ! command -v helm &>/dev/null; then
-    echo "Helm is not installed. Please install Helm first."
-    exit 1
-  fi
 
-  # Check if kubectl is installed
-  if ! command -v kubectl &>/dev/null; then
-    echo "kubectl is not installed. Please install kubectl first."
-    exit 1
-  fi
 
   # Install Prometheus Operator as a dependency
   LATEST=$(curl -s https://api.github.com/repos/prometheus-operator/prometheus-operator/releases/latest | jq -cr .tag_name)
@@ -195,15 +174,42 @@ function createNamespace () {
   fi
 }
 
+function isDeployed {
+    local app_name="$1"
+    if [[ "$app_name" == "infra" ]]; then
+        # Check if the infra Helm chart is deployed and running in the $INFRA_NAMESPACE
+        helm_status=$(helm status infra -n "$INFRA_NAMESPACE" 2>&1)
+        if echo "$helm_status" | awk '/^STATUS:/ {if ($2 == "deployed") exit 0; else exit 1}'; then
+            echo "true"
+        else
+            echo "false"
+        fi
+    elif [[ "$app_name" == "vnext" ]]; then 
+        echo "false"
+    elif [[ "$app_name" == "ph" || "$app_name" == "fin" ]]; then
+        # Simulated check (replace with actual logic for these apps)
+        echo "true"  # Simulate that the app is deployed
+    else
+        echo "false"
+    fi
+}
+
 function deployInfrastructure () {
   printf "==> Deploying infrastructure \n"
+  echo "redeploy is $redeploy"
+  if [[ "$(isDeployed "infra")" == "true" ]]; then
+    if [[ "$redeploy" == "false" ]]; then
+      echo "infrastructure is already deployed. Skipping deployment."
+      return
+    else # need to delete and deploy 
+      deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
+    fi
+  fi 
   createNamespace $INFRA_NAMESPACE
-  
-
   if [ "$debug" = true ]; then
     deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME"
   else 
-    deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" 
+    deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" >> /dev/null 2>&1
   fi
   echo -e "\n${GREEN}============================"
   echo -e "Infrastructure Deployed"
@@ -356,7 +362,7 @@ function addKubeConfig(){
 #   runFailedSQLStatements
 # }
 
-function deployvnext() {
+function deployvNext() {
   echo "Deploying Mojaloop vNext application manifests"
   createNamespace "$VNEXT_NAMESPACE"
   echo
@@ -381,8 +387,6 @@ function deployvnext() {
   echo -e "vnext Deployed"
   echo -e "============================${RESET}\n"
 }
-
-
 
 function DeployMifosXfromYaml() {
   manifests_dir=$1
@@ -417,7 +421,7 @@ function test_fin {
 
 function printEndMessage {
   echo -e "================================="
-  echo -e "Thank you for using mifos-gazelle"
+  echo -e "Thank you for using Mifos Gazelle"
   echo -e "=================================\n\n"
   echo -e "CHECK DEPLOYMENTS USING kubectl"
   echo -e "kubectl get pods -n mojaloop #For testing mojaloop"
@@ -426,19 +430,45 @@ function printEndMessage {
   echo -e "Copyright © 2023 The Mifos Initiative"
 }
 
+function deleteApps {
+  fin_num_instances="$1"
+  appsToDelete="$2"
+  if [[ "$appsToDelete" == "all" ]]; then
+    deleteResourcesInNamespaceMatchingPattern "$FIN_NAMESPACE"
+    deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
+    deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
+    deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
+  elif [[ "$appsToDelete" == "vnext" ]];then
+    deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
+  elif [[ "$appsToDelete" == "fin" ]]; then 
+    deleteResourcesInNamespaceMatchingPattern "$FIN_NAMESPACE"
+  elif [[ "$appsToDelete" == "ph" ]]; then
+    deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
+  elif [[ "$appsToDelete" == "infra" ]]; then
+    deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
+  else 
+    echo -e "${RED}Invalid -a option ${RESET}"
+    showUsage
+    exit 
+  fi  
+}
+
 function deployApps {
   fin_num_instances="$1"
   appsToDeploy="$2"
+  redeploy="$3"
 
   if [[ "$appsToDeploy" == "all" ]]; then
     echo -e "${BLUE}Deploying all apps ...${RESET}"
     deployInfrastructure
-    deployvnext
+    deployvNext
     deployPH
     DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"
+  elif [[ "$appsToDeploy" == "infra" ]];then
+    deployInfrastructure
   elif [[ "$appsToDeploy" == "vnext" ]];then
     deployInfrastructure
-    deployvnext
+    deployvNext
   elif [[ "$appsToDeploy" == "fin" ]]; then 
     deployInfrastructure
     DeployMifosXfromYaml "$FIN_MANIFESTS_DIR"  "$fin_num_instances"

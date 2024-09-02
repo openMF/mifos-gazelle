@@ -26,6 +26,20 @@ function check_resources_ok {
     fi
 }
 
+function checkHelmandKubectl {
+     # Check if Helm is installed
+    if ! command -v helm &>/dev/null; then
+        echo "Helm is not installed. Please install Helm first."
+        exit 1
+    fi
+
+    # Check if kubectl is installed
+    if ! command -v kubectl &>/dev/null; then
+        echo "kubectl is not installed. Please install kubectl first."
+        exit 1
+    fi
+} 
+
 function set_user {
   # set the k8s_user
 #   k8s_user=`whoami | cut -d " " -f1`
@@ -128,6 +142,8 @@ function install_prerequisites {
           logWithVerboseCheck $debug debug "jq is already installed\n"
       fi
     fi
+
+
 }
 
 function add_hosts {
@@ -319,7 +335,6 @@ function check_nginx_running {
     fi
 }
 
-
 function install_nginx () { 
     local cluster_type=$1
     local k8s_distro=$2
@@ -446,12 +461,11 @@ function delete_k8s {
     perl -i -ne 'print unless /START_ML/ .. /END_ML/'  $k8s_user_home/.bashrc
 }
 
-function check_k8s_installed {
+function checkClusterConnection {
     printf "\r==> Check the cluster is available and ready from kubectl  "
     k8s_ready=`su - $k8s_user -c "kubectl get nodes" | perl -ne 'print  if s/^.*Ready.*$/Ready/'`
     if [[ ! "$k8s_ready" == "Ready" ]]; then
-        printf "** Error : kubernetes is not installed , please run $0 -m install -u $k8s_user \n"
-        printf "           before trying to install mojaloop \n "
+        printf "** Error : kubernetes is not reachable  ** "
         exit 1
     fi
     printf "    [ ok ] \n"
@@ -505,13 +519,13 @@ function setup_k8s_cluster {
         fi
 }
 
-function deleteAppResources(){
-    deleteResourcesInNamespaceMatchingPattern "$FIN_NAMESPACE"
-    deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
-    deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
-    deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
-    deleteResourcesInNamespaceMatchingPattern "default"
-}
+# function deleteAppResources(){
+#     deleteResourcesInNamespaceMatchingPattern "$FIN_NAMESPACE"
+#     deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
+#     deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
+#     deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
+#     deleteResourcesInNamespaceMatchingPattern "default"
+# }
 
 ################################################################################
 # MAIN
@@ -557,8 +571,6 @@ function envSetupMain {
     verify_user
 
     if [[ "$mode" == "deploy" ]]  ; then
-        #BASE_DIR=$( cd $(dirname "$0")/../.. ; pwd )
-        #RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )" # the directory that this script is run from
         check_resources_ok
         set_k8s_distro
         set_k8s_version
@@ -571,17 +583,16 @@ function envSetupMain {
             install_k8s_tools
             add_helm_repos
             configure_k8s_user_env
+        else 
+            checkHelmandKubectl # ensure things really are in place properly 
         fi
         install_nginx $environment $k8s_distro # will skip if already running
-        check_k8s_installed
+        checkClusterConnection
         printf "\r==> kubernetes distro:[%s] version:[%s] is now configured for user [%s] and ready for mojaloop deployment \n" \
                     "$k8s_distro" "$K8S_VERSION" "$k8s_user"
         print_end_message
-    elif [[ "$mode" == "cleanapps" ]]  ; then
-        # remove all apps 
-        deleteAppResources   
     elif [[ "$mode" == "cleanall" ]]  ; then
-        deleteAppResources
+        #deleteAppResources
         if [[ "$environment" == "local" ]]; then
             echo "Deleting local kubernetes cluster..."
             delete_k8s

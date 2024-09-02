@@ -16,36 +16,73 @@ function welcome {
     echo -e " "
     echo -e "${RESET}"
 }
-
 function showUsage {
-  if [ $# -ne 0 ] ; then
-		echo "Incorrect number of arguments passed to function $0"
-		exit 1
-	else
-echo  "USAGE: $0 -m [mode] -u [user] -a [apps] -e [environment] -d [true/false]  
-Example 1 : sudo $0  -m deploy -u \$USER -d true # install mifos-gazelle with debug mode and user \$USER
-Example 2 : sudo $0  -m cleanapps -u \$USER -d true # delete apps leave environment with debug mode and user \$USER
-Example 3 : sudo $0  -m cleanall -u \$USER # delete all apps, and all kubernetes artifacts and server
-Example 4 : sudo $0  -m deploy -u \$USER  -a ph # install PHEE only, user \$USER
-Example 5 : sudo $0  -m deploy -u \$USER  -a all # install all apps i.e. vNext, phee and fineract user \$USER
+    echo "
+USAGE: $0 -m [mode] -u [user] -a [apps] -e [environment] -d [true/false]  
+Example 1 : sudo $0 -m deploy -u \$USER -d true     # install mifos-gazelle with debug mode and user \$USER
+Example 2 : sudo $0 -m cleanapps -u \$USER -d true  # delete apps, leave environment with debug mode and user \$USER
+Example 3 : sudo $0 -m cleanall -u \$USER           # delete all apps, all Kubernetes artifacts, and server
+Example 4 : sudo $0 -m deploy -u \$USER -a ph       # install PHEE only, user \$USER
+Example 5 : sudo $0 -m deploy -u \$USER -a all      # install all apps (vNext, PHEE, and Fineract) with user \$USER
 
 Options:
--m mode ............... deploy|cleanapps|cleanall (-m is required)
--u user................ user that the process will use for execution (-u required)
--a apps................ vnext|ph|fin (apps that can be independantly deployed -a required )
--e environment ........ currently local is the only value supported and is the default
--d debug............... debug mode. if set debug is true, if not set debug is false
--h|H .................. display this message
+  -m mode ................ deploy|cleanapps|cleanall  (required)
+  -u user ................ (non root) user that the process will use for execution (required)
+  -a apps ................ vnext|ph|fin (apps that can be independently deployed) (optional)
+  -e environment ......... currently, 'local' is the only value supported and is the default (optional)
+  -d debug ............... enable debug mode (true|false) (optional)
+  -r redeploy ............ force redeployment of apps (true|false) (optional, defaults to false)
+  -h|H ................... display this message
 "
-  fi
-  
 }
 
-function getoptions {
-    local mode_opt
-    while getopts "m:k:da:f:e:v:u:hH" OPTION ; do
+function validateInputs {
+    if [[ -z "$mode" || -z "$k8s_user" ]]; then
+        echo "Error: Required options -m (mode) and -u (user) must be provided."
+        showUsage
+        exit 1
+    fi
+
+    if [[ "$mode" != "deploy" && "$mode" != "cleanapps" && "$mode" != "cleanall" ]]; then
+        echo "Error: Invalid mode '$mode'. Must be one of: deploy, cleanapps, cleanall."
+        showUsage
+        exit 1
+    fi
+
+    if [[ "$mode" == "deploy" || "$mode" == "cleanapps" ]]; then
+        if [[ -z "$apps" ]]; then
+            echo "No specific apps provided with -a flag. Defaulting to 'all'."
+            apps="all"
+        elif [[ "$apps" != "infra" && "$apps" != "vnext" && "$apps" != "ph" && "$apps" != "fin" && "$apps" != "all" ]]; then
+            echo "Error: Invalid value for apps. Must be one of: vnext, ph, fin, infra, all."
+            showUsage
+            exit 1
+        fi
+    fi
+
+    if [[ -n "$debug" && "$debug" != "true" && "$debug" != "false" ]]; then
+        echo "Error: Invalid value for debug. Use 'true' or 'false'."
+        showUsage
+        exit 1
+    fi
+
+    if [[ -n "$redeploy" && "$redeploy" != "true" && "$redeploy" != "false" ]]; then
+        echo "Error: Invalid value for redeploy. Use 'true' or 'false'."
+        showUsage
+        exit 1
+    fi
+
+    # Set default values
+    environment="${environment:-local}"
+    debug="${debug:-false}"
+    redeploy="${redeploy:-true}"
+}
+
+
+function getOptions {
+    while getopts "m:k:da:f:e:v:u:r:hH" OPTION ; do
         case "${OPTION}" in
-            m) mode_opt="${OPTARG}" ;;
+            m) mode="${OPTARG}" ;;
             k) k8s_distro="${OPTARG}" ;;
             d) debug="${OPTARG}" ;;
             a) apps="${OPTARG}" ;;
@@ -53,40 +90,15 @@ function getoptions {
             e) environment="${OPTARG}" ;;
             v) k8s_user_version="${OPTARG}" ;;
             u) k8s_user="${OPTARG}" ;;
+            r) redeploy="${OPTARG}" ;;
             h|H) showUsage
                  exit 0 ;;
-            *) echo "unknown option"
+            *) echo "Unknown option: -${OPTION}"
                showUsage
                exit 1 ;;
         esac
     done
-
-    if [ -z "$mode_opt" ]; then
-      echo "Error: Mode argument is required."
-      showUsage
-      exit 1
-    fi
-
-    # if [ -z "$k8s_user" ]; then
-    #   echo "Error: User argument is required."
-    #   showUsage
-    #   exit 1
-    # fi
-
-    if [ -z "$debug" ]; then
-      debug=false
-    fi
-
-    mode="$mode_opt"
-
-    if [ -z "$environment" ]; then
-      echo "Warning: -e flag ignored as currently mifos-gazelle only supports deployment to local k3s environment"
-  
-    fi
-
-    environment="local"   # hardcoded for the moment but EKS,AKS,GCP etc should be enabled
 }
-
 
 # this function is called when Ctrl-C is sent
 function cleanUp ()
@@ -118,22 +130,25 @@ trap "trapCtrlc" 2
 ###########################################################################
 function main {
   welcome 
-  getoptions "$@"
+  getOptions "$@"
+  validateInputs
 
   if [ $mode == "deploy" ]; then
     echo -e "${YELLOW}"
     echo -e "======================================================================================================"
-    echo -e "The deployment made by this script is currently suitable only for demo purposes and not for production"
+    echo -e "The deployment made by this script is currently recommended for demo purposes and not for production"
     echo -e "======================================================================================================"
     echo -e "${RESET}"
     envSetupMain "$mode" "k3s" "1.30" "$environment"
-    echo "deployApps $fineract_instances $apps"
-    deployApps "$fineract_instances" "$apps"
+    echo "deployApps fin_instances:$fineract_instances $apps"
+    deployApps "$fineract_instances" "$apps" "$redeploy" 
   elif [ $mode == "cleanapps" ]; then  
-    logWithVerboseCheck $debug info "Cleaning up mifos-gazelle applications only"
-    envSetupMain "$mode" "k3s" "1.30" "$environment"
+    logWithVerboseCheck $debug info "Cleaning up Mifos Gazelle applications only"
+    deleteApps "$fineract_instances" "$apps"
+    #envSetupMain "$mode" "k3s" "1.30" "$environment"
   elif [ $mode == "cleanall" ]; then
-    logWithVerboseCheck $debug info "Cleaning up all traces of mifos-gazelle "
+    logWithVerboseCheck $debug info "Cleaning up all traces of Mifos Gazelle "
+    deleteApps "$fineract_instances" "all"
     envSetupMain "$mode" "k3s" "1.30" "$environment"
   else
     showUsage
