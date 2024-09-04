@@ -9,6 +9,7 @@ APPS_DIR="$BASE_DIR/repos"
 CONFIG_DIR="$BASE_DIR/config"
 INFRA_NAMESPACE="infra"
 INFRA_RELEASE_NAME="infra"
+INFRA_CHART_DIR="$BASE_DIR/src/deployer/helm/infra" 
 NGINX_VALUES_FILE="$CONFIG_DIR/nginx_values.yaml"
 
 # Mojaloop vNext 

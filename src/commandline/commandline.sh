@@ -77,7 +77,7 @@ function validateInputs {
 
 
 function getOptions {
-    while getopts "m:k:da:f:e:v:u:r:hH" OPTION ; do
+    while getopts "m:k:d:a:f:e:v:u:r:hH" OPTION ; do
         case "${OPTION}" in
             m) mode="${OPTARG}" ;;
             k) k8s_distro="${OPTARG}" ;;

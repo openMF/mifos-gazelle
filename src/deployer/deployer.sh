@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 
+# Function to check and handle command execution errors
+check_command_execution() {
+  if [ $? -ne 0 ]; then
+    echo "Error: $1 failed"
+    exit 1
+  fi
+}
+
 function isPodRunning() {
     local podname="$1"
     local namespace="$2"
@@ -155,29 +163,29 @@ function cloneRepo() {
   fi
 }
 
-function packageHelmCharts {
-  current_dir=`pwd`
-  cd $HOME/helm
-  if [[ "$NEED_TO_REPACKAGE" == "true" ]]; then 
-    tstart=$(date +%s)
-    printf "==> running repackage of the all the Mojaloop helm charts to incorporate local configuration "
-    status=`./package.sh >> $LOGFILE 2>>$ERRFILE`
-    tstop=$(date +%s)
-    telapsed=$(timer $tstart $tstop)
-    timer_array[repackage_ml]=$telapsed
-    if [[ "$status" -eq 0  ]]; then 
-      printf " [ ok ] \n"
-      NEED_TO_REPACKAGE="false"
-    else
-      printf " [ failed ] \n"
-      printf "** please try running $HOME/helm/package.sh manually to determine the problem **  \n" 
-      cd $current_dir
-      exit 1
-    fi  
-  fi 
+# function packageHelmCharts {
+#   current_dir=`pwd`
+#   cd $HOME/helm
+#   if [[ "$NEED_TO_REPACKAGE" == "true" ]]; then 
+#     tstart=$(date +%s)
+#     printf "==> running repackage of the all the Mojaloop helm charts to incorporate local configuration "
+#     status=`./package.sh >> $LOGFILE 2>>$ERRFILE`
+#     tstop=$(date +%s)
+#     telapsed=$(timer $tstart $tstop)
+#     timer_array[repackage_ml]=$telapsed
+#     if [[ "$status" -eq 0  ]]; then 
+#       printf " [ ok ] \n"
+#       NEED_TO_REPACKAGE="false"
+#     else
+#       printf " [ failed ] \n"
+#       printf "** please try running $HOME/helm/package.sh manually to determine the problem **  \n" 
+#       cd $current_dir
+#       exit 1
+#     fi  
+#   fi 
  
-  cd $current_dir
-}
+#   cd $current_dir
+# }
 
 function deleteResourcesInNamespaceMatchingPattern() {
     local pattern="$1"  
@@ -211,7 +219,7 @@ function deleteResourcesInNamespaceMatchingPattern() {
             fi
           fi
         else
-            printf "Deleting all resources in namespace $namespace "
+            printf "    Deleting all resources in namespace $namespace "
             kubectl delete all --all -n "$namespace" >> /dev/null 2>&1
             kubectl delete ns "$namespace" >> /dev/null 2>&1
             if [ $? -eq 0 ]; then
@@ -236,14 +244,14 @@ function deployHelmChartFromDir() {
   values_file="$4"
 
   # Run helm dependency update to fetch dependencies
-  echo "Updating Helm chart dependencies..."
-  su - $k8s_user -c "helm dependency update" >> /dev/null 2>&1
-  echo -e "==> Helm chart updated"
+  # echo "Updating Helm chart dependencies..."
+  # su - $k8s_user -c "helm dependency update" >> /dev/null 2>&1
+  # echo -e "==> Helm chart updated"
 
-  # Run helm dependency build
-  echo "Building Helm chart dependencies..."
-  su - $k8s_user -c "helm dependency build ."  >> /dev/null 2>&1
-  echo -e "==> Helm chart dependencies built"
+  # # Run helm dependency build
+  # echo "Building Helm chart dependencies..."
+  # su - $k8s_user -c "helm dependency build ."  >> /dev/null 2>&1
+  # echo -e "==> Helm chart dependencies built"
 
   # TODO Determine whether to install or upgrade the chart also check whether to apply a values file
   #su - $k8s_user -c "helm list -n $namespace"
@@ -360,7 +368,7 @@ function deployPH(){
 
 function createNamespace () {
   local namespace=$1
-  printf "==> Creating namespace $namespace "
+  printf "    Creating namespace $namespace "
   # Check if the namespace already exists
   if kubectl get namespace "$namespace" >> /dev/null 2>&1; then
       echo -e "${RED}Namespace $namespace already exists -skipping creation.${RESET}"
@@ -388,11 +396,22 @@ function deployInfrastructure () {
     fi
   fi 
   createNamespace $INFRA_NAMESPACE
+
+  # Update helm dependencies and repo index for infra chart 
+  printf  "    udating dependencies for infra helm chart "
+  su - $k8s_user -c "cd $INFRA_CHART_DIR;  helm dep update" >> /dev/null 2>&1 
+  check_command_execution "Updating dependencies for infra chart"
+  echo " [ok] "
+
+  #su - $k8s_user -c "cd $INFRA_CHART_DIR;  helm repo index ."
+  printf "    Deploying infra helm chart  "
   if [ "$debug" = true ]; then
     deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME"
   else 
     deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" >> /dev/null 2>&1
   fi
+  check_command_execution "Deploying infra helm chart"
+  echo  " [ok] "
   echo -e "\n${GREEN}============================"
   echo -e "Infrastructure Deployed"
   echo -e "============================${RESET}\n"
@@ -507,9 +526,9 @@ function DeployMifosXfromYaml() {
   #echo "Deploying files in $manifests_dir"
   applyKubeManifests "$manifests_dir" "$MIFOSX_NAMESPACE-$num_instances"
 
-  echo -e "\n${GREEN}================== =========="
+  echo -e "\n${GREEN}================================="
   echo -e "MifosX (fineract + web app) Deployed"
-  echo -e "=============================${RESET}\n"
+  echo -e "=====================================${RESET}\n"
 } 
 
 function test_vnext {
