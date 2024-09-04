@@ -48,7 +48,7 @@ function set_user {
 
 function k8s_already_installed {
     if [[ -f "/usr/local/bin/k3s" ]]; then
-        printf "** warning k3s is already installed => using existing deployment **\n"
+        printf "==>  k3s is already installed **\n"
         return 0
     fi
     #check to ensure microk8s isn't already installed when installing k3s
@@ -76,7 +76,7 @@ function check_os_ok {
     set_linux_os_distro
 
     if [[ ! $LINUX_OS == "Ubuntu" ]]; then
-        printf "** Error , mifos-gazelle $MINILOOP_VERSION is only tested with Ubuntu OS at this time   **\n"
+        printf "** Error , Mifos Gazelle is only tested with Ubuntu OS at this time   **\n"
         exit 1
     fi
 }
@@ -148,12 +148,7 @@ function install_prerequisites {
 
 function add_hosts {
     printf "==> Mifos-gazelle : update hosts file \n"
-    ENDPOINTSLIST=(127.0.0.1   ml-api-adapter.local central-ledger.local account-lookup-service.local account-lookup-service-admin.local
-    quoting-service.local central-settlement-service.local transaction-request-service.local central-settlement.local bulk-api-adapter.local
-    moja-simulator.local sim-payerfsp.local sim-payeefsp.local sim-testfsp1.local sim-testfsp2.local sim-testfsp3.local sim-testfsp4.local
-    mojaloop-simulators.local finance-portal.local operator-settlement.local settlement-management.local testing-toolkit.local
-    testing-toolkit-specapi.local apachehost
-    mongohost.local mongo-express.local vnextadmin elasticsearch.local redpanda-console.local fspiop.local bluebank.local greenbank.local bluebank-specapi.local greenbank-specapi.local )
+    ENDPOINTSLIST=(127.0.0.1  mongohost.local mongo-express.local vnextadmin elasticsearch.local redpanda-console.local fspiop.local bluebank.local greenbank.local bluebank-specapi.local greenbank-specapi.local )
 
     export ENDPOINTS=`echo ${ENDPOINTSLIST[*]}`
 
@@ -223,27 +218,24 @@ function do_microk8s_install {
     # TODO : Microk8s can complain that This is insecure. Location: /var/snap/microk8s/2952/credentials/client.config
     printf "==> Installing Kubernetes MicroK8s & enabling tools (helm,ingress  etc) \n"
 
-    echo "==> Mojaloop Microk8s Install: installing microk8s release $k8s_user_version ... "
+    echo "==> Microk8s Install: installing microk8s release $k8s_user_version ... "
     # ensure k8s_user has clean .kube/config
     rm -rf $k8s_user_home/.kube >> /dev/null 2>&1
 
     snap install microk8s --classic --channel=$K8S_VERSION/stable
     microk8s.status --wait-ready
 
-    #echo "==> Mojaloop Microk8s Install: enable helm ... "
     microk8s.enable helm3
-    #echo "==> Mojaloop Microk8s Install: enable dns ... "
     microk8s.enable dns
-    echo "==> Mojaloop: enable storage ... "
+    echo "==> enable storage ... "
     microk8s.enable storage
-    #echo "==> Mojaloop: enable ingress ... "
     microk8s.enable ingress
 
-    echo "==> Mojaloop: add convenient aliases..."
+    echo "==> add convenient aliases..."
     snap alias microk8s.kubectl kubectl
     snap alias microk8s.helm3 helm
 
-    echo "==> Mojaloop: add $k8s_user user to microk8s group"
+    echo "==> add $k8s_user user to microk8s group"
     usermod -a -G microk8s $k8s_user
 
     # ensure .kube/config points to this new cluster and KUBECONFIG is not set in .bashrc
@@ -380,8 +372,7 @@ function install_k8s_tools {
 }
 
 function add_helm_repos {
-    # see readme at https://github.com/mojaloop/helm for required helm libs
-    printf "\r==> add the helm repos required to install and run infrastructure for Mojaloop, Paymenthub EE and Fineract\n"
+    printf "\r==> add the helm repos required to install and run infrastructure for vNext, Paymenthub EE and MifosX\n"
     su - $k8s_user -c "helm repo add kiwigrid https://kiwigrid.github.io" > /dev/null 2>&1
     su - $k8s_user -c "helm repo add kokuwa https://kokuwaio.github.io/helm-charts" > /dev/null 2>&1  #fluentd
     su - $k8s_user -c "helm repo add elastic https://helm.elastic.co" > /dev/null 2>&1
@@ -531,9 +522,8 @@ function setup_k8s_cluster {
 # MAIN
 ################################################################################
 function envSetupMain {
-    DEFAULT_K8S_DISTRO="k3s"   # default to microk8s as this is what is in the mojaloop linux deploy docs.
+    DEFAULT_K8S_DISTRO="k3s"  #only k3s is currently being tested 
     K8S_VERSION=""
-    MINILOOP_VERSION="vNext"
 
     HELM_VERSION="3.12.0"  # Feb 2023
     OS_VERSIONS_LIST=( 20 22 )
@@ -588,7 +578,7 @@ function envSetupMain {
         fi
         install_nginx $environment $k8s_distro # will skip if already running
         checkClusterConnection
-        printf "\r==> kubernetes distro:[%s] version:[%s] is now configured for user [%s] and ready for mojaloop deployment \n" \
+        printf "\r==> kubernetes distro:[%s] version:[%s] is now configured for user [%s] and ready for Mifos Gazelle deployment \n" \
                     "$k8s_distro" "$K8S_VERSION" "$k8s_user"
         print_end_message
     elif [[ "$mode" == "cleanall" ]]  ; then

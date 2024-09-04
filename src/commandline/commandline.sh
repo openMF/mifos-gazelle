@@ -4,8 +4,6 @@ source "$RUN_DIR/src/configurationManager/config.sh"
 source "$RUN_DIR/src/environmentSetup/environmentSetup.sh"
 source "$RUN_DIR/src/deployer/deployer.sh"
 
-echo "in commandline: RUN_DIR is $RUN_DIR"
-
 function welcome {
     echo -e "${BLUE}"
     echo -e " ██████   █████  ███████ ███████ ██      ██      ███████ "
@@ -13,7 +11,6 @@ function welcome {
     echo -e "██   ███ ███████   ███   █████   ██      ██      █████   "
     echo -e "██    ██ ██   ██  ███    ██      ██      ██      ██      "
     echo -e " ██████  ██   ██ ███████ ███████ ███████ ███████ ███████ "
-    echo -e " "
     echo -e "${RESET}"
 }
 function showUsage {
@@ -22,13 +19,13 @@ USAGE: $0 -m [mode] -u [user] -a [apps] -e [environment] -d [true/false]
 Example 1 : sudo $0 -m deploy -u \$USER -d true     # install mifos-gazelle with debug mode and user \$USER
 Example 2 : sudo $0 -m cleanapps -u \$USER -d true  # delete apps, leave environment with debug mode and user \$USER
 Example 3 : sudo $0 -m cleanall -u \$USER           # delete all apps, all Kubernetes artifacts, and server
-Example 4 : sudo $0 -m deploy -u \$USER -a ph       # install PHEE only, user \$USER
-Example 5 : sudo $0 -m deploy -u \$USER -a all      # install all apps (vNext, PHEE, and Fineract) with user \$USER
+Example 4 : sudo $0 -m deploy -u \$USER -a phee       # install PHEE only, user \$USER
+Example 5 : sudo $0 -m deploy -u \$USER -a all      # install all apps (vNext, PHEE, and MifosX) with user \$USER
 
 Options:
   -m mode ................ deploy|cleanapps|cleanall  (required)
   -u user ................ (non root) user that the process will use for execution (required)
-  -a apps ................ vnext|ph|fin (apps that can be independently deployed) (optional)
+  -a apps ................ vnext|phee|mifosx (apps that can be independently deployed) (optional)
   -e environment ......... currently, 'local' is the only value supported and is the default (optional)
   -d debug ............... enable debug mode (true|false) (optional)
   -r redeploy ............ force redeployment of apps (true|false) (optional, defaults to false)
@@ -53,8 +50,8 @@ function validateInputs {
         if [[ -z "$apps" ]]; then
             echo "No specific apps provided with -a flag. Defaulting to 'all'."
             apps="all"
-        elif [[ "$apps" != "infra" && "$apps" != "vnext" && "$apps" != "ph" && "$apps" != "fin" && "$apps" != "all" ]]; then
-            echo "Error: Invalid value for apps. Must be one of: vnext, ph, fin, infra, all."
+        elif [[ "$apps" != "infra" && "$apps" != "vnext" && "$apps" != "phee" && "$apps" != "mifosx" && "$apps" != "all" ]]; then
+            echo "Error: Invalid value for apps. Must be one of: infra, vnext, phee, mifosx, all."
             showUsage
             exit 1
         fi
@@ -86,7 +83,7 @@ function getOptions {
             k) k8s_distro="${OPTARG}" ;;
             d) debug="${OPTARG}" ;;
             a) apps="${OPTARG}" ;;
-            f) fineract_instances="${OPTARG}" ;;
+            f) mifosx_instances="${OPTARG}" ;;
             e) environment="${OPTARG}" ;;
             v) k8s_user_version="${OPTARG}" ;;
             u) k8s_user="${OPTARG}" ;;
@@ -136,19 +133,17 @@ function main {
   if [ $mode == "deploy" ]; then
     echo -e "${YELLOW}"
     echo -e "======================================================================================================"
-    echo -e "The deployment made by this script is currently recommended for demo purposes and not for production"
+    echo -e "The deployment made by this script is currently recommended for demo, test and edcational purposes "
     echo -e "======================================================================================================"
     echo -e "${RESET}"
     envSetupMain "$mode" "k3s" "1.30" "$environment"
-    echo "deployApps fin_instances:$fineract_instances $apps"
-    deployApps "$fineract_instances" "$apps" "$redeploy" 
+    deployApps "$mifosx_instances" "$apps" "$redeploy" 
   elif [ $mode == "cleanapps" ]; then  
     logWithVerboseCheck $debug info "Cleaning up Mifos Gazelle applications only"
-    deleteApps "$fineract_instances" "$apps"
-    #envSetupMain "$mode" "k3s" "1.30" "$environment"
+    deleteApps "$mifosx_instances" "$apps"
   elif [ $mode == "cleanall" ]; then
     logWithVerboseCheck $debug info "Cleaning up all traces of Mifos Gazelle "
-    deleteApps "$fineract_instances" "all"
+    deleteApps "$mifosx_instances" "all"
     envSetupMain "$mode" "k3s" "1.30" "$environment"
   else
     showUsage

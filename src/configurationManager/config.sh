@@ -3,9 +3,10 @@
 ########################################################################
 # GLOBAL VARS
 ########################################################################
-BASE_DIR=$(pwd)
-APPS_DIR="$BASE_DIR/repos/"
-CONFIG_DIR="$BASE_DIR/config/"
+BASE_DIR=$( cd $(dirname "$0") ; pwd )
+#BASE_DIR=$(pwd)
+APPS_DIR="$BASE_DIR/repos"
+CONFIG_DIR="$BASE_DIR/config"
 INFRA_NAMESPACE="infra"
 INFRA_RELEASE_NAME="infra"
 NGINX_VALUES_FILE="$CONFIG_DIR/nginx_values.yaml"
@@ -20,7 +21,7 @@ VNEXT_VALUES_FILE="$CONFIG_DIR/vnext_values.json"
 
 #paymenthubee
 PHBRANCH="master"
-PHREPO_DIR="ph"
+PHREPO_DIR="phlabs"
 PH_NAMESPACE="paymenthub"
 PH_RELEASE_NAME="phee"
 PH_VALUES_FILE="$CONFIG_DIR/ph_values.yaml"
@@ -41,12 +42,12 @@ MYSQL_PASSWORD="ethieTieCh8ahv"
 MYSQL_HOST="127.0.0.1"  # This is the localhost because we are port forwarding
 SQL_FILE="$BASE_DIR/src/deployer/setup.sql"
 
-#fineract / MifosX 
-FIN_NAMESPACE="fineract"
-FIN_MANIFESTS_DIR="$APPS_DIR/mifosx/kubernetes/manifests"
-FIN_BRANCH="mifos-gazelle_1"
-FIN_REPO_LINK="https://github.com/openMF/mifosx-docker.git"
-FIN_REPO_DIR="mifosx"
+#MifosX 
+MIFOSX_NAMESPACE="mifosx"
+MIFOSX_MANIFESTS_DIR="$APPS_DIR/mifosx/kubernetes/manifests"
+MIFOSX_BRANCH="mifos-gazelle_1"
+MIFOSX_REPO_LINK="https://github.com/openMF/mifosx-docker.git"
+MIFOSX_REPO_DIR="mifosx"
 
 ########################################################################
 # FUNCTIONS FOR CONFIGURATION MANAGEMENT
@@ -90,7 +91,7 @@ function replaceValuesInFiles() {
                     fi
                 done
                 if $changed; then
-                    echo "Updated: $file"
+                    echo "Updated: $file" >> /dev/null 2>&1
                 fi
             done
         else
@@ -103,58 +104,57 @@ function configurevNext() {
   replaceValuesInFiles "${VNEXT_LAYER_DIRS[0]}" "${VNEXT_LAYER_DIRS[2]}" "${VNEXT_LAYER_DIRS[3]}"
 }
 
+# function createSecret(){
+#   local namespace="$1"
+#   echo -e "Creating secrets in the $namespace namespace"
+#   if make secrets -e NAMESPACE="$namespace" >> /dev/null 2>&1 ; then
+#     echo -e "${GREEN}Created secrets in the $namespace namespace${RESET}"
+#     return 0
+#   else
+#     echo -e "${RED}Creating secrets in the $namespace namespace${RESET} failed"
+#     exit 1
+#   fi
+# }
 
-function createSecret(){
-  local namespace="$1"
-  echo -e "Creating secrets in the $namespace namespace"
-  if make secrets -e NAMESPACE="$namespace" >> /dev/null 2>&1 ; then
-    echo -e "${GREEN}Created secrets in the $namespace namespace${RESET}"
-    return 0
-  else
-    echo -e "${RED}Creating secrets in the $namespace namespace${RESET} failed"
-    exit 1
-  fi
-}
+# function configurePH() {
+#   local ph_chart_dir=$1
+#   local previous_dir="$PWD"  # Save the current working directory
+#   echo -e "${BLUE}Configuring Payment Hub ${RESET}"
 
-function configurePH() {
-  local ph_chart_dir=$1
-  local previous_dir="$PWD"  # Save the current working directory
-  echo -e "${BLUE}Configuring Payment Hub ${RESET}"
+#   cd $ph_chart_dir || exit 1
 
-  cd $ph_chart_dir || exit 1
+#   # Check if make is installed
+#   if ! command -v make &> /dev/null; then
+#       logWithVerboseCheck $debug info "make is not installed. Installing ..."
+#       sudo apt update >> /dev/null 2>&1
+#       sudo apt install -y make >> /dev/null 2>&1
+#       logWithVerboseCheck $debug info "ok"
+#   else
+#       logWithVerboseCheck $debug info "make is installed. Proceeding to configure"
+#   fi
+#   # create secrets for paymenthub namespace and infra namespace
+#   cd es-secret || exit 1
+#   createSecret "$PH_NAMESPACE"
+#   createSecret "$INFRA_NAMESPACE"
+#   cd ..
+#   cd kibana-secret || exit 1
+#   createSecret "$PH_NAMESPACE"
+#   createSecret "$INFRA_NAMESPACE"
+#   cd ..
+#   # kubectl create secret generic moja-ph-redis --from-literal=redis-password="" -n "$PH_NAMESPACE"
 
-  # Check if make is installed
-  if ! command -v make &> /dev/null; then
-      logWithVerboseCheck $debug info "make is not installed. Installing ..."
-      sudo apt update >> /dev/null 2>&1
-      sudo apt install -y make >> /dev/null 2>&1
-      logWithVerboseCheck $debug info "ok"
-  else
-      logWithVerboseCheck $debug info "make is installed. Proceeding to configure"
-  fi
-  # create secrets for paymenthub namespace and infra namespace
-  cd es-secret || exit 1
-  createSecret "$PH_NAMESPACE"
-  createSecret "$INFRA_NAMESPACE"
-  cd ..
-  cd kibana-secret || exit 1
-  createSecret "$PH_NAMESPACE"
-  createSecret "$INFRA_NAMESPACE"
-  cd ..
-  # kubectl create secret generic moja-ph-redis --from-literal=redis-password="" -n "$PH_NAMESPACE"
+#   # check if the configuration was successful
+#   if [ $? -eq 0 ]; then
+#     echo -e "${GREEN}Configuration of Paymenthub Successful${RESET}"
+#   else
+#     echo -e "${RED}Configuration of Paymenthub Failed${RESET}"
+#     exit 1
+#   fi
 
-  # check if the configuration was successful
-  if [ $? -eq 0 ]; then
-    echo -e "${GREEN}Configuration of Paymenthub Successful${RESET}"
-  else
-    echo -e "${RED}Configuration of Paymenthub Failed${RESET}"
-    exit 1
-  fi
+#   # Return to the previous working directory
+#   cd "$previous_dir" || return 1
+# }
 
-  # Return to the previous working directory
-  cd "$previous_dir" || return 1
-}
-
-function configureFineract(){
-  echo -e "${BLUE}Configuring fineract ${RESET}"
+function configureMifosx(){
+  echo -e "${BLUE}Configuring MifosX ${RESET}"
 }
