@@ -199,6 +199,7 @@ mysql:
     username: "mifos"
     password: "password"
     rootPassword: "ethieTieCh8ahv"
+    DATASOURCE_URL: jdbc:mysql:thin://operationsmysql:3306/mysql-0
   image:
     tag: "5.7"
     debug: false
