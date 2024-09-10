@@ -79,7 +79,7 @@ Copyright © 2023 The Mifos Initiative
 ```
 
 # RUNNING THE POSTMAN COLLECTIONS
-Detailed instructions for configuring your deployment to execute Postman collections against the Mifos-Gazelle can be found [here](./)
+Detailed instructions for configuring your deployment to execute Postman collections against the Mifos-Gazelle can be found at `POSTMAN_SETUP.md` [here](./)
 
 
 # USING THE DEPLOYED APPS
