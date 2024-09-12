@@ -27,8 +27,8 @@ Options:
   -u user ................ (non root) user that the process will use for execution (required)
   -a apps ................ vnext|phee|mifosx (apps that can be independently deployed) (optional)
   -e environment ......... currently, 'local' is the only value supported and is the default (optional)
-  -d debug ............... enable debug mode (true|false) (optional)
-  -r redeploy ............ force redeployment of apps (true|false) (optional, defaults to false)
+  -d debug ............... enable debug mode (true|false) (optional default=false)
+  -r redeploy ............ force redeployment of apps (true|false) (optional, default=true)
   -h|H ................... display this message
 "
 }

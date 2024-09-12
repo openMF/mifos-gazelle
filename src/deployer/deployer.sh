@@ -26,15 +26,14 @@ function isPodRunning() {
 
 function isDeployed {
     local app_name="$1"
-
     if [[ "$app_name" == "infra" ]]; then
       # Check if the namespace exists
       if ! kubectl get namespace "$INFRA_NAMESPACE" > /dev/null 2>&1; then
           echo "false"
           return
       fi
-      # so namespace exists so Check if the infra Helm chart is deployed and running in the $INFRA_NAMESPACE
-      helm_status=$(helm status infra -n "$namespace" 2>&1)
+      # namespace exists so Check if the infra Helm chart is deployed and running in the $INFRA_NAMESPACE
+      helm_status=$(helm status infra -n "$INFRA_NAMESPACE" 2>&1)
       #echo "helm status is $helm_status"
       if echo "$helm_status" | awk '/^STATUS:/ {if ($2 == "deployed") exit 0; else exit 1}'; then
           echo "true"
@@ -43,11 +42,11 @@ function isDeployed {
       fi
     elif [[ "$app_name" == "phee" ]]; then 
       # Check if the namespace exists
-      if ! kubectl get namespace "$PHEE_NAMESPACE" > /dev/null 2>&1; then
+      if ! kubectl get namespace "$PH_NAMESPACE" > /dev/null 2>&1; then
           echo "false"
           return
       fi
-      helm_status=$(helm status infra -n "$PHEE_NAMESPACE" 2>&1)
+      helm_status=$(helm status phee -n "$PHEE_NAMESPACE" 2>&1)
       if echo "$helm_status" | awk '/^STATUS:/ {if ($2 == "deployed") exit 0; else exit 1}'; then
           echo "true"
       else
@@ -67,11 +66,10 @@ function isDeployed {
         echo "false"
       fi
     elif [[ "$app_name" == "mifosx" ]]; then
+      # MifosX installs so quickly we just redeploy each time 
       echo "false"
     fi
 }
-
-
 
 function manageSecrets {
     local action="$1"
@@ -300,7 +298,7 @@ function checkPHEEDependencies() {
   printf "    Installing Prometheus " 
   # Install Prometheus Operator if needed as it is a PHEE dependency
   local deployment_name="prometheus-operator"
-  deployment_available=$(kubectl get deployment "$deployment_name" -n "default" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
+  deployment_available=$(kubectl get deployment "$deployment_name" -n "default" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' > /dev/null 2>&1)
   if [[ "$deployment_available" == "True" ]]; then
     echo -e "${RED} prometheus already installed -skipping install. ${RESET}" 
     return 0
@@ -343,11 +341,13 @@ function deployPhHelmChartFromDir(){
 
 function deployPH(){
   if [[ "$(isDeployed "phee" )" == "true" ]]; then
+    echo "it is already deployed" 
     if [[ "$redeploy" == "false" ]]; then
       echo "$PH_RELEASE_NAME is already deployed. Skipping deployment."
       return
     else # need to delete prior to redeploy 
       deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
+      deleteResourcesInNamespaceMatchingPattern "default"  #just removes prometheus at the moment
       manageSecrets delete "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
     fi
   fi 
