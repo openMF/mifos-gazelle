@@ -1,6 +1,6 @@
 # SETTING UP POSTMAN COLLECTIONS
 
-We have a bash script `postman_setup.sh` under the [scripts](../scripts/post_installation.sh) directory that you can run to skip through the steps 1 and 5. 
+We have a bash script `postman_setup.sh` under the [src](../src/) directory that you can run to skip through the steps 1 and 5. 
 To run the script, you can do the following:
 Go to the directory where the script is located and run the following command:
 ```bash

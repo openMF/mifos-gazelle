@@ -5,7 +5,12 @@ echo "RUN_DIR is $RUN_DIR"
 BASE_DIR="$( cd $(dirname "$RUN_DIR") ; pwd )"
 echo "BASE_DIR is $BASE_DIR"
 
-exit 
+function welcome {
+    echo -e "\e[33mWARNING: In case you start getting service unavailable errors, please follow the Step 5 from the POSTMAN_SETPUP.md file.\e[0m"
+    echo -e "\e[33mWARNING: This script will only work if you have run the deployment atleast once successfully.\e[0m"
+    echo -e "\e[33mWARNING: This script uses the directory repos/phlabs/orchestration/feel/ to upload the BPMN diagrams to zeebe operations service.\e[0m"
+}
+
 # Check if the script is run with root privileges
 if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root" >&2
@@ -18,6 +23,8 @@ if [ $# -lt 1 ]; then
     echo "  -o: Override option. If true, overrides existing entry for the IP. Default is false."
     exit 1
 fi
+
+welcome
 
 # Initialize variables
 ip_address=$1
