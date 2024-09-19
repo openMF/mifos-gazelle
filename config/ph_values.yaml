@@ -3,15 +3,15 @@ ph-ee-engine:
   #   tenants: "rhino,gorilla,wakanda,pluto,venus,jupiter"
   #   DFSPIDS: "wakanda,pluto,venus,jupiter,gorilla"
 
-  # elasticsearch:
-  #   esJavaOpts: "-Xms512m -Xmx512m"
-  #   resources:
-  #     requests:
-  #       cpu: "100m"
-  #       memory: "128k"
-  #     limits:
-  #       cpu: "1000m"
-  #       memory: "1000M"
+  elasticsearch:
+    esJavaOpts: "-Xms512m -Xmx512m"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128k"
+      limits:
+        cpu: "1000m"
+        memory: "1000M"
 
   # Operations app
   operations_app:
@@ -100,7 +100,8 @@ ph-ee-engine:
         - name: init-ph-ee-kafka-exporter
           image: busybox:1.28
           command: ['/bin/sh', '-c']
-          args: ['wget -O /exporters/ph-ee-kafka-exporter.jar "http://10.0.0.4:8000/exporter-1.0.0-SNAPSHOT.jar"; ls -al /exporters/']
+          #args: ['wget -O /exporters/ph-ee-kafka-exporter.jar "http://10.0.0.4:8000/exporter-1.0.0-SNAPSHOT.jar"; ls -al /exporters/']
+          args: ['wget -O /exporters/ph-ee-kafka-exporter.jar "https://paymenthub-ee-dev.s3.us-east-2.amazonaws.com/jars/exporter-1.0.0-SNAPSHOT.jar"; ls -al /exporters/']
           volumeMounts:
             - name: exporters
               mountPath: /exporters/
