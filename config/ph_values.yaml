@@ -1,35 +1,125 @@
 ph-ee-engine:
+  # global: 
+  #   tenants: "rhino,gorilla,wakanda,pluto,venus,jupiter"
+  #   DFSPIDS: "wakanda,pluto,venus,jupiter,gorilla"
+
+  # elasticsearch:
+  #   esJavaOpts: "-Xms512m -Xmx512m"
+  #   resources:
+  #     requests:
+  #       cpu: "100m"
+  #       memory: "128k"
+  #     limits:
+  #       cpu: "1000m"
+  #       memory: "1000M"
+
   # Operations app
   operations_app:
     ingress:
       enabled: true
-      className: nginx
+      # className: nginx
+      # annotations:
+      #   kubernetes.io/ingress.class: nginx
+      #   nginx.ingress.kubernetes.io/cors-allow-headers: 'platform-tenantid'
+      #   nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS, DELETE
+      #   nginx.ingress.kubernetes.io/cors-allow-origin: '*'
+      #   nginx.ingress.kubernetes.io/enable-cors: "true"
+      # # tls:
+      # #   - secretName: sandbox-secret
+      # hosts:
+      #   - host: ops-bk.local
+      #     paths:
+      #     - path: "/"
+      #       backend:
+      #         service:
+      #           name: "ph-ee-operations-app"
+      #           port:
+      #             number: 80
+
+  operations_web:
+    enabled: true
+    image: docker.io/openmf/ph-ee-operations-web:latest
+    backend:
+      PH_OPS_BACKEND_SERVER_URL: http://ops.local/api/v1
+      PH_VOU_BACKEND_SERVER_URL: http://ops-bk.local/api/v1
+      PH_ACT_BACKEND_SERVER_URL: http://ph-ee-identity-account-mapper
+      PH_OPS_BULK_CONNECTOR_URL: http://ops.local/api/v1
+      PH_PLATFORM_TENANT_ID: gorilla
+      PH_PLATFORM_TENANT_IDS: gorilla
+    auth:
+      PH_AUTH_ENABLED: false
+      PH_OAUTH_ENABLED: false
+      PH_OAUTH_TYPE: keycloak
+      PH_OAUTH_SERVER_URL: http://keycloak.local/auth
+      PH_OAUTH_REALM: fred
+      PH_OAUTH_CLIENT_ID: fred2
+      PH_OAUTH_CLIENT_SECRET: Y2xpZW50Og==
+      PH_OAUTH_BASIC_AUTH: true
+      PH_OAUTH_BASIC_AUTH_TOKEN: Y2xpZW50Og==
+      PH_DEFAULT_LANGUAGE: en
+      PH_SUPPORTED_LANGUAGES: en,fr,es    
+    #hostname: "operations-web"
+    ingress:
       annotations:
         kubernetes.io/ingress.class: nginx
         nginx.ingress.kubernetes.io/cors-allow-headers: 'platform-tenantid'
         nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS, DELETE
         nginx.ingress.kubernetes.io/cors-allow-origin: '*'
         nginx.ingress.kubernetes.io/enable-cors: "true"
-      tls:
-        - secretName: sandbox-secret
+      enabled: true 
+      # tls:
+      #   - secretName: sandbox-secret
       hosts:
-        - host: ops-bk.local
-          paths:
+        - host: ops.local        
+          paths: 
           - path: "/"
             backend:
               service:
-                name: "ph-ee-operations-app"
+                name: "ph-ee-operations-web"
+                port:
+                  number: 4200
+          - path: "/api/v1/batches"
+            backend:
+              service:
+                name: "ph-ee-operations-web"
+                port:
+                  number: 80
+          - path: "/batchtransactions"
+            backend:
+              service:
+                name: "ph-ee-connector-bulk"
                 port:
                   number: 80
 
   camunda-platform:
     enabled: true
+
+    zeebe:   
+    # removes dependency of https://fynarfin.io for exporter jarfile   
+      extraInitContainers: 
+        - name: init-ph-ee-kafka-exporter
+          image: busybox:1.28
+          command: ['/bin/sh', '-c']
+          args: ['wget -O /exporters/ph-ee-kafka-exporter.jar "http://10.0.0.4:8000/exporter-1.0.0-SNAPSHOT.jar"; ls -al /exporters/']
+          volumeMounts:
+            - name: exporters
+              mountPath: /exporters/
+      # volumeClaimTemplate:
+      #   storageClassName: "local-path"
     
   # Zeebe operations
   zeebe_ops:
     ingress:
       enabled: true
       className: nginx
+    # note limts and requests should be in the ph-ee-engine values.yaml 
+    # so safe to take out now  
+    limits:
+      memory: "1000M"
+      cpu: "1000m"
+    requests:
+      memory: "128k"
+      cpu: "50m"
 
   # Vouchers
   vouchers:
@@ -47,32 +137,32 @@ ph-ee-engine:
 
   # Notifications
   notifications:
-    enabled: true
-    imagePullPolicy: "Always"
-    SPRING_PROFILES_ACTIVE: "bb"
-    LOGGING_LEVEL_ROOT: "INFO"
-    MESSAGEGATEWAYCONFIG_HOST: "message-gateway-1"
-    NOTIFICATION_LOCAL_HOST: "ph-ee-connector-notifications"
-    NOTIFICATION_SUCCESS_ENABLED: "false"
-    NOTIFICATION_FAILURE_ENABLED: "true"   
+    # enabled: true
+    # imagePullPolicy: "Always"
+    # SPRING_PROFILES_ACTIVE: "bb"
+    # LOGGING_LEVEL_ROOT: "INFO"
+    # MESSAGEGATEWAYCONFIG_HOST: "message-gateway-1"
+    # NOTIFICATION_LOCAL_HOST: "ph-ee-connector-notifications"
+    # NOTIFICATION_SUCCESS_ENABLED: "false"
+    # NOTIFICATION_FAILURE_ENABLED: "true"   
     hostname: "notifications.local"
     includeResources: false
     ingress:
       enabled: true
       className: nginx
-      annotations: 
-        kubernetes.io/ingress.class: nginx  
-      tls:
-        - secretName: sandbox-secret
-      hosts:
-        - host: notifications.local         
-          paths: 
-          - path: "/"
-            backend:
-              service:
-                name: "ph-ee-connector-notifications"
-                port:
-                  number: 80  
+      # annotations: 
+      #   kubernetes.io/ingress.class: nginx  
+      # tls:
+      #   - secretName: sandbox-secret
+      # hosts:
+      #   - host: notifications.local         
+      #     paths: 
+      #     - path: "/"
+      #       backend:
+      #         service:
+      #           name: "ph-ee-connector-notifications"
+      #           port:
+      #             number: 80  
     deployment:
       annotations:
         deployTime: "{{ .Values.deployTime }}"
@@ -89,22 +179,22 @@ ph-ee-engine:
     ingress:
       enabled: true
       className: nginx
-      annotations:
-        kubernetes.io/ingress.class: nginx
-      tls:
-        - secretName: sandbox-secret
-      hosts:
-        - host: mockpayment.local
-          paths:
-            - path: "/"
-              backend:
-                service:
-                  name: ph-ee-connector-mock-payment-schema
-                  port:
-                    number: 80
-    deployment:
-      annotations:
-        deployTime: "{{ .Values.deployTime }}"
+    #   annotations:
+    #     kubernetes.io/ingress.class: nginx
+    #   tls:
+    #     - secretName: sandbox-secret
+    #   hosts:
+    #     - host: mockpayment.local
+    #       paths:
+    #         - path: "/"
+    #           backend:
+    #             service:
+    #               name: ph-ee-connector-mock-payment-schema
+    #               port:
+    #                 number: 80
+    # deployment:
+    #   annotations:
+    #     deployTime: "{{ .Values.deployTime }}"
   
   # CRM
   crm:
@@ -122,14 +212,49 @@ ph-ee-engine:
       annotations:
         kubernetes.io/ingress.class: nginx
         nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-  
-  # Connector Bulk
+
   connector_bulk:
+    enabled: true
+    image: docker.io/openmf/ph-ee-bulk-processor:latest
+    tenants: "rhino,gorilla"
+    # deployment:
+    #   annotations:
+    #     rollme: "{{ randAlphaNum 5 | quote }}"
+    # operations_app:
+    #   contactpoint: "https://ops-bk.local/"
+    #   endpoints:
+    #     batch_transaction: "/api/v1/batch/transactions"
+    # identity_account_mapper:
+    #   hostname: "http://ph-ee-identity-account-mapper:80"
     ingress:
       enabled: true
       className: nginx
-      annotations:
-        nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+      # annotations:
+      #   kubernetes.io/ingress.class: nginx
+      #   nginx.ingress.kubernetes.io/cors-allow-headers: 'platform-tenantid'
+      #   nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS, DELETE
+      #   nginx.ingress.kubernetes.io/cors-allow-origin: '*'
+      #   nginx.ingress.kubernetes.io/enable-cors: "true"
+      enabled: true 
+      # tls:
+      #   - secretName: sandbox-secret
+      # hosts:
+      #   - host: bulk-connector.local     
+      #     paths: 
+      #     - path: "/"
+      #       backend:
+      #         service:
+      #           name: "ph-ee-connector-bulk"
+      #           port:
+      #             number: 8443
+
+  # # Connector Bulk
+  # connector_bulk:
+  #   ingress:
+  #     enabled: true
+  #     className: nginx
+  #     annotations:
+  #       nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 
   # Bill Pay
   billPay:
@@ -140,7 +265,6 @@ ph-ee-engine:
         kubernetes.io/ingress.class: nginx
 
   # PH-EE Connector AMS Mifos
-  ph_ee_connector_ams_mifos:
     ingress:
       enabled: true
       className: nginx
@@ -170,14 +294,17 @@ account_mapper:
     className: nginx
     annotations:
       kubernetes.io/ingress.class: nginx
-    tls:
-      - secretName: sandbox-secret
-    hosts:
-      - host: identity-mapper.local
-        paths:
-          - path: "/"
-            backend:
-              service:
-                name: ph-ee-identity-account-mapper
-                port:
-                  number: 80
+    # tls:
+    #   - secretName: sandbox-secret
+    # hosts:
+    #   - host: identity-mapper.local
+    #     paths:
+    #       - path: "/"
+    #         backend:
+    #           service:
+    #             name: ph-ee-identity-account-mapper
+    #             port:
+    #               number: 80
+
+  post_installation_job:
+    enabled: false

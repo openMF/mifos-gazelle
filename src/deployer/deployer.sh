@@ -355,7 +355,6 @@ function deployPH(){
   createNamespace "$PH_NAMESPACE"
   checkPHEEDependencies
   preparePaymentHubChart
-  #configurePH "$APPS_DIR$PHREPO_DIR/helm"
   manageSecrets create "$PH_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
   manageSecrets create "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
 
