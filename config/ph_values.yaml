@@ -15,6 +15,7 @@ ph-ee-engine:
 
   # Operations app
   operations_app:
+  image: docker.io/openmf/ph-ee-operations-app:v1.17.1
     ingress:
       enabled: true
       className: nginx
@@ -38,7 +39,7 @@ ph-ee-engine:
 
   operations_web:
     enabled: true
-    image: docker.io/openmf/ph-ee-operations-web:latest
+    image: docker.io/openmf/ph-ee-operations-web:v1.20.0
     backend:
       PH_OPS_BACKEND_SERVER_URL: http://ops.local/api/v1
       PH_VOU_BACKEND_SERVER_URL: http://ops-bk.local/api/v1
