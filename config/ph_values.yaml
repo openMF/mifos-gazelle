@@ -17,7 +17,7 @@ ph-ee-engine:
   operations_app:
     ingress:
       enabled: true
-      # className: nginx
+      className: nginx
       # annotations:
       #   kubernetes.io/ingress.class: nginx
       #   nginx.ingress.kubernetes.io/cors-allow-headers: 'platform-tenantid'
@@ -274,7 +274,7 @@ ph-ee-engine:
   minio:
     ingress:
       enabled: true
-      className: nginx
+      ingressClassName: nginx
       annotations:
         kubernetes.io/ingress.class: "nginx"
         nginx.ingress.kubernetes.io/backend-protocol: "HTTP"

@@ -33,12 +33,13 @@ fi
 # Default values
 secret_name=${secret_name:-"tls-secret"}
 namespace=${namespace:-"default"}
+key_dir="$HOME/.ssh"
 
 # Generate private key
-openssl genrsa -out "$domain_name.key" 2048
+openssl genrsa -out "$key_dir/$domain_name.key" 2048
 
 # Generate self-signed certificate
-openssl req -x509 -new -nodes -key "$domain_name.key" -sha256 -days 365 -out "$domain_name.crt" -subj "/CN=$domain_name" -extensions v3_req -config <(
+openssl req -x509 -new -nodes -key "$key_dir/$domain_name.key" -sha256 -days 365 -out "$key_dir/$domain_name.crt" -subj "/CN=$domain_name" -extensions v3_req -config <(
 cat <<EOF
 [req]
 distinguished_name = req_distinguished_name
@@ -56,9 +57,9 @@ EOF
 )
 
 # Verify the certificate
-openssl x509 -in "$domain_name.crt" -noout -text
+openssl x509 -in "$key_dir/$domain_name.crt" -noout -text
 
 # Create the Kubernetes TLS secret
-kubectl create secret tls "$secret_name" --cert="$domain_name.crt" --key="$domain_name.key" -n "$namespace"
+kubectl create secret tls "$secret_name" --cert="$key_dir/$domain_name.crt" --key="$key_dir/$domain_name.key" -n "$namespace"
 
 echo "Self-signed certificate and secret '$secret_name' created successfully in namespace '$namespace'."
