@@ -28,7 +28,10 @@ done
 if [[ -z "$domain_name" ]]; then
     echo "Error: Domain name is required. Use -d option."
     usage
+else 
+    echo "Using domain name : $domain_name"
 fi
+
 
 # Default values
 secret_name=${secret_name:-"tls-secret"}
@@ -37,8 +40,10 @@ key_dir="$HOME/.ssh"
 
 # Generate private key
 openssl genrsa -out "$key_dir/$domain_name.key" 2048
+domain_name=${domain_name:-"your_default_domain"}
 
 # Generate self-signed certificate
+
 openssl req -x509 -new -nodes -key "$key_dir/$domain_name.key" -sha256 -days 365 -out "$key_dir/$domain_name.crt" -subj "/CN=$domain_name" -extensions v3_req -config <(
 cat <<EOF
 [req]
