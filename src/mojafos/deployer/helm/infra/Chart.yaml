@@ -71,7 +71,7 @@ dependencies:
   - mojafos
   - dependency
   - elasticsearch
-  version: 19.9.2
+  version: 21.3.22
 ## MySQL
 - name: mysql
   alias: mysql
