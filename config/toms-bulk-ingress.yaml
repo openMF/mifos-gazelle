@@ -1,0 +1,48 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    # kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    meta.helm.sh/release-name: phee
+    meta.helm.sh/release-namespace: paymenthub
+    nginx.ingress.kubernetes.io/cors-allow-headers: content-type,platform-tenantid,privatekey,x-correlationid,x-correlation-id,purpose,type,x-callback-url,x-program-id,x-registering-institution-id,x-signature
+    nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS, DELETE
+    nginx.ingress.kubernetes.io/cors-allow-origin: '*'
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+  labels:
+    app: connector_bulk
+    app.kubernetes.io/managed-by: Helm
+    heritage: Helm
+    release: phee
+  name: toms-bulk
+  namespace: paymenthub
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: toms-bulk.mifos.gazelle.test
+    http:
+      paths:
+      - backend:
+          service:
+            name: ph-ee-connector-bulk
+            port:
+              number: 5000
+        path: /batchtransactions
+        pathType: ImplementationSpecific
+      - backend:
+          service:
+            name: ph-ee-connector-bulk
+            port:
+              number: 5000
+        path: /bulk
+        pathType: ImplementationSpecific
+
+  tls:
+  - hosts:
+    - toms-bulk.mifos.gazelle.test
+  - secretName: toms-secret-3
+status:
+  loadBalancer:
+    ingress:
+    - ip: 10.0.0.4

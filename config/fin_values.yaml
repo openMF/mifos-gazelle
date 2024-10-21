@@ -19,7 +19,7 @@ fineract:
   preStopScript: 'echo -e "******Fineract is stopping********";'
   ingress:
     enabled: true
-    hostname: "2-fynams.sandbox.fynarfin.io"
+    hostname: "1-fynams.sandbox.fynarfin.io"
     path: "/"
     wildcardhostname: "*.sandbox.fynarfin.io"
     annotations:
@@ -30,7 +30,7 @@ fineract:
       cpu: "1000m"
       memory: "2Gi"
     requests:
-      cpu: "1m"
+      cpu: "100m"
       memory: "100m"
 
 communityapp:
@@ -39,9 +39,9 @@ communityapp:
   image: "openmf/community-app:latest"
   ingress:
     enabled: true
-    hostname: "2-communityapp.sandbox.fynarfin.io"
+    hostname: "1-communityapp.sandbox.fynarfin.io"
     path: "/"
-    wildcardhostname: "2-communityapp.sandbox.fynarfin.io"
+    wildcardhostname: "1-communityapp.sandbox.fynarfin.io"
     annotations:
       kubernetes.io/ingress.class: "nginx"
   resources:
@@ -57,7 +57,7 @@ webapp:
   image: "fintecheando/web-app:master"
   ingress:
     enabled: true
-    hostname: "2-webapp.sandbox.fynarfin.io"
+    hostname: "1-webapp.sandbox.fynarfin.io"
     path: "/web"
     annotations:
       kubernetes.io/ingress.class: "nginx"
@@ -104,8 +104,8 @@ mysql:
   primary:
     resources:
       requests:
-        memory: "500m"
-        cpu: "500m"
+        memory: "100m"
+        cpu: "100m"
       limits:
         memory: "2Gi"
         cpu: "1000m"

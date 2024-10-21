@@ -1,0 +1,14 @@
+## nginx configuration
+## Ref: https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/index.md
+##
+
+controller:
+  ingressClassResource:
+    name: nginx
+  # extraArgs:
+  #   default-ssl-certificate: "paymenthub/toms-secret-2"
+  # config:
+  #   hsts: "false"
+  #   hsts-max-age: "0"
+  #   hsts-include-subdomains: "false"
+  #   hsts-preload: "false"

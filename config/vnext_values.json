@@ -13,6 +13,6 @@
   },
   {
     "old_value": "value: http:\\/\\/infra-elasticsearch:9200",
-    "new_value": "value: http:\\/\\/mojafos-infra-elasticsearch.infra.svc.cluster.local:9200"
+    "new_value": "value: http:\\/\\/infra-elasticsearch.infra.svc.cluster.local:9200"
   }
 ]
