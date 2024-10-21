@@ -385,7 +385,7 @@ function add_helm_repos {
 }
 
 function configure_k8s_user_env {
-    start_message="# ML_START start of config added by mifos-gazelle #"
+    start_message="# GAZELLE_START start of config added by mifos-gazelle #"
     grep "start of config added by mifos-gazelle" $k8s_user_home/.bashrc >/dev/null 2>&1
     if [[ $? -ne 0  ]]; then
         printf "==> Adding configuration for %s to %s .bashrc\n" "$k8s_distro" "$k8s_user"
@@ -396,7 +396,7 @@ function configure_k8s_user_env {
         echo "alias ksetns=\"kubectl config set-context --current --namespace\" " >>  $k8s_user_home/.bashrc
         echo "alias ksetuser=\"kubectl config set-context --current --user\" "  >>  $k8s_user_home/.bashrc
         echo "alias cdml=\"cd $k8s_user_home/mifos-gazelle\" " >>  $k8s_user_home/.bashrc
-        printf "#ML_END end of config added by mifos-gazelle #\n" >> $k8s_user_home/.bashrc
+        printf "#GAZELLE_END end of config added by mifos-gazelle #\n" >> $k8s_user_home/.bashrc
     else
         printf "\r==> Configuration for .bashrc for %s for user %s already exists ..skipping\n" "$k8s_distro" "$k8s_user"
     fi

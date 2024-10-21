@@ -282,7 +282,7 @@ function preparePaymentHubChart(){
   cloneRepo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
 
   # Update helm dependencies and repo index for ph-ee-engine
-  echo "    udating dependencies ph-ee-engine chart "
+  echo "    updating dependencies ph-ee-engine chart "
   phEEenginePath="$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine"
   su - $k8s_user -c "cd $phEEenginePath;  helm dep update" >> /dev/null 2>&1 
   su - $k8s_user -c "cd $phEEenginePath;  helm repo index ."
@@ -397,7 +397,7 @@ function deployInfrastructure () {
   createNamespace $INFRA_NAMESPACE
 
   # Update helm dependencies and repo index for infra chart 
-  printf  "    udating dependencies for infra helm chart "
+  printf  "    updating dependencies for infra helm chart "
   su - $k8s_user -c "cd $INFRA_CHART_DIR;  helm dep update" >> /dev/null 2>&1 
   check_command_execution "Updating dependencies for infra chart"
   echo " [ok] "
@@ -525,7 +525,7 @@ function DeployMifosXfromYaml() {
   #echo "Deploying files in $manifests_dir"
   applyKubeManifests "$manifests_dir" "$MIFOSX_NAMESPACE-$num_instances"
 
-  echo -e "\n${GREEN}================================="
+  echo -e "\n${GREEN}====================================="
   echo -e "MifosX (fineract + web app) Deployed"
   echo -e "=====================================${RESET}\n"
 } 
@@ -550,7 +550,6 @@ function printEndMessage {
   echo -e "kubectl get pods -n vnext #For testing mojaloop vNext"
   echo -e "kubectl get pods -n paymenthub #For testing paymenthub"
   echo -e "kubectl get pods -n mifosx #For testing MifosX x is a number of a MifosX instances\n\n"
-  echo -e "Copyright © 2023 The Mifos Initiative"
 }
 
 function deleteApps {

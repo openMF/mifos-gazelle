@@ -133,7 +133,7 @@ function main {
   if [ $mode == "deploy" ]; then
     echo -e "${YELLOW}"
     echo -e "======================================================================================================"
-    echo -e "The deployment made by this script is currently recommended for demo, test and edcational purposes "
+    echo -e "The deployment made by this script is currently recommended for demo, test and educational purposes "
     echo -e "======================================================================================================"
     echo -e "${RESET}"
     envSetupMain "$mode" "k3s" "1.30" "$environment"
