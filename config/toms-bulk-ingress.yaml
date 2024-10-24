@@ -20,29 +20,22 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: toms-bulk.mifos.gazelle.test
+  - host: bulk-connector.mifos.gazelle.test
     http:
       paths:
       - backend:
           service:
             name: ph-ee-connector-bulk
             port:
-              number: 5000
-        path: /batchtransactions
-        pathType: ImplementationSpecific
-      - backend:
-          service:
-            name: ph-ee-connector-bulk
-            port:
-              number: 5000
-        path: /bulk
+              number: 8443
+        path: /
         pathType: ImplementationSpecific
 
   tls:
   - hosts:
-    - toms-bulk.mifos.gazelle.test
-  - secretName: toms-secret-3
-status:
-  loadBalancer:
-    ingress:
-    - ip: 10.0.0.4
+    - bulk-connector.mifos.gazelle.test
+  - secretName: sandbox-secret
+# status:
+#   loadBalancer:
+#     ingress:
+#     - ip: 10.0.0.4

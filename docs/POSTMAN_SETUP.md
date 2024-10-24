@@ -1,4 +1,4 @@
-# SETTING UP POSTMAN COLLECTIONS
+# SETTING UP POSTMAN COLLECTIONS for Payment Hub EE 
 
 We have a bash script `postman_setup.sh` under the [src](../src/) directory that you can run to skip through the steps 1 and 5. 
 To run the script, you can do the following:

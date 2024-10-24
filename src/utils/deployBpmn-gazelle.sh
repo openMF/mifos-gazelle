@@ -4,7 +4,7 @@
 SCRIPT_DIR=$( cd $(dirname "$0") ; pwd )
 BPMN_DIR="$( cd $(dirname "$SCRIPT_DIR")/../repos/phlabs ; pwd )"
 
-HOST="https://zeebeops.local/zeebe/upload"
+HOST="https://zeebeops.mifos.gazelle.test/zeebe/upload"
 DEBUG=false
 
 deploy() {

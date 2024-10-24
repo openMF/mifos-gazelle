@@ -1,5 +1,6 @@
 ph-ee-engine:
-  # global: 
+  global: 
+    imagePullPolicy: IfNotPresent
   #   tenants: "rhino,gorilla,wakanda,pluto,venus,jupiter"
   #   DFSPIDS: "wakanda,pluto,venus,jupiter,gorilla"
 
@@ -40,15 +41,15 @@ ph-ee-engine:
   operations_web:
     enabled: true
     #image: docker.io/openmf/ph-ee-operations-web:v1.20.0
-    # note as at Oct 2024 latest is Victor's fix for oneacre issue
-    image: docker.io/openmf/ph-ee-operations-web:latest
+    # note as at Oct 2024 latest is Victor's fix for oneacre issue is in master branch 
+    #image: docker.io/openmf/ph-ee-operations-web:master
+    image: docker.io/openmf/ph-ee-operations-web:dev1 
     backend:
       PH_OPS_BACKEND_SERVER_URL: https://ops.mifos.gazelle.test/api/v1
       PH_VOU_BACKEND_SERVER_URL: https://ops.mifos.gazelle.test/api/v1
       PH_ACT_BACKEND_SERVER_URL: https://ops.mifos.gazelle.test
-      PH_OPS_BULK_CONNECTOR_URL: https://ops.mifos.gazelle.test
-      #PH_OPS_SIGNATURE_URL: https://ops.mifos.gazelle.test/api/v1/util/x-signature
-      PH_OPS_SIGNATURE_URL: https://ops.mifos.gazelle.test
+      PH_OPS_BULK_CONNECTOR_URL: https://bulk-connector.mifos.gazelle.test
+      PH_OPS_SIGNATURE_URL: https://ops.mifos.gazelle.test/api/v1/util/x-signature
       PH_PLATFORM_TENANT_ID: gorilla
       PH_PLATFORM_TENANT_IDS: gorilla
     auth:
@@ -73,11 +74,11 @@ ph-ee-engine:
         nginx.ingress.kubernetes.io/enable-cors: "true"
       enabled: true 
       tls:
-        - secretName: toms-secret-3
+        - secretName: sandbox-secret
       hosts:
         - host: ops.mifos.gazelle.test       
           paths: 
-          - path: "/home"
+          - path: "/"
             backend:
               service:
                 name: "ph-ee-operations-web"
@@ -252,7 +253,7 @@ ph-ee-engine:
 
   connector_bulk:
     enabled: true
-    #tenants: "rhino,gorilla"
+    tenants: "rhino,gorilla"
     # deployment:
     #   annotations:
     #     rollme: "{{ randAlphaNum 5 | quote }}"
@@ -266,15 +267,16 @@ ph-ee-engine:
       enabled: true
       className: nginx
       annotations:
-        #nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+        nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
         kubernetes.io/ingress.class: nginx
-        nginx.ingress.kubernetes.io/cors-allow-headers: 'platform-tenantid'
+        nginx.ingress.kubernetes.io/cors-allow-headers: "content-type,platform-tenantid,purpose,type,x-callback-url,x-correlationid,x-program-id,x-registering-institution-id,x-signature"
         nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS, DELETE
-        nginx.ingress.kubernetes.io/cors-allow-origin: '*'
+        #nginx.ingress.kubernetes.io/cors-allow-origin: '*'
         #nginx.ingress.kubernetes.io/cors-allow-origin-regex: "https?://ops\.mifos.gazelle.test:4200"
+        nginx.ingress.kubernetes.io/cors-allow-origin-regex: "https://ops.mifos.gazelle.test"
         nginx.ingress.kubernetes.io/enable-cors: "true"
       tls:
-        - secretName: toms-secret-3
+        - secretName: sandbox-secret
       hosts:
         - host: bulk-connector.mifos.gazelle.test     
           paths: 
@@ -283,7 +285,7 @@ ph-ee-engine:
               service:
                 name: "ph-ee-connector-bulk"
                 port:
-                  number: 5000
+                  number: 8443
 
   # # Connector Bulk
   # connector_bulk:

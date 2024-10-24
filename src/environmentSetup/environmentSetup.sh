@@ -148,10 +148,30 @@ function install_prerequisites {
 
 function add_hosts {
     printf "==> Mifos-gazelle : update hosts file \n"
-    ENDPOINTSLIST=(127.0.0.1  mongohost.local mongo-express.local vnextadmin elasticsearch.local redpanda-console.local fspiop.local bluebank.local greenbank.local bluebank-specapi.local greenbank-specapi.local )
+    VNEXTHOSTS=( mongohost.local mongo-express.local \
+                 vnextadmin elasticsearch.local redpanda-console.local \
+                 fspiop.local bluebank.local greenbank.local \
+                 bluebank-specapi.local greenbank-specapi.local ) 
 
-    export ENDPOINTS=`echo ${ENDPOINTSLIST[*]}`
+    PHEEHOSTS=(  ops.mifos.gazelle.test ops-bk.mifos.gazelle.test \
+                 bulk-connector.mifos.gazelle.test messagegateway.mifos.gazelle.test \
+                 minio.mifos.gazelle.test ams-mifos.mifos.gazelle.test \
+                 bill-pay.mifos.gazelle.test channel.mifos.gazelle.test \
+                 channel-gsma.mifos.gazelle.test crm.mifos.gazelle.test \
+                 mockpayment.mifos.gazelle.test mojaloop.mifos.gazelle.test \
+                 identity-mapper.mifos.gazelle.test analytics.mifos.gazelle.test \
+                 vouchers.mifos.gazelle.test zeebeops.mifos.gazelle.test \
+                 notifications.mifos.gazelle.test )  
 
+    MIFOSXHOSTS=( mifos.mifos.gazelle.test fineract.mifos.gazelle.test ) 
+
+    ALLHOSTS=( "127.0.0.1" "localhost" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}"  )
+
+    export ENDPOINTS=`echo ${ALLHOSTS[*]}`
+    # remove any existing extra hosts from 127.0.0.1 entry in localhost 
+    perl -pi -e 's/^(127\.0\.0\.1\s+)(.*)/$1localhost/' /etc/hosts
+
+    # add all the gazelle hosts to the 127.0.0.1 localhost entry of /etc/hosts 
     perl -p -i.bak -e 's/127\.0\.0\.1.*localhost.*$/$ENV{ENDPOINTS} /' /etc/hosts
     # TODO check the ping actually works > suggest cloud network rules if it doesn't
     #      also for cloud VMs might need to use something other than curl e.g. netcat ?
@@ -449,7 +469,7 @@ function delete_k8s {
         fi
     fi
     # remove config from user .bashrc
-    perl -i -ne 'print unless /START_ML/ .. /END_ML/'  $k8s_user_home/.bashrc
+    perl -i -ne 'print unless /START_GAZELLE/ .. /END_GAZELLE/'  $k8s_user_home/.bashrc
 }
 
 function checkClusterConnection {
@@ -582,11 +602,10 @@ function envSetupMain {
                     "$k8s_distro" "$K8S_VERSION" "$k8s_user"
         print_end_message
     elif [[ "$mode" == "cleanall" ]]  ; then
-        #deleteAppResources
         if [[ "$environment" == "local" ]]; then
             echo "Deleting local kubernetes cluster..."
             delete_k8s
-            echo "Local Kubernetes deleted"
+            echo "Local Kubernetes deleted" 
         fi
         print_end_message_tear_down
     else

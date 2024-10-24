@@ -71,7 +71,42 @@ function isDeployed {
     fi
 }
 
-function manageSecrets {
+function createIngressSecret {
+    local namespace="$1"
+    local domain_name="$2"
+    local secret_name="$3"
+    key_dir="$HOME/.ssh"
+
+    # Generate private key
+    openssl genrsa -out "$key_dir/$domain_name.key" 2048
+
+    # Generate self-signed certificate
+    openssl req -x509 -new -nodes -key "$key_dir/$domain_name.key" -sha256 -days 365 -out "$key_dir/$domain_name.crt" -subj "/CN=$domain_name" -extensions v3_req -config <(
+    cat <<EOF
+    [req]
+    distinguished_name = req_distinguished_name
+    x509_extensions = v3_req
+    prompt = no
+    [req_distinguished_name]
+    CN = $domain_name
+    [v3_req]
+    subjectAltName = @alt_names
+    keyUsage = critical, digitalSignature, keyEncipherment
+    extendedKeyUsage = serverAuth
+    [alt_names]
+    DNS.1 = $domain_name
+EOF
+)
+    # Verify the certificate
+    openssl x509 -in "$key_dir/$domain_name.crt" -noout -text
+
+    # Create the Kubernetes TLS secret
+    kubectl create secret tls "$secret_name" --cert="$key_dir/$domain_name.crt" --key="$key_dir/$domain_name.key" -n "$namespace"
+
+    echo "Self-signed certificate and secret '$secret_name' created successfully in namespace '$namespace'."
+} 
+
+function manageElasticSecrets {
     local action="$1"
     local namespace="$2"
     local certdir="$3" # location of the .p12 and .pem files 
@@ -348,15 +383,16 @@ function deployPH(){
     else # need to delete prior to redeploy 
       deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
       deleteResourcesInNamespaceMatchingPattern "default"  #just removes prometheus at the moment
-      manageSecrets delete "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
+      manageElasticSecrets delete "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
     fi
   fi 
   echo "Deploying PaymentHub EE"
   createNamespace "$PH_NAMESPACE"
   checkPHEEDependencies
   preparePaymentHubChart
-  manageSecrets create "$PH_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
-  manageSecrets create "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
+  manageElasticSecrets create "$PH_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
+  manageElasticSecrets create "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
+  createIngressSecret "$PH_NAMESPACE" "$GAZELLE_DOMAIN" sandbox-secret
 
   #deployPhHelmChartFromDir "$PH_NAMESPACE" "$g2pSandboxFinalChartPath" "$PH_VALUES_FILE"
   deployPhHelmChartFromDir "$PH_NAMESPACE" "$gazelleChartPath" "$PH_VALUES_FILE"

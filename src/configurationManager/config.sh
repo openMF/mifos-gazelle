@@ -11,6 +11,7 @@ INFRA_NAMESPACE="infra"
 INFRA_RELEASE_NAME="infra"
 INFRA_CHART_DIR="$BASE_DIR/src/deployer/helm/infra" 
 NGINX_VALUES_FILE="$CONFIG_DIR/nginx_values.yaml"
+GAZELLE_DOMAIN="mifos.gazelle.test"
 
 # Mojaloop vNext 
 VNEXTBRANCH="beta1"
