@@ -161,9 +161,12 @@ cython_debug/
 
 #Helm
 charts/
+Chart.lock
 
 #gitrepos
+vnext/
 mojaloop/
 ph/
 fineract/
 apps/
+repos/ 

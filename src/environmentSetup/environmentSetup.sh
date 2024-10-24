@@ -2,7 +2,7 @@
 
 function check_arch_ok {
     if [[ ! "$k8s_arch" == "x86_64" ]]; then
-        printf " **** Warning : mojafos only works properly with x86_64 today but vNext should be ok *****\n"
+        printf " **** Warning : mifos-gazelle only works properly with x86_64 today but vNext should be ok *****\n"
     fi
 }
 
@@ -14,17 +14,31 @@ function check_resources_ok {
 
     # Check RAM
     if [[ "$total_ram" -lt "$MIN_RAM" ]]; then
-        printf " ** Error : mojafos currently requires $MIN_RAM GBs to run properly \n"
-        printf "    Please increase RAM available before trying to run mojafos \n"
+        printf " ** Error : mifos-gazelle currently requires $MIN_RAM GBs to run properly \n"
+        printf "    Please increase RAM available before trying to run mifos-gazelle \n"
         exit 1
     fi
     # Check free space
         if [[  "$free_space" -lt "$MIN_FREE_SPACE" ]] ; then
-        printf " ** Warning : mojafos currently requires %sGBs free storage in %s home directory  \n"  "$MIN_FREE_SPACE" "$k8s_user"
+        printf " ** Warning : mifos-gazelle currently requires %sGBs free storage in %s home directory  \n"  "$MIN_FREE_SPACE" "$k8s_user"
         printf "    but only found %sGBs free storage \n"  "$free_space"
-        printf "    mojafos installation will continue , but beware it might fail later due to insufficient storage \n"
+        printf "    mifos-gazelle installation will continue , but beware it might fail later due to insufficient storage \n"
     fi
 }
+
+function checkHelmandKubectl {
+     # Check if Helm is installed
+    if ! command -v helm &>/dev/null; then
+        echo "Helm is not installed. Please install Helm first."
+        exit 1
+    fi
+
+    # Check if kubectl is installed
+    if ! command -v kubectl &>/dev/null; then
+        echo "kubectl is not installed. Please install kubectl first."
+        exit 1
+    fi
+} 
 
 function set_user {
   # set the k8s_user
@@ -34,14 +48,15 @@ function set_user {
 
 function k8s_already_installed {
     if [[ -f "/usr/local/bin/k3s" ]]; then
-        printf "** Error , k3s is already installed , please delete before reinstalling kubernetes  **\n"
-        exit 1
+        printf "==>  k3s is already installed **\n"
+        return 0
     fi
     #check to ensure microk8s isn't already installed when installing k3s
     if [[ -f "/snap/bin/microk8s" ]]; then
-        printf "** Error , microk8s is already installed, please delete before reinstalling kubernetes  **\n"
-        exit 1
+        printf "** warning , microk8s is already installed, using existing deployment  **\n"
+        return 0 
     fi
+    return 1
 }
 
 function set_linux_os_distro {
@@ -57,11 +72,11 @@ function set_linux_os_distro {
 }
 
 function check_os_ok {
-    printf "\r==> checking OS and kubernetes distro is tested with mojafos scripts\n"
+    printf "\r==> checking OS and kubernetes distro is tested with mifos-gazelle scripts\n"
     set_linux_os_distro
 
     if [[ ! $LINUX_OS == "Ubuntu" ]]; then
-        printf "** Error , mojafos $MINILOOP_VERSION is only tested with Ubuntu OS at this time   **\n"
+        printf "** Error , Mifos Gazelle is only tested with Ubuntu OS at this time   **\n"
         exit 1
     fi
 }
@@ -127,19 +142,36 @@ function install_prerequisites {
           logWithVerboseCheck $debug debug "jq is already installed\n"
       fi
     fi
+
+
 }
 
 function add_hosts {
-    printf "==> Mojafos : update hosts file \n"
-    ENDPOINTSLIST=(127.0.0.1   ml-api-adapter.local central-ledger.local account-lookup-service.local account-lookup-service-admin.local
-    quoting-service.local central-settlement-service.local transaction-request-service.local central-settlement.local bulk-api-adapter.local
-    moja-simulator.local sim-payerfsp.local sim-payeefsp.local sim-testfsp1.local sim-testfsp2.local sim-testfsp3.local sim-testfsp4.local
-    mojaloop-simulators.local finance-portal.local operator-settlement.local settlement-management.local testing-toolkit.local
-    testing-toolkit-specapi.local apachehost
-    mongohost.local mongo-express.local vnextadmin elasticsearch.local redpanda-console.local fspiop.local bluebank.local greenbank.local bluebank-specapi.local greenbank-specapi.local )
+    printf "==> Mifos-gazelle : update hosts file \n"
+    VNEXTHOSTS=( mongohost.local mongo-express.local \
+                 vnextadmin elasticsearch.local redpanda-console.local \
+                 fspiop.local bluebank.local greenbank.local \
+                 bluebank-specapi.local greenbank-specapi.local ) 
 
-    export ENDPOINTS=`echo ${ENDPOINTSLIST[*]}`
+    PHEEHOSTS=(  ops.mifos.gazelle.test ops-bk.mifos.gazelle.test \
+                 bulk-connector.mifos.gazelle.test messagegateway.mifos.gazelle.test \
+                 minio.mifos.gazelle.test ams-mifos.mifos.gazelle.test \
+                 bill-pay.mifos.gazelle.test channel.mifos.gazelle.test \
+                 channel-gsma.mifos.gazelle.test crm.mifos.gazelle.test \
+                 mockpayment.mifos.gazelle.test mojaloop.mifos.gazelle.test \
+                 identity-mapper.mifos.gazelle.test analytics.mifos.gazelle.test \
+                 vouchers.mifos.gazelle.test zeebeops.mifos.gazelle.test \
+                 notifications.mifos.gazelle.test )  
 
+    MIFOSXHOSTS=( mifos.mifos.gazelle.test fineract.mifos.gazelle.test ) 
+
+    ALLHOSTS=( "127.0.0.1" "localhost" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}"  )
+
+    export ENDPOINTS=`echo ${ALLHOSTS[*]}`
+    # remove any existing extra hosts from 127.0.0.1 entry in localhost 
+    perl -pi -e 's/^(127\.0\.0\.1\s+)(.*)/$1localhost/' /etc/hosts
+
+    # add all the gazelle hosts to the 127.0.0.1 localhost entry of /etc/hosts 
     perl -p -i.bak -e 's/127\.0\.0\.1.*localhost.*$/$ENV{ENDPOINTS} /' /etc/hosts
     # TODO check the ping actually works > suggest cloud network rules if it doesn't
     #      also for cloud VMs might need to use something other than curl e.g. netcat ?
@@ -173,7 +205,7 @@ function set_k8s_version {
     # printf "========================================================================================\n"
     # printf " set the k8s version to install  \n"
     # printf "========================================================================================\n\n"
-    # Users who want to run non-current versions of kubernetes will need to use earlier releases of mojafos and
+    # Users who want to run non-current versions of kubernetes will need to use earlier releases of mifos-gazelle and
     # and be aware that these are not being actively maintained
     if [ ! -z ${k8s_user_version+x} ] ; then
         # strip off any leading characters
@@ -206,27 +238,24 @@ function do_microk8s_install {
     # TODO : Microk8s can complain that This is insecure. Location: /var/snap/microk8s/2952/credentials/client.config
     printf "==> Installing Kubernetes MicroK8s & enabling tools (helm,ingress  etc) \n"
 
-    echo "==> Mojaloop Microk8s Install: installing microk8s release $k8s_user_version ... "
+    echo "==> Microk8s Install: installing microk8s release $k8s_user_version ... "
     # ensure k8s_user has clean .kube/config
     rm -rf $k8s_user_home/.kube >> /dev/null 2>&1
 
     snap install microk8s --classic --channel=$K8S_VERSION/stable
     microk8s.status --wait-ready
 
-    #echo "==> Mojaloop Microk8s Install: enable helm ... "
     microk8s.enable helm3
-    #echo "==> Mojaloop Microk8s Install: enable dns ... "
     microk8s.enable dns
-    echo "==> Mojaloop: enable storage ... "
+    echo "==> enable storage ... "
     microk8s.enable storage
-    #echo "==> Mojaloop: enable ingress ... "
     microk8s.enable ingress
 
-    echo "==> Mojaloop: add convenient aliases..."
+    echo "==> add convenient aliases..."
     snap alias microk8s.kubectl kubectl
     snap alias microk8s.helm3 helm
 
-    echo "==> Mojaloop: add $k8s_user user to microk8s group"
+    echo "==> add $k8s_user user to microk8s group"
     usermod -a -G microk8s $k8s_user
 
     # ensure .kube/config points to this new cluster and KUBECONFIG is not set in .bashrc
@@ -238,7 +267,7 @@ function do_microk8s_install {
 
 function do_k3s_install {
     printf "========================================================================================\n"
-    printf "Mojafos k3s install : Installing Kubernetes k3s engine and tools (helm/ingress etc) \n"
+    printf "Mifos-gazelle k3s install : Installing Kubernetes k3s engine and tools (helm/ingress etc) \n"
     printf "========================================================================================\n"
     # ensure k8s_user has clean .kube/config
     rm -rf $k8s_user_home/.kube >> /dev/null 2>&1
@@ -297,25 +326,57 @@ function do_k3s_install {
         printf "** Error : helm install seems to have failed ** \n"
         exit 1
     fi
+}
 
-    #install nginx
-    printf "\r==> installing nginx ingress chart and wait for it to be ready "
-    su - $k8s_user -c "helm install --wait --timeout 300s ingress-nginx ingress-nginx --repo https://kubernetes.github.io/ingress-nginx" > /dev/null 2>&1
-    # TODO : check to ensure that the ingress is indeed running
-    nginx_pod_name=$(kubectl get pods | grep nginx | awk '{print $1}')
+function check_nginx_running {
+    # Get the first nginx pod name
+    nginx_pod_name=$(kubectl get pods --no-headers -o custom-columns=":metadata.name" | grep nginx | head -n 1)
 
     if [ -z "$nginx_pod_name" ]; then
-        printf "** Error : helm install of nginx seems to have failed , no nginx pod found ** \n"
-        exit 1
+        # No nginx pod found
+        return 1
     fi
     # Check if the Nginx pod is running
-    if kubectl get pods $nginx_pod_name | grep -q "Running"; then
-        printf "[ok]\n"
+    pod_status=$(kubectl get pod $nginx_pod_name -o jsonpath='{.status.phase}')
+    if [ "$pod_status" == "Running" ]; then
+        # nginx is running
+        return 0
     else
-        printf "** Error : helm install of nginx seems to have failed , nginx pod is not running  ** \n"
-        exit 1
+        # nginx is not running
+        return 1
     fi
+}
 
+function install_nginx () { 
+    local cluster_type=$1
+    local k8s_distro=$2
+    #install nginx
+    printf "\r==> installing nginx ingress chart and wait for it to be ready "
+    if check_nginx_running; then 
+        printf "[ nginx already installed and running ] \n"
+        return 0 
+    fi 
+    # echo "\n nope cluster is not running"
+    # echo "cluster_type=$cluster_type"
+    # echo "k8s_distro=$k8s_distro"
+    if [[ $cluster_type == "local" ]]; then 
+        if [[ $k8s_distro == "microk8s" ]]; then 
+            microk8s.enable ingress
+            printf "[ok]\n"
+        else # i.e. k3s 
+            su - $k8s_user -c "helm delete ingress-nginx -n default " > /dev/null 2>&1
+            su - $k8s_user -c "helm install --wait --timeout 300s ingress-nginx ingress-nginx \
+                              --repo https://kubernetes.github.io/ingress-nginx \
+                              -n default -f $NGINX_VALUES_FILE" > /dev/null 2>&1
+            # Check if the Nginx pod is running
+            if check_nginx_running; then 
+                printf "[ok]\n"
+            else
+                printf "** Error : helm install of nginx seems to have failed , nginx pod is not running  ** \n"
+                exit 1
+            fi
+        fi 
+    fi 
 }
 
 function install_k8s_tools {
@@ -331,8 +392,7 @@ function install_k8s_tools {
 }
 
 function add_helm_repos {
-    # see readme at https://github.com/mojaloop/helm for required helm libs
-    printf "\r==> add the helm repos required to install and run infrastructure for Mojaloop, Paymenthub EE and Fineract\n"
+    printf "\r==> add the helm repos required to install and run infrastructure for vNext, Paymenthub EE and MifosX\n"
     su - $k8s_user -c "helm repo add kiwigrid https://kiwigrid.github.io" > /dev/null 2>&1
     su - $k8s_user -c "helm repo add kokuwa https://kokuwaio.github.io/helm-charts" > /dev/null 2>&1  #fluentd
     su - $k8s_user -c "helm repo add elastic https://helm.elastic.co" > /dev/null 2>&1
@@ -341,14 +401,12 @@ function add_helm_repos {
     su - $k8s_user -c "helm repo add mojaloop http://mojaloop.io/helm/repo/" > /dev/null 2>&1
     su - $k8s_user -c "helm repo add cowboysysop https://cowboysysop.github.io/charts/" > /dev/null 2>&1  # mongo-express
     su - $k8s_user -c "helm repo add redpanda-data https://charts.redpanda.com/ " > /dev/null 2>&1   # kafka console
-    su - $k8s_user -c "helm repo add $PH_CHART_REPO_NAME $PH_HELM_REPO_LINK" > /dev/null 2>&1  #g2p-sandbox 
-
     su - $k8s_user -c "helm repo update" > /dev/null 2>&1
 }
 
 function configure_k8s_user_env {
-    start_message="# ML_START start of config added by mojafos #"
-    grep "start of config added by mojafos" $k8s_user_home/.bashrc >/dev/null 2>&1
+    start_message="# GAZELLE_START start of config added by mifos-gazelle #"
+    grep "start of config added by mifos-gazelle" $k8s_user_home/.bashrc >/dev/null 2>&1
     if [[ $? -ne 0  ]]; then
         printf "==> Adding configuration for %s to %s .bashrc\n" "$k8s_distro" "$k8s_user"
         printf "%s\n" "$start_message" >> $k8s_user_home/.bashrc
@@ -357,8 +415,8 @@ function configure_k8s_user_env {
         echo "complete -F __start_kubectl k " >>  $k8s_user_home/.bashrc
         echo "alias ksetns=\"kubectl config set-context --current --namespace\" " >>  $k8s_user_home/.bashrc
         echo "alias ksetuser=\"kubectl config set-context --current --user\" "  >>  $k8s_user_home/.bashrc
-        echo "alias cdml=\"cd $k8s_user_home/mojafos\" " >>  $k8s_user_home/.bashrc
-        printf "#ML_END end of config added by mojafos #\n" >> $k8s_user_home/.bashrc
+        echo "alias cdml=\"cd $k8s_user_home/mifos-gazelle\" " >>  $k8s_user_home/.bashrc
+        printf "#GAZELLE_END end of config added by mifos-gazelle #\n" >> $k8s_user_home/.bashrc
     else
         printf "\r==> Configuration for .bashrc for %s for user %s already exists ..skipping\n" "$k8s_distro" "$k8s_user"
     fi
@@ -411,15 +469,14 @@ function delete_k8s {
         fi
     fi
     # remove config from user .bashrc
-    perl -i -ne 'print unless /START_ML/ .. /END_ML/'  $k8s_user_home/.bashrc
+    perl -i -ne 'print unless /START_GAZELLE/ .. /END_GAZELLE/'  $k8s_user_home/.bashrc
 }
 
-function check_k8s_installed {
+function checkClusterConnection {
     printf "\r==> Check the cluster is available and ready from kubectl  "
     k8s_ready=`su - $k8s_user -c "kubectl get nodes" | perl -ne 'print  if s/^.*Ready.*$/Ready/'`
     if [[ ! "$k8s_ready" == "Ready" ]]; then
-        printf "** Error : kubernetes is not installed , please run $0 -m install -u $k8s_user \n"
-        printf "           before trying to install mojaloop \n "
+        printf "** Error : kubernetes is not reachable  ** "
         exit 1
     fi
     printf "    [ ok ] \n"
@@ -432,37 +489,10 @@ function print_end_message {
 }
 
 function print_end_message_tear_down {
-  echo -e "\n\n=============================================="
-  echo -e "Thank you for using Mojafos cleanup successful"
-  echo -e "==============================================\n\n"
+  echo -e "\n\n=================================================="
+  echo -e "Thank you for using Mifos-gazelle cleanup successful"
+  echo -e "======================================================\n\n"
   echo -e "Copyright © 2023 The Mifos Initiative"
-}
-
-################################################################################
-# Function: showUsage
-################################################################################
-# Description:		Display usage message
-# Arguments:		none
-# Return values:	none
-#
-function showUsage {
-	if [ $# -ne 0 ] ; then
-		echo "Incorrect number of arguments passed to function $0"
-		exit 1
-	else
-echo  "USAGE: $0 -m [mode] -u [user] -v [k8 version] -k [distro] [-f]
-Example 1 : run -m install -v 1.25 -k k3s # install k8s k3s version 1.24
-Example 2 : run -m delete  -v 1.26 -k microk8s # delete  k8s microk8s version 1.26
-Example 3 : run -m install -k microk8s -v 1.26 -k k3s # install k8s microk8s distro version 1.26
-
-Options:
--m mode ............... install|delete (-m is required)
--k kubernetes distro... microk8s|k3s (default=k3s as it installs across multiple linux distros)
--v k8s version ........ 1.24|1.25|1.26 i.e. current k8s releases at time if this mojafos release
--h|H .................. display this message
-"
-	fi
-
 }
 
 function setup_k8s_cluster {
@@ -500,17 +530,24 @@ function setup_k8s_cluster {
         fi
 }
 
+# function deleteAppResources(){
+#     deleteResourcesInNamespaceMatchingPattern "$FIN_NAMESPACE"
+#     deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
+#     deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
+#     deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
+#     deleteResourcesInNamespaceMatchingPattern "default"
+# }
+
 ################################################################################
 # MAIN
 ################################################################################
 function envSetupMain {
-    DEFAULT_K8S_DISTRO="k3s"   # default to microk8s as this is what is in the mojaloop linux deploy docs.
+    DEFAULT_K8S_DISTRO="k3s"  #only k3s is currently being tested 
     K8S_VERSION=""
-    MINILOOP_VERSION="vNext"
 
     HELM_VERSION="3.12.0"  # Feb 2023
     OS_VERSIONS_LIST=( 20 22 )
-    K8S_CURRENT_RELEASE_LIST=( "1.26" "1.27" )
+    K8S_CURRENT_RELEASE_LIST=( "1.29" "1.30" )
     CURRENT_RELEASE="false"
     k8s_user_home=""
     k8s_arch=`uname -p`  # what arch
@@ -544,32 +581,31 @@ function envSetupMain {
     verify_user
 
     if [[ "$mode" == "deploy" ]]  ; then
-        BASE_DIR=$( cd $(dirname "$0")/../.. ; pwd )
-        RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )" # the directory that this script is run from
         check_resources_ok
         set_k8s_distro
         set_k8s_version
-        k8s_already_installed
-        check_os_ok # todo add check to this once tested across other OS's more fully
-        install_prerequisites
-        add_hosts
-        setup_k8s_cluster $k8s_distro $environment
-        install_k8s_tools
-        add_helm_repos
-        configure_k8s_user_env
-        check_k8s_installed
-        printf "\r==> kubernetes distro:[%s] version:[%s] is now configured for user [%s] and ready for mojaloop deployment \n" \
+        if ! k8s_already_installed; then 
+            check_os_ok # todo add check to this once tested across other OS's more fully
+            install_prerequisites
+            add_hosts
+            setup_k8s_cluster $k8s_distro $environment
+            install_nginx $environment $k8s_distro
+            install_k8s_tools
+            add_helm_repos
+            configure_k8s_user_env
+        else 
+            checkHelmandKubectl # ensure things really are in place properly 
+        fi
+        install_nginx $environment $k8s_distro # will skip if already running
+        checkClusterConnection
+        printf "\r==> kubernetes distro:[%s] version:[%s] is now configured for user [%s] and ready for Mifos Gazelle deployment \n" \
                     "$k8s_distro" "$K8S_VERSION" "$k8s_user"
         print_end_message
-    elif [[ "$mode" == "cleanup" ]]  ; then
-        deleteResourcesInNamespsceMatchingPattern "fineract"
-        deleteResourcesInNamespsceMatchingPattern "mojaloop"
-        deleteResourcesInNamespsceMatchingPattern "paymenthub"
-        deleteResourcesInNamespsceMatchingPattern "infra"
+    elif [[ "$mode" == "cleanall" ]]  ; then
         if [[ "$environment" == "local" ]]; then
             echo "Deleting local kubernetes cluster..."
             delete_k8s
-            echo "Local Kubernetes deleted"
+            echo "Local Kubernetes deleted" 
         fi
         print_end_message_tear_down
     else
