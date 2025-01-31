@@ -5,33 +5,39 @@ ph-ee-engine:
     DFSPIDS: "greenbank,bluebank" 
 
   elasticsearch:
-    esJavaOpts: "-Xms512m -Xmx512m"
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "128k"
-      limits:
-        cpu: "1000m"
-        memory: "1000M"
-    ingress:
-      enabled: true 
-      className: nginx
-      pathtype: ImplementationSpecific
-      hosts:
-        - host: elastic-phee.mifos.gazelle.test
-          paths:
-            - path: /
+    enabled: false
+
+  # elasticsearch:
+  #   esJavaOpts: "-Xms512m -Xmx512m"
+  #   resources:
+  #     requests:
+  #       cpu: "100m"
+  #       memory: "128k"
+  #     limits:
+  #       cpu: "1000m"
+  #       memory: "1000M"
+  #   ingress:
+  #     enabled: true 
+  #     className: nginx
+  #     pathtype: ImplementationSpecific
+  #     hosts:
+  #       - host: elastic-phee.mifos.gazelle.test
+  #         paths:
+  #           - path: /
 
   kibana:
-    elasticsearchHosts: http://ph-ee-elasticsearch:9200
-    ingress:
-      enabled: true 
-      className: nginx
-      pathtype: ImplementationSpecific
-      hosts:
-        - host: kibana-phee.mifos.gazelle.test
-          paths:
-            - path: /
+    enabled: false
+
+  # kibana:
+  #   elasticsearchHosts: http://ph-ee-elasticsearch:9200
+  #   ingress:
+  #     enabled: true 
+  #     className: nginx
+  #     pathtype: ImplementationSpecific
+  #     hosts:
+  #       - host: kibana-phee.mifos.gazelle.test
+  #         paths:
+  #           - path: /
 
 
   # Operations app
@@ -122,47 +128,147 @@ ph-ee-engine:
                 port:
                   number: 80
 
+  importer_es:
+    enabled: false
+
   camunda-platform:
-    enabled: true
+    global:
+      elasticsearch:
+        # Elasticsearch.disableExporter if true, disables the elastic exporter in zeebe
+        disableExporter: false
+        host: "infra-elasticsearch.infra.svc.cluster.local"
+        port: 9200
+        clusterName: "default"
 
-    operate: 
-      enabled: false
-      ingress:
-        ## @param operate.ingress.enabled if true, an ingress resource is deployed with the Operate deployment. Only useful if an ingress controller is available, like nginx. Warning, separated ingress is deprecated and will be removed in the next release, please use global.ingress instead.
-        enabled: true 
-        ## @param operate.ingress.className defines the class or configuration of ingress which should be used by the controller
-        className: nginx
-        annotations:
-          ingress.kubernetes.io/rewrite-target: '/'
-          nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-          nginx.ingress.kubernetes.io/proxy-buffer-size: '128k'
-          nginx.ingress.kubernetes.io/proxy-buffering: 'on'
-        path: /
-        pathType: Prefix
-        host: zeebe-operate.mifos.gazelle.test
-        tls:
+      identity:
+        auth:
           enabled: false
-  
-    zeebe-gateway:
-      ingress:
-        enabled: true 
-        className: nginx
-        host: zeebe-gateway.mifos.gazelle.test 
 
-    zeebe:   
-    # removes dependency of https://fynarfin.io for exporter jarfile   
-    # TODO move this to mifos artifactory !!!
-      extraInitContainers: 
-        - name: init-ph-ee-kafka-exporter
-          image: busybox:1.28
-          command: ['/bin/sh', '-c']
-          #args: ['wget -O /exporters/ph-ee-kafka-exporter.jar "http://10.0.0.4:8000/exporter-1.0.0-SNAPSHOT.jar"; ls -al /exporters/']
-          args: ['wget -O /exporters/ph-ee-kafka-exporter.jar "https://paymenthub-ee-dev.s3.us-east-2.amazonaws.com/jars/exporter-1.0.0-SNAPSHOT.jar"; ls -al /exporters/']
-          volumeMounts:
-            - name: exporters
-              mountPath: /exporters/
-      # volumeClaimTemplate:
-      #   storageClassName: "local-path"
+    zeebe:
+      enabled: true
+      logLevel: debug
+      volumeClaimTemplate:
+        storageClassName: "local-path"
+
+      clusterSize: "1"
+      partitionCount: "1"
+      replicationFactor: "1"
+      cpuThreadCount: "1"
+      ioThreadCount: "1"
+
+      resources:
+        requests:
+          cpu: 800m
+          memory: 1200Mi
+        limits:
+          cpu: 960m
+          memory: 1920Mi  
+      affinity: {}  
+
+    zeebe-gateway:
+      enabled: true
+      replicas: 1
+      logLevel: info
+
+      resources:
+        requests:
+          cpu: 400m
+          memory: 450Mi
+        limits:
+          cpu: 400m
+          memory: 450Mi  
+      affinity: {}
+
+      ingress:
+        enabled: true
+        host: "zeebe-gateway.mifos.gazelle.test"
+
+    operate:
+      enabled: true
+      replicas: 1
+      logging:
+        level:
+          ROOT: INFO
+          io.camunda.operate: DEBUG
+
+      resources:
+        requests:
+          cpu: 600m
+          memory: 400Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi 
+          
+      affinity: {}
+
+      ingress:
+        enabled: true
+        host: "zeebe-operate.mifos.gazelle.test"
+
+    tasklist:
+      enabled: false
+
+    optimize:
+      enabled: false  
+
+    identity:
+      enabled: false
+
+    connectors:
+      enabled: false
+
+    elasticsearch:
+      enabled: false
+  #### end of camunda-platform
+
+  # camunda-platform:
+  #   enabled: true
+  #   global:
+  #     elasticsearch:
+  #       host: "ph-ee-elasticsearch:9200"
+  #       disableExporter: false
+
+  #   operate: 
+  #     enabled: true
+  #     logLevel: debug
+  #     ingress:
+  #       ## @param operate.ingress.enabled if true, an ingress resource is deployed with the Operate deployment. Only useful if an ingress controller is available, like nginx. Warning, separated ingress is deprecated and will be removed in the next release, please use global.ingress instead.
+  #       enabled: true 
+  #       ## @param operate.ingress.className defines the class or configuration of ingress which should be used by the controller
+  #       className: nginx
+  #       annotations:
+  #         ingress.kubernetes.io/rewrite-target: '/'
+  #         nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+  #         nginx.ingress.kubernetes.io/proxy-buffer-size: '128k'
+  #         nginx.ingress.kubernetes.io/proxy-buffering: 'on'
+  #       path: /
+  #       pathType: Prefix
+  #       host: zeebe-operate.mifos.gazelle.test
+  #       tls:
+  #         enabled: false
+  
+  #   zeebe-gateway:
+  #     logLevel: debug
+  #     ingress:
+  #       enabled: true 
+  #       className: nginx
+  #       host: zeebe-gateway.mifos.gazelle.test 
+
+  #   zeebe:   
+  #     logLevel: debug
+  #   # removes dependency of https://fynarfin.io for exporter jarfile   
+  #   # TODO move this to mifos artifactory !!!
+  #     extraInitContainers: 
+  #       - name: init-ph-ee-kafka-exporter
+  #         image: busybox:1.37.0
+  #         command: ['/bin/sh', '-c']
+  #         #args: ['wget -O /exporters/ph-ee-kafka-exporter.jar "https://paymenthub-ee-dev.s3.us-east-2.amazonaws.com/jars/exporter-1.0.0-SNAPSHOT.jar"; ls -al /exporters/']
+  #         args: ['wget -O /exporters/ph-ee-kafka-exporter.jar https://mifos.jfrog.io/artifactory/phee-gradle-local/org/mifos/phee/phee-exporter/exporter-1.1.1-SNAPSHOT.jar; ls -al /exporters/']
+  #         volumeMounts:
+  #           - name: exporters
+  #             mountPath: /exporters/
+  #     volumeClaimTemplate:
+  #       storageClassName: "local-path"
     
   # Zeebe operations
   zeebe_ops:
@@ -214,10 +320,11 @@ ph-ee-engine:
   # PH-EE Connector Mojaloop
   # Note 'fred' and 'FRED' are development hooks as we continue to work on end to end integration flows.
   ph_ee_connector_mojaloop:
+    enabled: false
     # the following 2 entries used only for dev/test of mojaloop connector 
     # image: mojaloop-connector:gazelle
-    # imagePullPolicy: "Never"
-    image: openmf/ph-ee-connector-mojaloop:v1.5.0
+    imagePullPolicy: "Never"
+    image: mojaloop:gazelle1 
     ingress:
       enabled: true
       className: nginx
@@ -239,7 +346,7 @@ ph-ee-engine:
     deployment:
       extraEnvs:
         - name: parties_0_domain
-          value: "https://fynams.fred.io/"
+          value: "mojaloop.mifos.gazelle.test"
         - name: parties_1_domain
           value: "mojaloop.fred.io"
         - name: parties_2_domain
@@ -250,13 +357,24 @@ ph-ee-engine:
           value: "greenbank"
         - name: parties_1_tenantId
           value: "bluebank"
+        - name: parties_0_fspId
+          value: "payerfsp"
+        - name: parties_1_fspId
+          value: "payeefsp"
+        - name: parties_2_fspId
+          value: "payeefsp2"
+        - name: parties_3_fspId
+          value: "payeefsp3"
 
   ph_ee_connector_ams_mifos:
+    enabled: true
     ams_local_enabled: true
     ams_local_interop_host: "fineract-server"
     ams_local_account_host: "fineract-server"
     ams_local_customer_host: "fineract-server"
     ams_local_auth_host: "fineract-server"
+    ams_local_tenants: "greenbank bluebank"
+    ams_local_loan_host: ""
     ingress:
       enabled: true
       className: nginx
@@ -408,4 +526,5 @@ account_mapper:
     #             name: ph-ee-identity-account-mapper
     #             port:
     #               number: 80
+
 
