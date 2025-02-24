@@ -43,9 +43,9 @@ zeebe:
   affinity: {}  
 
 zeebe-gateway:
-  enabled: true
+  enabled: true 
   replicas: 1
-  logLevel: info
+  logLevel: debug
 
   resources:
     requests:
