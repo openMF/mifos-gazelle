@@ -22,7 +22,7 @@ dependencies:
   - gazelle
   - dependency
   - kafka
-  version: 19.0.2
+  version: 31.5.0
 ## redpanda kafka console 
 - name: console
   alias: redpanda-console
