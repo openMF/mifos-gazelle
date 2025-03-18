@@ -610,7 +610,8 @@ function DeployMifosXfromYaml() {
   createNamespace "$MIFOSX_NAMESPACE"
   cloneRepo "$MIFOSX_BRANCH" "$MIFOSX_REPO_LINK" "$APPS_DIR" "$MIFOSX_REPO_DIR"
   
-  #restore the database dump before starting MifosX 
+  # Restore the database dump before starting MifosX 
+  # Assumes FINERACT_LIQUIBASE_ENABLED=false in fineract deployment
   $UTILS_DIR/dump-restore-fineract-db.sql -r 
   applyKubeManifests "$manifests_dir" "$MIFOSX_NAMESPACE"
 
