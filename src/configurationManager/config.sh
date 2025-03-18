@@ -6,6 +6,7 @@
 BASE_DIR=$( cd $(dirname "$0") ; pwd )
 APPS_DIR="$BASE_DIR/repos"
 CONFIG_DIR="$BASE_DIR/config"
+UTILS_DIR="$BASE_DIR/src/utils"
 INFRA_NAMESPACE="infra"
 INFRA_RELEASE_NAME="infra"
 INFRA_CHART_DIR="$BASE_DIR/src/deployer/helm/infra" 

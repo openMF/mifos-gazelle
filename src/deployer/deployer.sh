@@ -609,6 +609,9 @@ function DeployMifosXfromYaml() {
   echo "==> Deploying MifosX i.e. web-app and Fineract via application manifests"
   createNamespace "$MIFOSX_NAMESPACE"
   cloneRepo "$MIFOSX_BRANCH" "$MIFOSX_REPO_LINK" "$APPS_DIR" "$MIFOSX_REPO_DIR"
+  
+  #restore the database dump before starting MifosX 
+  $UTILS_DIR/dump-restore-fineract-db.sql -r 
   applyKubeManifests "$manifests_dir" "$MIFOSX_NAMESPACE"
 
   echo -e "\n${GREEN}====================================="
