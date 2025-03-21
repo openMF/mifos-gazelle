@@ -485,13 +485,31 @@ function applyKubeManifests() {
         return 1
     fi
 
-    # Use 'kubectl apply' to apply manifests in the specified directory.
-    su - $k8s_user -c "kubectl apply -f $directory -n $namespace"  >> /dev/null 2>&1 
-    if [ $? -eq 0 ]; then
-        echo -e "    Kubernetes manifests applied successfully."
-    else
-        echo -e "${RED}Failed to apply Kubernetes manifests.${RESET}"
-    fi
+    # Apply persistence-related manifests first
+    for file in "$directory"/*persistence*.yaml; do
+      if [ -f "$file" ]; then
+        su - $k8s_user -c "kubectl apply -f $file -n $namespace" >> /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+          echo -e "${RED}Failed to apply persistence manifest $file.${RESET}"
+        fi
+      fi
+    done
+
+    # Apply other manifests
+    for file in "$directory"/*.yaml; do
+      if [[ "$file" != *persistence*.yaml ]]; then
+        su - $k8s_user -c "kubectl apply -f $file -n $namespace" >> /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+          echo -e "${RED}Failed to apply Kubernetes manifest $file.${RESET}"
+        fi
+      fi
+    done
+    # su - $k8s_user -c "kubectl apply -f $directory -n $namespace"  >> /dev/null 2>&1 
+    # if [ $? -eq 0 ]; then
+    #     echo -e "    Kubernetes manifests applied successfully."
+    # else
+    #     echo -e "${RED}Failed to apply Kubernetes manifests.${RESET}"
+    # fi
 }
 
 
@@ -612,7 +630,8 @@ function DeployMifosXfromYaml() {
   
   # Restore the database dump before starting MifosX 
   # Assumes FINERACT_LIQUIBASE_ENABLED=false in fineract deployment
-  $UTILS_DIR/dump-restore-fineract-db.sql -r 
+  echo "    Restoring MifosX database dump"
+  $UTILS_DIR/dump-restore-fineract-db.sh -r > /dev/null 
   applyKubeManifests "$manifests_dir" "$MIFOSX_NAMESPACE"
 
   echo -e "\n${GREEN}====================================="
