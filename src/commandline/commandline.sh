@@ -134,7 +134,7 @@ function main {
     echo -e "The deployment made by this script is currently recommended for demo, test and educational purposes "
     echo -e "======================================================================================================"
     echo -e "${RESET}"
-    envSetupMain "$mode" "k3s" "1.30" "$environment"
+    envSetupMain "$mode" "k3s" "1.31" "$environment"
     deployApps "$mifosx_instances" "$apps" "$redeploy" 
   elif [ $mode == "cleanapps" ]; then  
     logWithVerboseCheck $debug info "Cleaning up Mifos Gazelle applications only"
@@ -142,7 +142,7 @@ function main {
   elif [ $mode == "cleanall" ]; then
     logWithVerboseCheck $debug info "Cleaning up all traces of Mifos Gazelle "
     deleteApps "$mifosx_instances" "all"
-    envSetupMain "$mode" "k3s" "1.30" "$environment"
+    envSetupMain "$mode" "k3s" "1.31" "$environment"
   else
     showUsage
   fi

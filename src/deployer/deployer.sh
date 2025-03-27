@@ -267,7 +267,7 @@ function deleteResourcesInNamespaceMatchingPattern() {
         namespace=$(echo "$namespace" | cut -d'/' -f2)
         if [[ $namespace == "default" ]]; then
           local deployment_name="prometheus-operator"
-          deployment_available=$(kubectl get deployment "$deployment_name" -n "default" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
+          deployment_available=$(kubectl get deployment "$deployment_name" -n "default" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null)
           if [[ "$deployment_available" == "True" ]]; then
             printf  "Deleting Prometheus Operator resources in default namespace"
             LATEST=$(curl -s https://api.github.com/repos/prometheus-operator/prometheus-operator/releases/latest | jq -cr .tag_name)
@@ -668,6 +668,9 @@ function deleteApps {
     deleteResourcesInNamespaceMatchingPattern "$MIFOSX_NAMESPACE"
     deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
     deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
+    rm -f "$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine/charts/*tgz"
+    rm -f "$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/gazelle/charts/*tgz"
+    echo "fred"
     deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
     deleteResourcesInNamespaceMatchingPattern "default"
   elif [[ "$appsToDelete" == "vnext" ]];then
@@ -676,6 +679,9 @@ function deleteApps {
     deleteResourcesInNamespaceMatchingPattern "$MIFOSX_NAMESPACE"
   elif [[ "$appsToDelete" == "phee" ]]; then
     deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
+    rm  $APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine/charts/*tgz
+    rm  $APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/gazelle/charts/*tgz
+    echo "fred"
     echo "Handling Prometheus Operator resources in the default namespace"
     LATEST=$(curl -s https://api.github.com/repos/prometheus-operator/prometheus-operator/releases/latest | jq -cr .tag_name)
     su - "$k8s_user" -c "curl -sL https://github.com/prometheus-operator/prometheus-operator/releases/download/${LATEST}/bundle.yaml | kubectl -n default delete -f -" > /dev/null 2>&1
@@ -732,6 +738,7 @@ function deployApps {
     #             as part of the infra startup
 
   elif [[ "$appsToDeploy" == "phee" ]]; then
+    deployInfrastructure "false"
     deployPH
   else 
     echo -e "${RED}Invalid option ${RESET}"

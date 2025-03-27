@@ -219,10 +219,12 @@ mysql:
       CREATE DATABASE IF NOT EXISTS `voucher_management`;
       CREATE DATABASE IF NOT EXISTS `fineract_tenants`;
       CREATE DATABASE IF NOT EXISTS `fineract_default`;
+      CREATE DATABASE IF NOT EXISTS `ph_bluebank`;
       GRANT ALL PRIVILEGES ON messagegateway.* TO 'mifos';
       GRANT ALL PRIVILEGES ON `identity_account_mapper`.* TO 'mifos';
       GRANT ALL PRIVILEGES ON `voucher_management`.* TO 'mifos';
       GRANT ALL PRIVILEGES ON `fineract_tenants`.* TO 'mifos';
       GRANT ALL PRIVILEGES ON `fineract_default`.* TO 'mifos';
+      GRANT ALL PRIVILEGES ON `ph_bluebank`.* TO 'mifos';
       GRANT ALL ON *.* TO 'root'@'%';
 

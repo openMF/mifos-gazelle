@@ -6,128 +6,47 @@ ph-ee-engine:
   elasticsearch:
     enabled: false
 
-  # elasticsearch:
-  #   esJavaOpts: "-Xms512m -Xmx512m"
-  #   resources:
-  #     requests:
-  #       cpu: "100m"
-  #       memory: "128k"
-  #     limits:
-  #       cpu: "1000m"
-  #       memory: "1000M"
-  #   ingress:
-  #     enabled: true 
-  #     className: nginx
-  #     pathtype: ImplementationSpecific
-  #     hosts:
-  #       - host: elastic-phee.mifos.gazelle.test
-  #         paths:
-  #           - path: /
-
   kibana:
     enabled: false
 
-  # kibana:
-  #   elasticsearchHosts: http://ph-ee-elasticsearch:9200
-  #   ingress:
-  #     enabled: true 
-  #     className: nginx
-  #     pathtype: ImplementationSpecific
-  #     hosts:
-  #       - host: kibana-phee.mifos.gazelle.test
-  #         paths:
-  #           - path: /
-
-
-  # Operations app
-  # operations_app:
-  #   ingress:
-  #     enabled: false
-  #     className: nginx
-
   operations_web:
-    # Note 'fred' and 'FRED' are development hooks as we continue to work on end to end integration flows.
-    # enabled: true
     image: docker.io/openmf/ph-ee-operations-web:dev1 
-    # backend:
-      # PH_OPS_BACKEND_SERVER_URL: https://ops.mifos.gazelle.test/api/v1
-      # PH_VOU_BACKEND_SERVER_URL: https://ops.mifos.gazelle.test/api/v1
-      # PH_ACT_BACKEND_SERVER_URL: https://ops.mifos.gazelle.test
-      # PH_OPS_BULK_CONNECTOR_URL: https://bulk-connector.mifos.gazelle.test
-      # PH_OPS_SIGNATURE_URL: https://ops.mifos.gazelle.test/api/v1/util/x-signature
-      # PH_PLATFORM_TENANT_ID: greenbank
-      # PH_PLATFORM_TENANT_IDS: "greenbank,bluebank" 
-    # auth:
-    #   PH_AUTH_ENABLED: false
-    #   PH_OAUTH_ENABLED: false
-    #   PH_OAUTH_TYPE: keycloak
-    #   PH_OAUTH_SERVER_URL: http://keycloak.mifos.gazelle.test/auth
-    #   PH_OAUTH_REALM: fred
-    #   PH_OAUTH_CLIENT_ID: fred2
-    #   PH_OAUTH_CLIENT_SECRET: Y2xpZW50Og==
-    #   PH_OAUTH_BASIC_AUTH: true
-    #   PH_OAUTH_BASIC_AUTH_TOKEN: Y2xpZW50Og==
-    #   PH_DEFAULT_LANGUAGE: en
-    #   PH_SUPPORTED_LANGUAGES: en,fr,es    
-    # #hostname: "operations-web"
-    # ingress:
-    #   annotations:
-    #     kubernetes.io/ingress.class: nginx
-    #     nginx.ingress.kubernetes.io/cors-allow-headers: content-type,platform-tenantid,privatekey,x-correlationid,x-correlation-id,purpose,type,x-callback-url,x-program-id,x-registering-institution-id,x-signature
-    #     nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS, DELETE
-    #     nginx.ingress.kubernetes.io/cors-allow-origin: '*'
-    #     nginx.ingress.kubernetes.io/enable-cors: "true"
-    #   enabled: true 
-    #   tls:
-    #     - secretName: sandbox-secret
-    #   hosts:
-    #     - host: ops.mifos.gazelle.test       
-    #       paths: 
-    #       - path: "/"
-    #         backend:
-    #           service:
-    #             name: "ph-ee-operations-web"
-    #             port:
-    #               number: 80    
-    #       - path: "/paymenthub"
-    #         backend:
-    #           service:
-    #             name: "ph-ee-operations-web"
-    #             port:
-    #               number: 80
-    #       - path: "/api/v1"
-    #         backend:
-    #           service:
-    #             name: "ph-ee-operations-app"
-    #             port:
-    #               number: 80
-    #       - path: "/oauth"
-    #         backend:
-    #           service:
-    #             name: "ph-ee-operations-app"
-    #             port:
-    #               number: 80
-    #       # - path: "/batchtransactions"
-    #       #   backend:
-    #       #     service:
-    #       #       name: "ph-ee-connector-bulk"
-    #       #       port:
-    #       #         number: 8443
-    #       # - path: "/bulk"
-    #       #   backend:
-    #       #     service:
-    #       #       name: "ph-ee-connector-bulk"
-    #       #       port:
-    #       #         number: 8443
-    #       - path: /benficiary
-    #         backend:
-    #           service:
-    #             name: ph-ee-identity-account-mapper
-    #             port:
-    #               number: 80
 
-  # importer_es:
-  #   enabled: false
+
+  importer_rdbms:
+    env:
+      - name: TENANTS_CONNECTIONS_GREENBANK_SCHEMA_SERVER
+        value: "fredmysql"
+      - name: TENANTS_CONNECTIONS_GORILLA_SCHEMA_SERVER
+        value: "fred2mysql"
+
+    datasource:
+      core:
+        host: "mysql.infra.svc.cluster.local"
+        port: 3306
+        schema: "tenants"
+        username: "mifos"
+        password: "password"
+    datasource:
+      username: "mifos"
+      password: "password"
+      host: "mysql.infra.svc.cluster.local"
+      port: 3306
+      schema: "tenants"
+
+  # operations_app:
+  #   secret:
+  #     apiversion: "v1"
+  #     datasource:
+  #       # username: "mifos"
+  #       # password: "password"
+  #       host: "mysql.infra.svc.cluster.local"
+  #       # port: 3306
+  #       # schema: "tenants"
+
+  # operations:
+  #   mysql:
+  #     enabled: false
 
   camunda-platform:
     global:
@@ -137,7 +56,6 @@ ph-ee-engine:
         host: "infra-elasticsearch.infra.svc.cluster.local"
         port: 9200
         clusterName: "fred"
-
       identity:
         auth:
           enabled: false
@@ -219,101 +137,6 @@ ph-ee-engine:
       enabled: false
   #### end of camunda-platform
 
-  # camunda-platform:
-  #   enabled: true
-  #   global:
-  #     elasticsearch:
-  #       host: "ph-ee-elasticsearch:9200"
-  #       disableExporter: false
-
-  #   operate: 
-  #     enabled: true
-  #     logLevel: debug
-  #     ingress:
-  #       ## @param operate.ingress.enabled if true, an ingress resource is deployed with the Operate deployment. Only useful if an ingress controller is available, like nginx. Warning, separated ingress is deprecated and will be removed in the next release, please use global.ingress instead.
-  #       enabled: true 
-  #       ## @param operate.ingress.className defines the class or configuration of ingress which should be used by the controller
-  #       className: nginx
-  #       annotations:
-  #         ingress.kubernetes.io/rewrite-target: '/'
-  #         nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-  #         nginx.ingress.kubernetes.io/proxy-buffer-size: '128k'
-  #         nginx.ingress.kubernetes.io/proxy-buffering: 'on'
-  #       path: /
-  #       pathType: Prefix
-  #       host: zeebe-operate.mifos.gazelle.test
-  #       tls:
-  #         enabled: false
-  
-  #   zeebe-gateway:
-  #     logLevel: debug
-  #     ingress:
-  #       enabled: true 
-  #       className: nginx
-  #       host: zeebe-gateway.mifos.gazelle.test 
-
-  #   zeebe:   
-  #     logLevel: debug
-  #   # removes dependency of https://fynarfin.io for exporter jarfile   
-  #   # TODO move this to mifos artifactory !!!
-  #     extraInitContainers: 
-  #       - name: init-ph-ee-kafka-exporter
-  #         image: busybox:1.37.0
-  #         command: ['/bin/sh', '-c']
-  #         #args: ['wget -O /exporters/ph-ee-kafka-exporter.jar "https://paymenthub-ee-dev.s3.us-east-2.amazonaws.com/jars/exporter-1.0.0-SNAPSHOT.jar"; ls -al /exporters/']
-  #         args: ['wget -O /exporters/ph-ee-kafka-exporter.jar https://mifos.jfrog.io/artifactory/phee-gradle-local/org/mifos/phee/phee-exporter/exporter-1.1.1-SNAPSHOT.jar; ls -al /exporters/']
-  #         volumeMounts:
-  #           - name: exporters
-  #             mountPath: /exporters/
-  #     volumeClaimTemplate:
-  #       storageClassName: "local-path"
-    
-  # Zeebe operations
-  # zeebe_ops:
-  #   ingress:
-  #     enabled: true
-  #     className: nginx
-  #   # note limts and requests should be in the ph-ee-engine values.yaml 
-  #   # so safe to take out now  
-  #   limits:
-  #     memory: "1000M"
-  #     cpu: "1000m"
-  #   requests:
-  #     memory: "128k"
-  #     cpu: "50m"
-
-  # Vouchers
-  vouchers:
-    enabled: false
-    ingress:
-      enabled: true
-      className: nginx
-  
-  # # Kibana
-  # kibana:
-  #   ingress:
-  #     enabled: true
-  #   hosts:
-  #     - host: kibana.mifos.gazelle.test
-
-  # Notifications
-  notifications:
-    # enabled: true
-    # imagePullPolicy: "Always"
-    # SPRING_PROFILES_ACTIVE: "bb"
-    # LOGGING_LEVEL_ROOT: "INFO"
-    # MESSAGEGATEWAYCONFIG_HOST: "message-gateway-1"
-    # NOTIFICATION_LOCAL_HOST: "ph-ee-connector-notifications"
-    # NOTIFICATION_SUCCESS_ENABLED: "false"
-    # NOTIFICATION_FAILURE_ENABLED: "true"   
-    # hostname: "notifications.mifos.gazelle.test"
-    includeResources: false
-    # ingress:
-    #   enabled: true
-    #   className: nginx
-    # deployment:
-    #   annotations:
-    #     deployTime: "{{ .Values.deployTime }}"
 
   # PH-EE Connector Mojaloop
   # Note 'fred' and 'FRED' are development hooks as we continue to work on end to end integration flows.
@@ -364,137 +187,11 @@ ph-ee-engine:
         - name: parties_3_fspId
           value: "payeefsp3"
 
-  # ph_ee_connector_ams_mifos:
-  #   enabled: false
-  #   ams_local_enabled: true
-  #   ams_local_interop_host: "fineract-server"
-  #   ams_local_account_host: "fineract-server"
-  #   ams_local_customer_host: "fineract-server"
-  #   ams_local_auth_host: "fineract-server"
-  #   ams_local_tenants: "greenbank,bluebank"
-  #   ams_local_loan_host: ""
-  #   ingress:
-  #     enabled: true
-  #     className: nginx
-
-  # Mockpayment
-  # mockpayment:
-  #   hostname: "mockpayment.mifos.gazelle.test"
-  #   ingress:
-  #     enabled: true
-  #     className: nginx
-  #     annotations:
-  #       kubernetes.io/ingress.class: nginx
-  #     tls:
-  #       - secretName: sandbox-secret
-  #     hosts:
-  #       - host: mockpayment.mifos.gazelle.test
-  #         paths:
-  #           - path: "/"
-  #             backend:
-  #               service:
-  #                 name: ph-ee-connector-mock-payment-schema
-  #                 port:
-  #                   number: 80
-  #   deployment:
-  #     annotations:
-  #       deployTime: "{{ .Values.deployTime }}"
-  
-  # CRM
-  # crm:
-  #   ingress:
-  #     enabled: true
-  #     className: nginx
-  #     annotations:
-  #       kubernetes.io/ingress.class: nginx
-
-  # Channel
-  # channel:
-  #   ingress:
-  #     enabled: true
-  #     className: nginx
-  #     annotations:
-  #       kubernetes.io/ingress.class: nginx
-  #       nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-
-  connector_bulk:
-    enabled: true
-    tenants: "greenbank,bluebank"
-    # deployment:
-    #   annotations:
-    #     rollme: "{{ randAlphaNum 5 | quote }}"
-    # operations_app:
-    #   contactpoint: "https://ops-bk.mifos.gazelle.test/"
-    #   endpoints:
-    #     batch_transaction: "/api/v1/batch/transactions"
-    # identity_account_mapper:
-    #   hostname: "http://ph-ee-identity-account-mapper:80"
-    # ingress:
-    #   enabled: true
-    #   className: nginx
-    #   annotations:
-    #     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-    #     kubernetes.io/ingress.class: nginx
-    #     nginx.ingress.kubernetes.io/cors-allow-headers: "content-type,platform-tenantid,purpose,type,x-callback-url,x-correlationid,x-program-id,x-registering-institution-id,x-signature"
-    #     nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS, DELETE
-    #     #nginx.ingress.kubernetes.io/cors-allow-origin: '*'
-    #     #nginx.ingress.kubernetes.io/cors-allow-origin-regex: "https?://ops\.mifos.gazelle.test:4200"
-    #     nginx.ingress.kubernetes.io/cors-allow-origin-regex: "https://ops.mifos.gazelle.test"
-    #     nginx.ingress.kubernetes.io/enable-cors: "true"
-    #   tls:
-    #     - secretName: sandbox-secret
-    #   hosts:
-    #     - host: bulk-connector.mifos.gazelle.test     
-    #       paths: 
-    #       - path: "/"
-    #         backend:
-    #           service:
-    #             name: "ph-ee-connector-bulk"
-    #             port:
-    #               number: 8443
-
-  # # Connector Bulk
-  # connector_bulk:
-  #   ingress:
-  #     enabled: true
-  #     className: nginx
-  #     annotations:
-  #       nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-
-  # Bill Pay
-  billPay:
-    ingress:
-      enabled: false
-      className: nginx
-      annotations:
-        kubernetes.io/ingress.class: nginx
-
   ph_ee_connector_ams_mifos:
     enabled: true
+    SPRING_PROFILES_ACTIVE: "fin12,bb"
     #image: docker.io/openmf/ph-ee-connector-ams-mifos:v1.7.0
     image: docker.io/devarsh10/ph-ee-connector-ams-mifos:latest
-  # PH-EE Connector AMS Mifos
-    # ingress:
-    #   enabled: true
-    #   className: nginx
-
-  # Minio
-  # minio:
-  #   ingress:
-  #     enabled: true
-  #     ingressClassName: nginx
-  #     annotations:
-  #       kubernetes.io/ingress.class: "nginx"
-  #       nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
-  #     hosts:
-  #       - minio.mifos.gazelle.test
-
-  # # Message Gateway
-  # messagegateway:
-  #   enabled: false
-  #   ingress:
-  #     enabled: true
-  #     className: nginx
 
   post_installation_job:
     enabled: false
@@ -510,24 +207,5 @@ ph-ee-engine:
     memoryRequest: "500k"
     testResultsOutputDir: "/tmp"
 
-# Account Mapper
-# account_mapper:
-#   enabled: false
-#   ingress:
-#     enabled: false
-#     className: nginx
-#     annotations:
-#       kubernetes.io/ingress.class: nginx
-#     # tls:
-#     #   - secretName: sandbox-secret
-#     # hosts:
-#     #   - host: identity-mapper.mifos.gazelle.test
-#     #     paths:
-#     #       - path: "/"
-#     #         backend:
-#     #           service:
-#     #             name: ph-ee-identity-account-mapper
-#     #             port:
-#     #               number: 80
 
 

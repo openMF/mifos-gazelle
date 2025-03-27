@@ -547,8 +547,8 @@ function envSetupMain {
     K8S_VERSION=""
 
     HELM_VERSION="3.12.0"  # Feb 2023
-    OS_VERSIONS_LIST=( 20 22 )
-    K8S_CURRENT_RELEASE_LIST=( "1.29" "1.30" )
+    OS_VERSIONS_LIST=( 22 24 )
+    K8S_CURRENT_RELEASE_LIST=( "1.30" "1.31" )
     CURRENT_RELEASE="false"
     k8s_user_home=""
     k8s_arch=`uname -p`  # what arch
@@ -556,7 +556,7 @@ function envSetupMain {
     MIN_RAM=4
     MIN_FREE_SPACE=30
     LINUX_OS_LIST=( "Ubuntu" )
-    UBUNTU_OK_VERSIONS_LIST=(20 22)
+    UBUNTU_OK_VERSIONS_LIST=(22 24)
 
     # ensure we are running as root
     if [ "$EUID" -ne 0 ]

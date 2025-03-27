@@ -8,3 +8,4 @@
 #
 2,greenbank,Greenbank tenant,Australia/Adelaide,mysql.infra.svc.cluster.local,3306,greenbank,root,mysqlpw
 3,bluebank,Bluebank tenant,Australia/Adelaide,mysql.infra.svc.cluster.local,3306,bluebank,root,mysqlpw
+4,ph_bluebank,PH_Bluebank tenant,Australia/Adelaide,mysql.infra.svc.cluster.local,3306,ph_bluebank,root,mysqlpw
