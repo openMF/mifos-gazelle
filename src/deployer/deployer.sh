@@ -399,6 +399,8 @@ function deployPH(){
       deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
       deleteResourcesInNamespaceMatchingPattern "default"  #just removes prometheus at the moment
       manageElasticSecrets delete "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
+      rm -f "$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine/charts/*tgz"
+      rm -f "$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/gazelle/charts/*tgz"
     fi
   fi 
   echo "Deploying PaymentHub EE"

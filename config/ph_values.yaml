@@ -1,4 +1,10 @@
+
 ph-ee-engine:
+  # javaOpts:
+  # minHeap: 192m
+  # maxHeap: 256m
+  # debugPort: 5005
+
   # global: 
   #   tenants: "greenbank,bluebank"
   #   DFSPIDS: "greenbank,bluebank" 
@@ -13,26 +19,21 @@ ph-ee-engine:
     image: docker.io/openmf/ph-ee-operations-web:dev1 
 
 
-  importer_rdbms:
-    env:
-      - name: TENANTS_CONNECTIONS_GREENBANK_SCHEMA_SERVER
-        value: "fredmysql"
-      - name: TENANTS_CONNECTIONS_GORILLA_SCHEMA_SERVER
-        value: "fred2mysql"
 
-    datasource:
-      core:
-        host: "mysql.infra.svc.cluster.local"
-        port: 3306
-        schema: "tenants"
-        username: "mifos"
-        password: "password"
-    datasource:
-      username: "mifos"
-      password: "password"
-      host: "mysql.infra.svc.cluster.local"
-      port: 3306
-      schema: "tenants"
+  # importer_rdbms:
+    # env:
+    #   - name: TENANTS_CONNECTIONS_GREENBANK_SCHEMA_SERVER
+    #     value: "fredmysql"
+    #   - name: TENANTS_CONNECTIONS_GORILLA_SCHEMA_SERVER
+    #     value: "fred2mysql"
+
+    # datasource:
+    #   core:
+    #     host: "mysql.infra.svc.cluster.local"
+    #     port: 3306
+    #     schema: "tenants"
+    #     username: "mifos"
+    #     password: "password"
 
   # operations_app:
   #   secret:
@@ -206,6 +207,28 @@ ph-ee-engine:
     testTags: "@gov and not @ext"
     memoryRequest: "500k"
     testResultsOutputDir: "/tmp"
+
+# deployment:
+#   extraEnvs:
+#     - name: TOM_OPTS_2
+#       value: "this is FRED2 one of toms deployment options"
+
+  connector_bulk:
+    spec:
+      template:
+        containers:
+          env:
+            - name: "BP_JAVA_OPTS"
+              value: ""
+    deployment:
+      extraEnvs:
+        - name: "TOM_OPTS_2"
+          value: "this is FRED2 one of toms deployment options"
+        - name: JAVA_OPTS
+          value: |
+            -Xms128m
+            -Xmx256m
+            -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
 
 
 

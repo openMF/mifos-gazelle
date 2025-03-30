@@ -41,8 +41,8 @@ LOCAL_PORT="3307"                   # Local port to forward to
 MAX_WAIT_SECONDS=60
 
 # MySQL Connection Details
-MYSQL_USER="root"
-MYSQL_PASSWORD="ethieTieCh8ahv"
+# MYSQL_USER="root"
+# MYSQL_PASSWORD="ethieTieCh8ahv"
 MYSQL_HOST="127.0.0.1"  # This is the localhost because we are port forwarding
 SQL_FILE="$BASE_DIR/src/deployer/setup.sql"
 
