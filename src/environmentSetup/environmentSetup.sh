@@ -59,31 +59,41 @@ function k8s_already_installed {
     return 1
 }
 
-function set_linux_os_distro {
-
+function check_linux_os_distro {
     LINUX_VERSION="Unknown"
     if [ -x "/usr/bin/lsb_release" ]; then
-        LINUX_OS=`lsb_release --d | perl -ne 'print  if s/^.*Ubuntu.*(\d+).(\d+).*$/Ubuntu/' `
-        LINUX_VERSION=`/usr/bin/lsb_release --d | perl -ne 'print $&  if m/(\d+)/' `
-    else
-        LINUX_OS="Untested"
+        LINUX_OS=$(/usr/bin/lsb_release -si | tr '[:upper:]' '[:lower:]')
+        LINUX_VERSION=$(/usr/bin/lsb_release -sr | cut -d. -f1)
     fi
-    printf "\r==> Linux OS is [%s] " "$LINUX_OS"
+
+    if [[ " ${LINUX_OS_LIST[@]} " =~ " ${LINUX_OS} " ]]; then
+        OS_CHECK="true"
+        printf "\r==> Linux OS [%s] version [%s] is supported.\n" "$LINUX_OS" "$LINUX_VERSION"
+    else
+        OS_CHECK="false"
+        printf "\r==> Linux OS [%s] version [%s] is not supported.\n" "$LINUX_OS" "$LINUX_VERSION"
+    fi
 }
 
 function check_os_ok {
     printf "\r==> checking OS and kubernetes distro is tested with mifos-gazelle scripts\n"
-    set_linux_os_distro
+    
+    if [[ "$OS_CHECK" == "true" ]]; then
+        printf "** OS validation check skipped as requested by user **\n"
+        return
+    fi
+    
+    check_linux_os_distro
 
-    if [[ ! $LINUX_OS == "Ubuntu" ]]; then
-        printf "** Error , Mifos Gazelle is only tested with Ubuntu OS at this time   **\n"
+    if [[ ! "$OS_CHECK" == "true" ]]; then
+        printf "** Error , Mifos Gazelle is only tested with Ubuntu OS at this time, you can either pass -o true tag or add your os in LINUX_OS_LIST **\n"
         exit 1
     fi
 }
 
 function install_prerequisites {
     printf "\n\r==> Install any OS prerequisites , tools &  updates  ...\n"
-    if [[ $LINUX_OS == "Ubuntu" ]]; then
+    if [[ "$OS_CHECK" == "true" ]]; then
         printf "\rapt update \n"
         apt update > /dev/null 2>&1
 
@@ -547,7 +557,6 @@ function envSetupMain {
     K8S_VERSION=""
 
     HELM_VERSION="3.12.0"  # Feb 2023
-    OS_VERSIONS_LIST=( 20 22 )
     K8S_CURRENT_RELEASE_LIST=( "1.29" "1.30" )
     CURRENT_RELEASE="false"
     k8s_user_home=""
@@ -555,8 +564,8 @@ function envSetupMain {
     # Set the minimum amount of RAM in GB
     MIN_RAM=4
     MIN_FREE_SPACE=30
-    LINUX_OS_LIST=( "Ubuntu" )
-    UBUNTU_OK_VERSIONS_LIST=(20 22)
+    LINUX_OS_LIST=( "Ubuntu", "linuxmint" )
+    OS_VERSIONS_LIST=( 20 22 )
 
     # ensure we are running as root
     if [ "$EUID" -ne 0 ]
@@ -576,6 +585,7 @@ function envSetupMain {
     k8s_distro="$2"
     k8s_user_version="$3"
     environment="$4"
+    OS_CHECK="${5:-false}"
 
     check_arch_ok
     set_user

@@ -21,6 +21,7 @@ Example 2 : sudo $0 -m cleanapps -u \$USER -d true  # delete apps, leave environ
 Example 3 : sudo $0 -m cleanall -u \$USER           # delete all apps, all Kubernetes artifacts, and server
 Example 4 : sudo $0 -m deploy -u \$USER -a phee     # install PHEE only, user \$USER
 Example 5 : sudo $0 -m deploy -u \$USER -a all      # install all apps (vNext, PHEE, and MifosX) with user \$USER
+Example 6 : sudo $0 -m deploy -u \$USER -o true     # install with OS check bypassed for non-Ubuntu distributions
 
 Options:
   -m mode ................ deploy|cleanapps|cleanall  (required)
@@ -29,6 +30,7 @@ Options:
   -e environment ......... currently, 'local' is the only value supported and is the default (optional)
   -d debug ............... enable debug mode (true|false) (optional default=false)
   -r redeploy ............ force redeployment of apps (true|false) (optional, default=true)
+  -o os_check ............. skip OS validation (true|false) (optional, default=false)
   -h|H ................... display this message
 "
 }
@@ -68,16 +70,23 @@ function validateInputs {
         showUsage
         exit 1
     fi
+    
+    if [[ -n "$os_check" && "$os_check" != "true" && "$os_check" != "false" ]]; then
+        echo "Error: Invalid value for os_check. Use 'true' or 'false'."
+        showUsage
+        exit 1
+    fi
 
     # Set default values
     environment="${environment:-local}"
     debug="${debug:-false}"
     redeploy="${redeploy:-true}"
+    os_check="${os_check:-false}"
 }
 
 
 function getOptions {
-    while getopts "m:k:d:a:e:v:u:r:hH" OPTION ; do
+    while getopts "m:k:d:a:e:v:u:r:o:hH" OPTION ; do
         case "${OPTION}" in
             m) mode="${OPTARG}" ;;
             k) k8s_distro="${OPTARG}" ;;
@@ -86,6 +95,7 @@ function getOptions {
             v) k8s_user_version="${OPTARG}" ;;
             u) k8s_user="${OPTARG}" ;;
             r) redeploy="${OPTARG}" ;;
+            o) os_check="${OPTARG}" ;;
             h|H) showUsage
                  exit 0 ;;
             *) echo "Unknown option: -${OPTION}"
@@ -134,7 +144,7 @@ function main {
     echo -e "The deployment made by this script is currently recommended for demo, test and educational purposes "
     echo -e "======================================================================================================"
     echo -e "${RESET}"
-    envSetupMain "$mode" "k3s" "1.30" "$environment"
+    envSetupMain "$mode" "k3s" "1.30" "$environment" "$os_check"
     deployApps "$mifosx_instances" "$apps" "$redeploy" 
   elif [ $mode == "cleanapps" ]; then  
     logWithVerboseCheck $debug info "Cleaning up Mifos Gazelle applications only"
@@ -142,7 +152,7 @@ function main {
   elif [ $mode == "cleanall" ]; then
     logWithVerboseCheck $debug info "Cleaning up all traces of Mifos Gazelle "
     deleteApps "$mifosx_instances" "all"
-    envSetupMain "$mode" "k3s" "1.30" "$environment"
+    envSetupMain "$mode" "k3s" "1.30" "$environment" "$os_check"
   else
     showUsage
   fi
