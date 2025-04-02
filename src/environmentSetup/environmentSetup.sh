@@ -564,7 +564,7 @@ function envSetupMain {
     # Set the minimum amount of RAM in GB
     MIN_RAM=4
     MIN_FREE_SPACE=30
-    LINUX_OS_LIST=( "Ubuntu", "linuxmint" )
+    LINUX_OS_LIST=( "ubuntu" "linuxmint" ) # values should be lower case with no spaces
     OS_VERSIONS_LIST=( 20 22 )
 
     # ensure we are running as root
