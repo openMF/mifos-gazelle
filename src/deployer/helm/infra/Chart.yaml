@@ -1,8 +1,8 @@
 apiVersion: v2
-description: Helm chart formifos-gazelle infrastructure services
+description: Helm chart for mifos-gazelle infrastructure services
 name: gazelle-infra
 version: 0.1.0
-appVersion: "kafka: 19.0.2; console: 0.6.6; mongodb: 13.3.1; mongo-express: 1.0.2; elasticsearch:19.9.2; redis: 17.11.6"
+appVersion: "kafka: 19.0.2; console: 0.7.1; mongodb: 13.3.1; mongo-express: 1.0.2; elasticsearch: 19.9.2; redis: 20.0.0"
 home: https://github.com/openMF/mifos-gazelle
 #icon: 
 sources:
@@ -23,6 +23,7 @@ dependencies:
   - dependency
   - kafka
   version: 19.0.2
+
 ## redpanda kafka console 
 - name: console
   alias: redpanda-console
@@ -33,7 +34,8 @@ dependencies:
   - dependency
   - kafka
   - redpanda
-  version: 0.6.6
+  version: 0.7.1
+
 ## MongoDB
 - name: mongodb
   alias: mongodb
@@ -44,6 +46,7 @@ dependencies:
   - dependency
   - mongodb
   version: 13.3.1
+
 ## Mongo-express
 - name: mongo-express
   alias: mongo-express
@@ -54,6 +57,7 @@ dependencies:
   - dependency
   - mongodb
   version: 6.5.2
+
 ## redis 
 - name: redis
   alias: redis 
@@ -63,7 +67,8 @@ dependencies:
   - gazelle
   - dependency
   - mongodb
-  version: 17.11.6
+  version: 20.0.0
+
 ## Elastic Search Kibana 
 - name: elasticsearch
   alias: elasticsearch
@@ -74,6 +79,7 @@ dependencies:
   - dependency
   - elasticsearch
   version: 19.9.2
+
 ## MySQL
 - name: mysql
   alias: mysql
