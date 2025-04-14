@@ -213,22 +213,91 @@ ph-ee-engine:
 #     - name: TOM_OPTS_2
 #       value: "this is FRED2 one of toms deployment options"
 
+  operations_app:
+    enabled: true
+    #image: docker.io/openmf/ph-ee-operations-app:v1.20.0
+    deployment:
+      extraEnvs:
+        - name: "TOMS_OPTS"
+          value: "of-no-value"
+        - name: "TOMS_OPTS-3"
+          value: "of-no-value"
+        - name: JAVA_TOOL_OPTIONS
+          value: "-Xms128m -Xmx256m -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=0.0.0.0:9876"
+
   connector_bulk:
+    operations_app:
+      #contactpoint: "http://ph-ee-operations-app:5000"
+      contactpoint: "http://ph-ee-operations-app:80"
+      endpoints:
+        batch_transaction: "/api/v1/batch/transactions"
     spec:
       template:
         containers:
           env:
             - name: "BP_JAVA_OPTS"
               value: ""
+            - name: "BP_JAVA_OPTS-1"
+              value: "fred5"
+            - name: "BP_JAVA_OPTS-2"
+              value: "fred6"  
+            # - name: "TOMS_OPTS"
+            #   value: "of-no-value"
     deployment:
       extraEnvs:
-        - name: "TOM_OPTS_2"
-          value: "this is FRED2 one of toms deployment options"
-        - name: JAVA_OPTS
+        - name: JAVA_TOOL_OPTIONS
           value: |
             -Xms128m
             -Xmx256m
-            -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+            -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=localhost:5010
 
 
+# tls:
+# - hosts:
+#   - channel.mifos.gazelle.test
+#   - channel-gsma.mifos.gazelle.test
+#   secretName: sandbox-secret
+
+  channel:
+    # application:
+    #   config:
+    #     server:
+    #       ssl:
+    #         enabled: false
+    deployment:
+      extraEnvs:
+        - name: "SERVER_SSL_ENABLED"
+          value: "false"
+        - name: "SERVER_PORT"
+          value: "8080"
+
+    ingress:
+      enabled: true
+      className: nginx
+      pathType: Prefix
+      tls:
+      - hosts:
+        - channel.mifos.gazelle.test
+        # - channel-gsma.mifos.gazelle.test
+        secretName: sandbox-secret
+      hosts:
+        - host: channel.mifos.gazelle.test          
+          paths: 
+          - path: /
+            backend:
+              service:
+                name: ph-ee-connector-channel
+                port:
+                  number: 82
+        # - host: channel-gsma.mifos.gazelle.test          
+        #   paths:          
+        #   - path: /
+        #     backend:
+        #       service:
+        #         name: ph-ee-connector-channel-gsma
+        #         port:
+        #           number: 82
+
+  ph-ee-connector:
+    enabled: true
 

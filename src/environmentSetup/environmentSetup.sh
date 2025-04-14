@@ -155,7 +155,7 @@ function add_hosts {
 
     PHEEHOSTS=(  ops.mifos.gazelle.test ops-bk.mifos.gazelle.test \
                  bulk-connector.mifos.gazelle.test messagegateway.mifos.gazelle.test \
-                 minio.mifos.gazelle.test ams-mifos.mifos.gazelle.test \
+                 minio.mifos.gazelle.test  \
                  bill-pay.mifos.gazelle.test channel.mifos.gazelle.test \
                  channel-gsma.mifos.gazelle.test crm.mifos.gazelle.test \
                  mockpayment.mifos.gazelle.test mojaloop.mifos.gazelle.test \
@@ -166,7 +166,7 @@ function add_hosts {
 
     MIFOSXHOSTS=( mifos.mifos.gazelle.test fineract.mifos.gazelle.test ) 
 
-    ALLHOSTS=( "127.0.0.1" "localhost" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}"  )
+    ALLHOSTS=( "127.0.0.1" "localhost" "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}"  )
 
     export ENDPOINTS=`echo ${ALLHOSTS[*]}`
     # remove any existing extra hosts from 127.0.0.1 entry in localhost 

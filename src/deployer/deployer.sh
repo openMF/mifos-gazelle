@@ -105,7 +105,7 @@ deployBPMS() {
           fi
       fi
     else
-      echo " ** Warning : No BPMN files found in $file"  # Notify if no files are found in a location
+      echo -e "${RED}** Warning : No BPMN files found in $file ${RESET}"  # Notify if no files are found in a location
     fi
   done
 
@@ -113,8 +113,8 @@ deployBPMS() {
   if [ "$successful_uploads" -ge "$bpms_to_deploy" ]; then
     echo " [ok] "
   else
-    echo "Warning: there was an issue deploying the BPMN diagrams."
-    echo "         run ./src/utils/deployBpmn-gazelle.sh to investigate"
+    echo -e "${RED}Warning: there was an issue deploying the BPMN diagrams."
+    echo -e "         run ./src/utils/deployBpmn-gazelle.sh to investigate${RESET}"
   fi
 }
 

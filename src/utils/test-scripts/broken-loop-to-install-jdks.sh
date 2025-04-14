@@ -1,12 +1,17 @@
 #!/bin/bash
+# for JDK 9 and above see https://jdk.java.net/archive/
+# for JDK 8 use temurin or redhat or openlogic 
+# e.g. https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u402-b06/OpenJDK8U-jdk_x64_linux_hotspot_8u402b06.tar.gz
+# https://download.java.net/java/GA/jdk11/9/GPL/openjdk-11.0.2_linux-x64_bin.tar.gz
 
 # Define an array of desired JDK versions (not used for URL construction)
-jdk_versions=( "17.0.2" "8u422-b05" )
+jdk_versions=( "17.0.2" "8u422-b05" "11.0.1")
 
 # Define an array containing base download URLs 
 jdk_base_urls=(
   "https://download.java.net/java/GA/jdk"  # Base URL for Oracle JDK
   "https://github.com/adoptium/temurin8-binaries/releases/download/" # Base URL for Adoptium JDK
+  "https://download.java.net/java/GA/jdk11/13/GPL/"
 )
 
 # Check if the script is running on Ubuntu
