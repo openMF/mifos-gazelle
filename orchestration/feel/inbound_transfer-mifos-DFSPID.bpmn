@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_0pwrjvp" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Zeebe Modeler" exporterVersion="0.11.0">
+  <bpmn:process id="inbound_transfer-mifos-DFSPID" name="inbound_transfer-mifos-DFSPID" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1" name="Start">
+      <bpmn:outgoing>Flow_1qse416</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_1qse416" sourceRef="StartEvent_1" targetRef="account-identifier-DFSPID" />
+    <bpmn:serviceTask id="account-identifier-DFSPID" name="Account Identifier Worker">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="account-identifier-DFSPID" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1qse416</bpmn:incoming>
+      <bpmn:outgoing>Flow_1fg54hw</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_1cc6c94">
+      <bpmn:incoming>Flow_1fg54hw</bpmn:incoming>
+      <bpmn:outgoing>Flow_13zeayn</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1drryfj</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_1fg54hw" sourceRef="account-identifier-DFSPID" targetRef="Gateway_1cc6c94" />
+    <bpmn:sequenceFlow id="Flow_13zeayn" name="prefix=L" sourceRef="Gateway_1cc6c94" targetRef="payee-loan-transfer-DFSPID">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= accountIdentifier = "L"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_1drryfj" name="prefix=S" sourceRef="Gateway_1cc6c94" targetRef="payee-deposit-transfer-DFSPID">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= accountIdentifier = "S"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:serviceTask id="payee-loan-transfer-DFSPID" name="Loan Repayment Worker">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="payee-loan-transfer-DFSPID" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_13zeayn</bpmn:incoming>
+      <bpmn:outgoing>Flow_12wedix</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="payee-deposit-transfer-DFSPID" name="Deposit Savings Worker">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="payee-deposit-transfer-DFSPID" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1drryfj</bpmn:incoming>
+      <bpmn:outgoing>Flow_06gwhv5</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="send-callback" name="Send Callback Worker">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="send-callback" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_12wedix</bpmn:incoming>
+      <bpmn:incoming>Flow_06gwhv5</bpmn:incoming>
+      <bpmn:outgoing>Flow_0gxopv1</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="Event_1bh40y1" name="End">
+      <bpmn:incoming>Flow_0gxopv1</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_0gxopv1" sourceRef="send-callback" targetRef="Event_1bh40y1" />
+    <bpmn:sequenceFlow id="Flow_12wedix" sourceRef="payee-loan-transfer-DFSPID" targetRef="send-callback" />
+    <bpmn:sequenceFlow id="Flow_06gwhv5" sourceRef="payee-deposit-transfer-DFSPID" targetRef="send-callback" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="inbound_transfer-mifos-DFSPID">
+      <bpmndi:BPMNEdge id="Flow_0gxopv1_di" bpmnElement="Flow_0gxopv1">
+        <di:waypoint x="910" y="250" />
+        <di:waypoint x="992" y="250" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1drryfj_di" bpmnElement="Flow_1drryfj">
+        <di:waypoint x="470" y="275" />
+        <di:waypoint x="470" y="380" />
+        <di:waypoint x="560" y="380" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="419" y="325" width="41" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_13zeayn_di" bpmnElement="Flow_13zeayn">
+        <di:waypoint x="470" y="225" />
+        <di:waypoint x="470" y="120" />
+        <di:waypoint x="560" y="120" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="420" y="170" width="40" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1fg54hw_di" bpmnElement="Flow_1fg54hw">
+        <di:waypoint x="380" y="250" />
+        <di:waypoint x="445" y="250" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1qse416_di" bpmnElement="Flow_1qse416">
+        <di:waypoint x="215" y="250" />
+        <di:waypoint x="280" y="250" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_12wedix_di" bpmnElement="Flow_12wedix">
+        <di:waypoint x="660" y="120" />
+        <di:waypoint x="735" y="120" />
+        <di:waypoint x="735" y="250" />
+        <di:waypoint x="810" y="250" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_06gwhv5_di" bpmnElement="Flow_06gwhv5">
+        <di:waypoint x="660" y="380" />
+        <di:waypoint x="735" y="380" />
+        <di:waypoint x="735" y="250" />
+        <di:waypoint x="810" y="250" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="_BPMNShape_StartEvent_2" bpmnElement="StartEvent_1" bioc:stroke="rgb(67, 160, 71)" bioc:fill="rgb(200, 230, 201)">
+        <dc:Bounds x="179" y="232" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="185" y="275" width="24" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0cjwow3_di" bpmnElement="account-identifier-DFSPID" bioc:stroke="rgb(229, 57, 53)" bioc:fill="rgb(255, 205, 210)">
+        <dc:Bounds x="280" y="210" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_1cc6c94_di" bpmnElement="Gateway_1cc6c94" isMarkerVisible="true">
+        <dc:Bounds x="445" y="225" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0o6ystu_di" bpmnElement="payee-loan-transfer-DFSPID" bioc:stroke="rgb(30, 136, 229)" bioc:fill="rgb(187, 222, 251)">
+        <dc:Bounds x="560" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_049ddsb_di" bpmnElement="payee-deposit-transfer-DFSPID" bioc:stroke="rgb(30, 136, 229)" bioc:fill="rgb(187, 222, 251)">
+        <dc:Bounds x="560" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1feivgb_di" bpmnElement="send-callback" bioc:stroke="rgb(142, 36, 170)" bioc:fill="rgb(225, 190, 231)">
+        <dc:Bounds x="810" y="210" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_00ydts2_di" bpmnElement="Event_1bh40y1" bioc:stroke="rgb(229, 57, 53)" bioc:fill="rgb(255, 205, 210)">
+        <dc:Bounds x="992" y="232" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1000" y="275" width="20" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

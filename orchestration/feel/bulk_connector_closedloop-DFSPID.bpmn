@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="Definitions_0pes7dv" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Zeebe Modeler" exporterVersion="0.11.0">
+  <bpmn:process id="bulk_connector_closedloop-DFSPID" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1">
+      <bpmn:outgoing>Flow_18pidwz</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_18pidwz" sourceRef="StartEvent_1" targetRef="initBatchTransfer" />
+    <bpmn:sequenceFlow id="Flow_18j0g8r" sourceRef="initBatchTransfer" targetRef="batchSummary" />
+    <bpmn:exclusiveGateway id="Gateway_1c15u60" name="Batch Summary Status Gateway">
+      <bpmn:incoming>Flow_1y51aki</bpmn:incoming>
+      <bpmn:outgoing>Flow_0bptiw6</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1r2y00f</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_1y51aki" sourceRef="batchSummary" targetRef="Gateway_1c15u60" />
+    <bpmn:sequenceFlow id="Flow_0bptiw6" name="Batch Summary Complete" sourceRef="Gateway_1c15u60" targetRef="batchDetails">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= batchSummarySuccess = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:exclusiveGateway id="Gateway_15mjxzp" name="Batch Detail Status Gateway" default="Flow_02silk7">
+      <bpmn:incoming>Flow_19jf63d</bpmn:incoming>
+      <bpmn:outgoing>Flow_0tp63bk</bpmn:outgoing>
+      <bpmn:outgoing>Flow_02silk7</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_19jf63d" sourceRef="batchDetails" targetRef="Gateway_15mjxzp" />
+    <bpmn:serviceTask id="initBatchTransfer" name="Initiate PH Batch Transfer API">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="initBatchTransfer" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_18pidwz</bpmn:incoming>
+      <bpmn:outgoing>Flow_18j0g8r</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="batchSummary" name="Batch Summary">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="batchSummary" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_18j0g8r</bpmn:incoming>
+      <bpmn:incoming>Flow_0ok3dms</bpmn:incoming>
+      <bpmn:outgoing>Flow_1y51aki</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="batchDetails" name="Get Batch Details">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="batchDetails" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_0bptiw6</bpmn:incoming>
+      <bpmn:outgoing>Flow_19jf63d</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="Event_0fvyohg" name="Reconciliation Successfull">
+      <bpmn:incoming>Flow_0tp63bk</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_0tp63bk" name="Successful Reconciliation" sourceRef="Gateway_15mjxzp" targetRef="Event_0fvyohg">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= batchDetailSuccess = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:endEvent id="Event_0x0pgi7" name="Batch Status Failed">
+      <bpmn:incoming>Flow_0wr743r</bpmn:incoming>
+      <bpmn:incoming>Flow_02silk7</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:intermediateCatchEvent id="Event_1u4dcce" name="Wait Timer">
+      <bpmn:incoming>Flow_0y0aw9b</bpmn:incoming>
+      <bpmn:outgoing>Flow_0ok3dms</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerEventDefinition_03zadrv">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">= waitTimer</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:sequenceFlow id="Flow_0ok3dms" sourceRef="Event_1u4dcce" targetRef="batchSummary" />
+    <bpmn:exclusiveGateway id="Gateway_131meoa" name="Retry Descision Gateway">
+      <bpmn:incoming>Flow_1r2y00f</bpmn:incoming>
+      <bpmn:outgoing>Flow_0wr743r</bpmn:outgoing>
+      <bpmn:outgoing>Flow_0y0aw9b</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_0wr743r" sourceRef="Gateway_131meoa" targetRef="Event_0x0pgi7">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= currentRetryCount &gt; maxRetryCount</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_1r2y00f" sourceRef="Gateway_1c15u60" targetRef="Gateway_131meoa">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= batchSummarySuccess = false</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_0y0aw9b" sourceRef="Gateway_131meoa" targetRef="Event_1u4dcce">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= currentRetryCount &lt;= maxRetryCount</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_02silk7" sourceRef="Gateway_15mjxzp" targetRef="Event_0x0pgi7" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="bulk_connector_closedloop-DFSPID">
+      <bpmndi:BPMNEdge id="Flow_02silk7_di" bpmnElement="Flow_02silk7">
+        <di:waypoint x="1000" y="275" />
+        <di:waypoint x="1000" y="190" />
+        <di:waypoint x="1200" y="190" />
+        <di:waypoint x="1200" y="138" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0y0aw9b_di" bpmnElement="Flow_0y0aw9b">
+        <di:waypoint x="615" y="120" />
+        <di:waypoint x="498" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1r2y00f_di" bpmnElement="Flow_1r2y00f">
+        <di:waypoint x="640" y="275" />
+        <di:waypoint x="640" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0wr743r_di" bpmnElement="Flow_0wr743r">
+        <di:waypoint x="665" y="120" />
+        <di:waypoint x="1182" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0ok3dms_di" bpmnElement="Flow_0ok3dms">
+        <di:waypoint x="480" y="138" />
+        <di:waypoint x="480" y="260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0tp63bk_di" bpmnElement="Flow_0tp63bk">
+        <di:waypoint x="1025" y="300" />
+        <di:waypoint x="1182" y="300" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1069" y="266" width="69" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_19jf63d_di" bpmnElement="Flow_19jf63d">
+        <di:waypoint x="880" y="300" />
+        <di:waypoint x="975" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0bptiw6_di" bpmnElement="Flow_0bptiw6">
+        <di:waypoint x="665" y="300" />
+        <di:waypoint x="780" y="300" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="672" y="266" width="79" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1y51aki_di" bpmnElement="Flow_1y51aki">
+        <di:waypoint x="530" y="300" />
+        <di:waypoint x="615" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_18j0g8r_di" bpmnElement="Flow_18j0g8r">
+        <di:waypoint x="350" y="300" />
+        <di:waypoint x="430" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_18pidwz_di" bpmnElement="Flow_18pidwz">
+        <di:waypoint x="188" y="300" />
+        <di:waypoint x="250" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="_BPMNShape_StartEvent_2" bpmnElement="StartEvent_1" bioc:stroke="rgb(67, 160, 71)" bioc:fill="rgb(200, 230, 201)">
+        <dc:Bounds x="152" y="282" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_1c15u60_di" bpmnElement="Gateway_1c15u60" isMarkerVisible="true">
+        <dc:Bounds x="615" y="275" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="601" y="332" width="79" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_15mjxzp_di" bpmnElement="Gateway_15mjxzp" isMarkerVisible="true">
+        <dc:Bounds x="975" y="275" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="966" y="332" width="78" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0p5nu2c_di" bpmnElement="initBatchTransfer" bioc:stroke="rgb(30, 136, 229)" bioc:fill="rgb(187, 222, 251)">
+        <dc:Bounds x="250" y="260" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1kw1l79_di" bpmnElement="batchSummary" bioc:stroke="rgb(30, 136, 229)" bioc:fill="rgb(187, 222, 251)">
+        <dc:Bounds x="430" y="260" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1a211tf_di" bpmnElement="batchDetails" bioc:stroke="rgb(30, 136, 229)" bioc:fill="rgb(187, 222, 251)">
+        <dc:Bounds x="780" y="260" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_0fvyohg_di" bpmnElement="Event_0fvyohg" bioc:stroke="rgb(67, 160, 71)" bioc:fill="rgb(200, 230, 201)">
+        <dc:Bounds x="1182" y="282" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1167" y="325" width="69" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_0x0pgi7_di" bpmnElement="Event_0x0pgi7" bioc:stroke="rgb(229, 57, 53)" bioc:fill="rgb(255, 205, 210)">
+        <dc:Bounds x="1182" y="102" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1168" y="64.5" width="63" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_1u4dcce_di" bpmnElement="Event_1u4dcce">
+        <dc:Bounds x="462" y="102" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="453" y="83" width="53" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_131meoa_di" bpmnElement="Gateway_131meoa" isMarkerVisible="true">
+        <dc:Bounds x="615" y="95" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="602" y="65" width="78" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

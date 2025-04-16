@@ -155,7 +155,7 @@ function add_hosts {
 
     PHEEHOSTS=(  ops.mifos.gazelle.test ops-bk.mifos.gazelle.test \
                  bulk-connector.mifos.gazelle.test messagegateway.mifos.gazelle.test \
-                 minio.mifos.gazelle.test  \
+                 minio-console.mifos.gazelle.test  \
                  bill-pay.mifos.gazelle.test channel.mifos.gazelle.test \
                  channel-gsma.mifos.gazelle.test crm.mifos.gazelle.test \
                  mockpayment.mifos.gazelle.test mojaloop.mifos.gazelle.test \

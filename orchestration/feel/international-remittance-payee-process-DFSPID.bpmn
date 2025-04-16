@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_1e00cy8" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Zeebe Modeler" exporterVersion="0.11.0">
+  <bpmn:process id="international_remittance_payee_process-ibank-usa" name="Payee Porcess - ibank-usa" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1" name="Start Deposit">
+      <bpmn:outgoing>Flow_1oh4r14</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="Activity_1iajc94" name="Book funds to account" implementation="##WebService">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="payee-deposit-transfer-DFSPID" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1oh4r14</bpmn:incoming>
+      <bpmn:outgoing>Flow_15u0t1f</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="Event_0hyfpib" name="Deposit Completed">
+      <bpmn:incoming>Flow_0dl6v3u</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_1oh4r14" sourceRef="StartEvent_1" targetRef="Activity_1iajc94" />
+    <bpmn:sequenceFlow id="Flow_15u0t1f" sourceRef="Activity_1iajc94" targetRef="Gateway_1ey5gh2" />
+    <bpmn:exclusiveGateway id="Gateway_1ey5gh2" default="Flow_0dl6v3u">
+      <bpmn:incoming>Flow_15u0t1f</bpmn:incoming>
+      <bpmn:outgoing>Flow_0dl6v3u</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1ybr1l5</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_0dl6v3u" sourceRef="Gateway_1ey5gh2" targetRef="Event_0hyfpib" />
+    <bpmn:sequenceFlow id="Flow_1ybr1l5" sourceRef="Gateway_1ey5gh2" targetRef="Event_1rvkkk9">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=transferCreateFailed = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:endEvent id="Event_1rvkkk9" name="Deposit Failed">
+      <bpmn:incoming>Flow_1ybr1l5</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="international_remittance_payee_process-ibank-usa">
+      <bpmndi:BPMNEdge id="Flow_1ybr1l5_di" bpmnElement="Flow_1ybr1l5">
+        <di:waypoint x="410" y="235" />
+        <di:waypoint x="410" y="140" />
+        <di:waypoint x="652" y="140" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0dl6v3u_di" bpmnElement="Flow_0dl6v3u">
+        <di:waypoint x="435" y="260" />
+        <di:waypoint x="652" y="260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_15u0t1f_di" bpmnElement="Flow_15u0t1f">
+        <di:waypoint x="340" y="260" />
+        <di:waypoint x="385" y="260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1oh4r14_di" bpmnElement="Flow_1oh4r14">
+        <di:waypoint x="188" y="260" />
+        <di:waypoint x="240" y="260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="_BPMNShape_StartEvent_2" bpmnElement="StartEvent_1" bioc:stroke="rgb(67, 160, 71)" bioc:fill="rgb(200, 230, 201)">
+        <dc:Bounds x="152" y="242" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="139" y="285" width="64" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1iajc94_di" bpmnElement="Activity_1iajc94" bioc:stroke="rgb(142, 36, 170)" bioc:fill="rgb(225, 190, 231)">
+        <dc:Bounds x="240" y="220" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_0hyfpib_di" bpmnElement="Event_0hyfpib" bioc:stroke="rgb(67, 160, 71)" bioc:fill="rgb(200, 230, 201)">
+        <dc:Bounds x="652" y="242" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="644" y="285" width="54" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_1ey5gh2_di" bpmnElement="Gateway_1ey5gh2" isMarkerVisible="true">
+        <dc:Bounds x="385" y="235" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_1rvkkk9_di" bpmnElement="Event_1rvkkk9" bioc:stroke="rgb(229, 57, 53)" bioc:fill="rgb(255, 205, 210)">
+        <dc:Bounds x="652" y="122" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="636" y="165" width="71" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

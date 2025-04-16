@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" exporter="Zeebe Modeler" exporterVersion="0.8.0" expressionLanguage="http://www.w3.org/1999/XPath" id="Definitions_0p96e5j" targetNamespace="http://bpmn.io/schema/bpmn" typeLanguage="http://www.w3.org/2001/XMLSchema">
+  <bpmn:process id="PayeePartyLookup-DFSPID" isClosed="false" isExecutable="true" name="PayeePartyLookup-DFSPID" processType="None">
+    <bpmn:startEvent id="StartEvent_PayeeLookup" isInterrupting="true" name="Party Lookup request" parallelMultiple="false">
+      <bpmn:outgoing>SequenceFlow_1jawp7n</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="SequenceFlow_1jawp7n" sourceRef="StartEvent_PayeeLookup" targetRef="Task_PartyLookup"/>
+    <bpmn:serviceTask completionQuantity="1" id="Task_PartyLookup" implementation="##WebService" isForCompensation="false" name="Party ID lookup and&#10;Validate account" startQuantity="1">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="party-lookup-local-DFSPID"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>SequenceFlow_1jawp7n</bpmn:incoming>
+      <bpmn:outgoing>SequenceFlow_0vk18w4</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask completionQuantity="1" id="Task_LookupResp2Moja" implementation="##WebService" isForCompensation="false" name="Send Party Lookup response" startQuantity="1">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="party-lookup-local-response-DFSPID"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>SequenceFlow_0vk18w4</bpmn:incoming>
+      <bpmn:outgoing>SequenceFlow_1cpr2t7</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="EndEvent_Success_PayeeLokup" name="Party Lookup response">
+      <bpmn:incoming>SequenceFlow_1cpr2t7</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="SequenceFlow_1cpr2t7" sourceRef="Task_LookupResp2Moja" targetRef="EndEvent_Success_PayeeLokup"/>
+    <bpmn:sequenceFlow id="SequenceFlow_0vk18w4" sourceRef="Task_PartyLookup" targetRef="Task_LookupResp2Moja"/>
+    <bpmn:group categoryValueRef="CategoryValue_1wvxa5g" id="Group_12w8hx2"/>
+    <bpmn:group categoryValueRef="CategoryValue_1m9c66x" id="Group_0nc0ugq"/>
+  </bpmn:process>
+  <bpmn:category id="Category_1nzyv9g">
+    <bpmn:categoryValue id="CategoryValue_1wvxa5g" value="Mojaloop"/>
+  </bpmn:category>
+  <bpmn:category id="Category_149zllf">
+    <bpmn:categoryValue id="CategoryValue_1m9c66x" value="AMS"/>
+  </bpmn:category>
+  <bpmn:error errorCode="2001" id="Error_0sncywj" name="server-error"/>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane bpmnElement="PayeePartyLookup-DFSPID" id="BPMNPlane_1">
+      <bpmndi:BPMNShape bioc:fill="rgb(200, 230, 201)" bioc:stroke="rgb(67, 160, 71)" bpmnElement="StartEvent_PayeeLookup" id="_BPMNShape_StartEvent_2">
+        <dc:Bounds height="36" width="36" x="192" y="102"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds height="27" width="66" x="179" y="145"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge bpmnElement="SequenceFlow_1jawp7n" id="SequenceFlow_1jawp7n_di">
+        <di:waypoint x="228" y="120"/>
+        <di:waypoint x="290" y="120"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape bioc:fill="rgb(225, 190, 231)" bioc:stroke="rgb(142, 36, 170)" bpmnElement="Task_PartyLookup" id="ServiceTask_0jsqp82_di">
+        <dc:Bounds height="80" width="100" x="290" y="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bioc:fill="rgb(255, 224, 178)" bioc:stroke="rgb(251, 140, 0)" bpmnElement="Task_LookupResp2Moja" id="ServiceTask_0lbt4y7_di">
+        <dc:Bounds height="80" width="100" x="450" y="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bioc:fill="rgb(200, 230, 201)" bioc:stroke="rgb(67, 160, 71)" bpmnElement="EndEvent_Success_PayeeLokup" id="EndEvent_16lkx2s_di">
+        <dc:Bounds height="36" width="36" x="612" y="102"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds height="27" width="66" x="599" y="145"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge bpmnElement="SequenceFlow_1cpr2t7" id="SequenceFlow_1cpr2t7_di">
+        <di:waypoint x="550" y="120"/>
+        <di:waypoint x="612" y="120"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape bpmnElement="Group_12w8hx2" id="Group_12w8hx2_di">
+        <dc:Bounds height="130" width="140" x="430" y="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds height="14" width="46" x="437" y="57"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge bpmnElement="SequenceFlow_0vk18w4" id="SequenceFlow_0vk18w4_di">
+        <di:waypoint x="390" y="120"/>
+        <di:waypoint x="450" y="120"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape bpmnElement="Group_0nc0ugq" id="Group_0nc0ugq_di">
+        <dc:Bounds height="130" width="140" x="270" y="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds height="14" width="24" x="278" y="57"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -2,7 +2,8 @@
 
 # Define variables for the charts
 SCRIPT_DIR=$( cd $(dirname "$0") ; pwd )
-BPMN_DIR="$( cd $(dirname "$SCRIPT_DIR")/../repos/ph_template/orchestration/phlabs ; pwd )"
+#BPMN_DIR="$( cd $(dirname "$SCRIPT_DIR")/../repos/ph_template/orchestration/phlabs ; pwd )"
+BPMN_DIR="$( cd $(dirname "$SCRIPT_DIR")/../orchestration/ ; pwd )"
 
 HOST="https://zeebeops.mifos.gazelle.test/zeebe/upload"
 DEBUG=false
@@ -96,6 +97,6 @@ else
         echo "Deploying BPMN file: $location"
         [ -e "$location" ] || continue  # Skip if no files match the glob
         deploy "$location"
-        sleep 20
+        sleep 2
     done
 fi

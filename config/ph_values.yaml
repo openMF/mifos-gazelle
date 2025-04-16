@@ -226,6 +226,7 @@ ph-ee-engine:
           value: "-Xms128m -Xmx256m -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=0.0.0.0:9876"
 
   connector_bulk:
+    tenants: "greenbank,bluebank"
     operations_app:
       #contactpoint: "http://ph-ee-operations-app:5000"
       contactpoint: "http://ph-ee-operations-app:80"
@@ -259,11 +260,20 @@ ph-ee-engine:
 #   secretName: sandbox-secret
 
   channel:
+    tenantPrimary:
+      clientId: "mifos"
+      clientSecret: "password"
+      tenant: "greenbank"
+    tenantSecondary:
+      clientId: "mifos"
+      clientSecret: "password"
+      tenant: "bluebank"
     # application:
     #   config:
     #     server:
     #       ssl:
     #         enabled: false
+    LOGGING_LEVEL_ROOT: "DEBUG"
     deployment:
       extraEnvs:
         - name: "SERVER_SSL_ENABLED"
@@ -297,6 +307,22 @@ ph-ee-engine:
         #         name: ph-ee-connector-channel-gsma
         #         port:
         #           number: 82
+
+  minio:
+    ingress:
+      hosts:
+        - minio.mifos.gazelle.test
+
+    
+    consoleIngress:
+      enabled: true 
+      ingressClassName: nginx 
+      labels: {}
+      annotations: {}
+      path: /
+      hosts:
+        - minio-console.mifos.gazelle.test
+
 
   ph-ee-connector:
     enabled: true
