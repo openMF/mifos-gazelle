@@ -12,16 +12,33 @@ INSTANCE_TYPE="t3.xlarge"
 REGION="us-east-1"
 DURATION_DAYS=30
 
-# AWS estimated monthly costs for various instance types (in USD)
-declare -A INSTANCE_COSTS
-INSTANCE_COSTS["t3.medium"]=30.37
-INSTANCE_COSTS["t3.large"]=60.74
-INSTANCE_COSTS["t3.xlarge"]=121.47
-INSTANCE_COSTS["t3.2xlarge"]=242.94
-INSTANCE_COSTS["m5.xlarge"]=140.16
-INSTANCE_COSTS["m5.2xlarge"]=280.32
-INSTANCE_COSTS["c5.xlarge"]=134.14
-INSTANCE_COSTS["c5.2xlarge"]=268.27
+# Function to get instance cost based on type
+get_instance_cost() {
+  case "$1" in
+    "t3.medium") echo "30.37" ;;
+    "t3.large") echo "60.74" ;;
+    "t3.xlarge") echo "121.47" ;;
+    "t3.2xlarge") echo "242.94" ;;
+    "m5.xlarge") echo "140.16" ;;
+    "m5.2xlarge") echo "280.32" ;;
+    "c5.xlarge") echo "134.14" ;;
+    "c5.2xlarge") echo "268.27" ;;
+    *) echo "0" ;;
+  esac
+}
+
+# List available instance types
+list_instances() {
+  echo "Available instance types:"
+  echo "  t3.medium: $30.37/month"
+  echo "  t3.large: $60.74/month"
+  echo "  t3.xlarge: $121.47/month"
+  echo "  t3.2xlarge: $242.94/month"
+  echo "  m5.xlarge: $140.16/month"
+  echo "  m5.2xlarge: $280.32/month"
+  echo "  c5.xlarge: $134.14/month"
+  echo "  c5.2xlarge: $268.27/month"
+}
 
 # Function to display help message
 display_help() {
@@ -35,10 +52,7 @@ display_help() {
   echo "  -d, --days DAYS            Duration in days (default: 30)"
   echo "  --help                     Display this help message"
   echo ""
-  echo "Available instance types:"
-  for instance in "${!INSTANCE_COSTS[@]}"; do
-    echo "  $instance: $${INSTANCE_COSTS[$instance]}/month"
-  done
+  list_instances
 }
 
 # Parse command line arguments
@@ -89,9 +103,10 @@ if [[ ! -f "$RESULTS_FILE" ]]; then
 fi
 
 # Check if instance type is valid
-if [[ -z "${INSTANCE_COSTS[$INSTANCE_TYPE]}" ]]; then
+INSTANCE_COST=$(get_instance_cost "$INSTANCE_TYPE")
+if [[ "$INSTANCE_COST" == "0" ]]; then
   echo "Error: Invalid instance type: $INSTANCE_TYPE"
-  display_help
+  list_instances
   exit 1
 fi
 
@@ -119,7 +134,7 @@ REQUIRED_INSTANCES=$(echo "scale=0; ($THROUGHPUT / $TARGET_THROUGHPUT_PER_INSTAN
 REQUIRED_INSTANCES=$((REQUIRED_INSTANCES < 1 ? 1 : REQUIRED_INSTANCES))
 
 # Calculate TCO
-INSTANCE_MONTHLY_COST=${INSTANCE_COSTS[$INSTANCE_TYPE]}
+INSTANCE_MONTHLY_COST=$INSTANCE_COST
 DAILY_COST=$(echo "scale=2; $INSTANCE_MONTHLY_COST / 30" | bc)
 MONTHLY_COST=$(echo "scale=2; $DAILY_COST * $REQUIRED_INSTANCES * 30" | bc)
 TOTAL_COST=$(echo "scale=2; $DAILY_COST * $REQUIRED_INSTANCES * $DURATION_DAYS" | bc)
@@ -137,6 +152,7 @@ NETWORK_TOTAL_COST=$(echo "scale=2; $NETWORK_MONTHLY_COST * $DURATION_DAYS / 30"
 
 # Calculate grand total
 GRAND_TOTAL=$(echo "scale=2; $TOTAL_COST + $STORAGE_TOTAL_COST + $NETWORK_TOTAL_COST" | bc)
+ANNUAL_COST=$(echo "scale=2; $MONTHLY_COST * 12" | bc)
 
 # Generate output file
 cat > "$OUTPUT_FILE" << EOF
@@ -164,7 +180,7 @@ cat > "$OUTPUT_FILE" << EOF
   },
   "recommendations": {
     "optimalInstanceType": "$INSTANCE_TYPE",
-    "estimatedAnnualCost": $(echo "scale=2; $MONTHLY_COST * 12" | bc),
+    "estimatedAnnualCost": $ANNUAL_COST,
     "scalingRecommendation": "$([ $REQUIRED_INSTANCES -gt 1 ] && echo "Consider using auto-scaling groups" || echo "Single instance is sufficient")"
   }
 }

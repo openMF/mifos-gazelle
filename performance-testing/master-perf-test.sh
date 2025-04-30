@@ -8,6 +8,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RESULTS_DIR="${SCRIPT_DIR}/results/$(date +%Y%m%d_%H%M%S)"
 REPORT_DIR="${RESULTS_DIR}/reports"
+USE_SAMPLE_DATA=false
 
 # Function to display help message
 display_help() {
@@ -21,6 +22,7 @@ display_help() {
   echo "  --no-phee                    Disable PaymentHub EE testing"
   echo "  --no-vnext                   Disable vNext testing"
   echo "  --no-tco                     Disable TCO estimation"
+  echo "  --sample                     Use sample data instead of running actual tests"
   echo "  -u, --users NUM              Number of users/threads (default: 10)"
   echo "  -d, --duration NUM           Test duration in seconds (default: 60)"
   echo "  -r, --results-dir DIR        Results directory (default: auto-generated)"
@@ -66,6 +68,10 @@ while [[ $# -gt 0 ]]; do
       GENERATE_TCO=false
       shift
       ;;
+    --sample)
+      USE_SAMPLE_DATA=true
+      shift
+      ;;
     -u|--users)
       USERS="$2"
       shift 2
@@ -93,6 +99,8 @@ done
 # Create directories
 mkdir -p "${RESULTS_DIR}"
 mkdir -p "${REPORT_DIR}"
+mkdir -p "${RESULTS_DIR}/phee"
+mkdir -p "${RESULTS_DIR}/vnext"
 
 echo "=========================================================="
 echo "Mojafos Performance Testing and TCO Estimation"
@@ -105,27 +113,61 @@ echo "- Results directory: ${RESULTS_DIR}"
 echo "- Testing PaymentHub EE: ${TEST_PHEE}"
 echo "- Testing vNext: ${TEST_VNEXT}"
 echo "- Generating TCO estimate: ${GENERATE_TCO}"
+echo "- Using sample data: ${USE_SAMPLE_DATA}"
 echo "=========================================================="
 
-# Run PaymentHub EE tests if enabled
-if [[ "${TEST_PHEE}" == "true" ]]; then
-  echo "Running PaymentHub EE performance tests..."
-  "${SCRIPT_DIR}/run-performance-tests.sh" \
-    --users "${USERS}" \
-    --duration "${DURATION}" \
-    --test-plan "${SCRIPT_DIR}/paymentHubEE.jmx" \
-    --results-dir "${RESULTS_DIR}/phee"
-  echo "PaymentHub EE tests completed."
-fi
+# If using sample data, copy it to the appropriate directories
+if [[ "${USE_SAMPLE_DATA}" == "true" ]]; then
+  if [[ -f "${SCRIPT_DIR}/test-results/sample-results.jtl" ]]; then
+    echo "Using sample data instead of running actual tests..."
+    cp "${SCRIPT_DIR}/test-results/sample-results.jtl" "${RESULTS_DIR}/phee/results.jtl"
+    cp "${SCRIPT_DIR}/test-results/sample-results.jtl" "${RESULTS_DIR}/vnext/vnext-results.jtl"
+    
+    # Generate a simple vnext integrated report
+    mkdir -p "${RESULTS_DIR}/vnext"
+    cat > "${RESULTS_DIR}/vnext/integrated-report.md" << EOF
+# Integrated Performance Test Report (Sample Data)
 
-# Run vNext tests if enabled
-if [[ "${TEST_VNEXT}" == "true" ]]; then
-  echo "Running vNext performance tests..."
-  "${SCRIPT_DIR}/vnext-performance-integration.sh" \
-    --users "${USERS}" \
-    --duration "${DURATION}" \
-    --results-dir "${RESULTS_DIR}/vnext"
-  echo "vNext tests completed."
+## Test Configuration
+- Date: $(date)
+- Users: ${USERS}
+- Duration: ${DURATION} seconds
+- vNext URL: fspiop.mifos.gazelle.test
+- PaymentHub URL: paymenthub.local
+
+## Test Results
+
+### vNext JMeter Performance Results (Sample)
+\`\`\`
+$(head -n 5 "${RESULTS_DIR}/vnext/vnext-results.jtl")
+...
+\`\`\`
+EOF
+  else
+    echo "Sample data not found. Please create test-results/sample-results.jtl or run actual tests."
+    exit 1
+  fi
+else
+  # Run PaymentHub EE tests if enabled
+  if [[ "${TEST_PHEE}" == "true" ]]; then
+    echo "Running PaymentHub EE performance tests..."
+    "${SCRIPT_DIR}/run-performance-tests.sh" \
+      --users "${USERS}" \
+      --duration "${DURATION}" \
+      --test-plan "${SCRIPT_DIR}/paymentHubEE.jmx" \
+      --results-dir "${RESULTS_DIR}/phee"
+    echo "PaymentHub EE tests completed."
+  fi
+
+  # Run vNext tests if enabled
+  if [[ "${TEST_VNEXT}" == "true" ]]; then
+    echo "Running vNext performance tests..."
+    "${SCRIPT_DIR}/vnext-performance-integration.sh" \
+      --users "${USERS}" \
+      --duration "${DURATION}" \
+      --results-dir "${RESULTS_DIR}/vnext"
+    echo "vNext tests completed."
+  fi
 fi
 
 # Generate TCO estimation if enabled
@@ -156,6 +198,7 @@ cat > "${REPORT_DIR}/combined-report.md" << EOF
 - Date: $(date)
 - Users: ${USERS}
 - Duration: ${DURATION} seconds
+- Using Sample Data: ${USE_SAMPLE_DATA}
 
 ## Summary
 
@@ -163,7 +206,12 @@ EOF
 
 if [[ "${TEST_PHEE}" == "true" ]]; then
   echo "### PaymentHub EE Results" >> "${REPORT_DIR}/combined-report.md"
-  echo "- [Detailed JMeter Results](../phee/html-report/index.html)" >> "${REPORT_DIR}/combined-report.md"
+  
+  if [[ -d "${RESULTS_DIR}/phee/html-report" ]]; then
+    echo "- [Detailed JMeter Results](../phee/html-report/index.html)" >> "${REPORT_DIR}/combined-report.md"
+  else
+    echo "- JMeter HTML report not available" >> "${REPORT_DIR}/combined-report.md"
+  fi
   
   if [[ "${GENERATE_TCO}" == "true" && -f "${REPORT_DIR}/phee-tco-estimate.json" ]]; then
     echo "- [TCO Estimation](phee-tco-estimate.json)" >> "${REPORT_DIR}/combined-report.md"
@@ -181,7 +229,12 @@ fi
 
 if [[ "${TEST_VNEXT}" == "true" ]]; then
   echo "### vNext Results" >> "${REPORT_DIR}/combined-report.md"
-  echo "- [Detailed Report](../vnext/integrated-report.md)" >> "${REPORT_DIR}/combined-report.md"
+  
+  if [[ -f "${RESULTS_DIR}/vnext/integrated-report.md" ]]; then
+    echo "- [Detailed Report](../vnext/integrated-report.md)" >> "${REPORT_DIR}/combined-report.md"
+  else
+    echo "- vNext report not available" >> "${REPORT_DIR}/combined-report.md"
+  fi
   
   if [[ "${GENERATE_TCO}" == "true" && -f "${REPORT_DIR}/vnext-tco-estimate.json" ]]; then
     echo "- [TCO Estimation](vnext-tco-estimate.json)" >> "${REPORT_DIR}/combined-report.md"

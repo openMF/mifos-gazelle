@@ -1,0 +1,7 @@
+timeStamp,elapsed,label,responseCode,responseMessage,threadName,dataType,success,failureMessage,bytes,sentBytes,grpThreads,allThreads,URL,Latency,IdleTime,Connect
+1717071360123,200,Home Page,200,OK,Thread Group 1-1,text,true,,1024,512,1,1,https://paymenthub.local/,150,0,30
+1717071360323,250,Login,200,OK,Thread Group 1-1,text,true,,2048,768,1,1,https://paymenthub.local/login,200,0,35
+1717071360573,300,Dashboard,200,OK,Thread Group 1-1,text,true,,4096,1024,1,1,https://paymenthub.local/dashboard,250,0,40
+1717071360873,180,Accounts,200,OK,Thread Group 1-1,text,true,,3072,896,1,1,https://paymenthub.local/accounts,150,0,25
+1717071361053,220,Transactions,200,OK,Thread Group 1-1,text,true,,5120,1280,1,1,https://paymenthub.local/transactions,180,0,30
+1717071361273,260,Logout,200,OK,Thread Group 1-1,text,true,,1536,640,1,1,https://paymenthub.local/logout,220,0,35

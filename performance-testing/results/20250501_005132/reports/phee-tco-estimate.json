@@ -1,0 +1,28 @@
+{
+  "performance": {
+    "averageResponseTime": 235,
+    "throughput": 5.21,
+    "totalTransactions": 6
+  },
+  "infrastructure": {
+    "instanceType": "t3.xlarge",
+    "region": "us-east-1",
+    "requiredInstances": 1,
+    "durationDays": 30
+  },
+  "costs": {
+    "instanceCostPerDay": 4.04,
+    "instanceMonthlyCost": 121.20,
+    "instanceTotalCost": 121.20,
+    "storageMonthlyCost": 2.00,
+    "storageTotalCost": 2.00,
+    "networkMonthlyCost": 4.50,
+    "networkTotalCost": 4.50,
+    "grandTotal": 127.70
+  },
+  "recommendations": {
+    "optimalInstanceType": "t3.xlarge",
+    "estimatedAnnualCost": 1454.40,
+    "scalingRecommendation": "Single instance is sufficient"
+  }
+}
