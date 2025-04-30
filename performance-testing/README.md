@@ -1,13 +1,102 @@
-# PaymentHubEE API Testing with JMeter (WIP)
+# Mojafos Performance Testing and TCO Estimation
 
-This README provides instructions on how to set up and run the JMeter test plan for testing the APIs of PaymentHubEE. The test plan allows you to simulate multiple users, configure which APIs to test, and analyze the performance of the APIs.
+This directory contains tools for performance testing, analysis, and Total Cost of Ownership (TCO) estimation for the Mojafos platform components including PaymentHub EE and Mojaloop vNext.
+
+## Overview
+
+The performance testing suite includes:
+- JMeter test plans for PaymentHub EE API testing
+- Integration with vNext performance tools
+- TCO estimation based on performance metrics
+- Comprehensive reporting
+
+The tools can be used individually or together to assess performance, analyze bottlenecks, and estimate infrastructure costs for deploying Mojafos components.
 
 ## Prerequisites
 
 Before you begin, ensure that you have the following installed:
 - [Apache JMeter](https://jmeter.apache.org/download_jmeter.cgi) version 5.X.X (Recommended)
+- [Bash](https://www.gnu.org/software/bash/) version 4.0+ (Standard on most Linux distributions)
+- [jq](https://stedolan.github.io/jq/download/) for JSON processing
+- [bc](https://www.gnu.org/software/bc/) for calculations
+- [git](https://git-scm.com/downloads) for accessing repositories
+- [kubectl](https://kubernetes.io/docs/tasks/tools/) for Kubernetes interaction (if testing deployed components)
 
-## Steps to Run the Test on Your Local Computer
+## Available Scripts
+
+### Master Script
+
+The master script coordinates all testing activities:
+
+```bash
+./master-perf-test.sh [options]
+```
+
+Options:
+- `--phee`: Test PaymentHub EE APIs (default: enabled)
+- `--vnext`: Test Mojaloop vNext (default: enabled)
+- `--tco`: Generate TCO estimation (default: enabled)
+- `--no-phee`: Disable PaymentHub EE testing
+- `--no-vnext`: Disable vNext testing
+- `--no-tco`: Disable TCO estimation
+- `-u, --users NUM`: Number of users/threads (default: 10)
+- `-d, --duration NUM`: Test duration in seconds (default: 60)
+- `-r, --results-dir DIR`: Results directory (default: auto-generated)
+- `-h, --help`: Display help message
+
+Examples:
+```bash
+./master-perf-test.sh --users 50 --duration 120
+./master-perf-test.sh --no-vnext
+./master-perf-test.sh --no-tco --users 100
+```
+
+### Individual Component Testing
+
+#### PaymentHub EE Testing
+
+```bash
+./run-performance-tests.sh [options]
+```
+
+Options:
+- `-t, --test-plan FILE`: JMeter test plan file (default: paymentHubEE.jmx)
+- `-u, --users NUM`: Number of users/threads (default: 10)
+- `-r, --ramp-up NUM`: Ramp-up period in seconds (default: 5)
+- `-d, --duration NUM`: Test duration in seconds (default: 60)
+- `-h, --host STRING`: Host to test (default: paymenthub.local)
+- `-p, --protocol STRING`: Protocol [http|https] (default: https)
+- `--help`: Display help message
+
+#### vNext Integration
+
+```bash
+./vnext-performance-integration.sh [options]
+```
+
+Options:
+- `-r, --results-dir DIR`: Directory to store results (default: auto-generated)
+- `-n, --ndogo-branch BRANCH`: ndogo-loop branch (default: dev)
+- `-v, --vnext-branch BRANCH`: vNext tools branch (default: main)
+- `-u, --users NUM`: Number of users/threads (default: 10)
+- `-d, --duration NUM`: Test duration in seconds (default: 60)
+- `--help`: Display help message
+
+### TCO Estimation
+
+```bash
+./estimate-tco.sh [options]
+```
+
+Options:
+- `-r, --results FILE`: JMeter results file (.jtl)
+- `-o, --output FILE`: Output file for TCO estimate (default: tco-estimate.json)
+- `-i, --instance TYPE`: Instance type (default: t3.xlarge)
+- `-g, --region REGION`: Cloud region (default: us-east-1)
+- `-d, --days DAYS`: Duration in days (default: 30)
+- `--help`: Display help message
+
+## Running the JMeter Test Plan Manually
 
 ### 1. Download and Install JMeter
 
@@ -19,50 +108,114 @@ Before you begin, ensure that you have the following installed:
 - Open your hosts file in a text editor with administrative privileges:
   - **Windows:** `C:\Windows\System32\drivers\etc\hosts`
   - **Mac/Linux:** `/etc/hosts`
-- Add the necessary entries for the PaymentHubEE environment. For example:
+- Add the necessary entries for the PaymentHub EE environment. For example:
   ```plaintext
   127.0.0.1  paymenthub.local
+  ```
 - Save the file and close the editor.
 
-### 3. Copy the Test Plan from GitHub
- - Clone the repository containing the JMeter test plan to your local machine:
-   ```plaintext
-   git clone https://github.com/openMF/mifos-gazelle.git
-   cd performance-testing
- - Alternatively, you can download the .jmx file directly from GitHub.
+### 3. Open the Test Plan in JMeter
 
-### 4. Open the Test Plan in JMeter
+In JMeter, navigate to `File > Open` and choose the `paymentHubEE.jmx` file.
 
-In JMeter, navigate to `File > Open` and choose the `paymentHubEE.jmx` file from the cloned repository or the location where you downloaded it.
-
-### 5. Configure the Test Plan
+### 4. Configure the Test Plan
 
 - **Number of Threads (Users):**
   - In JMeter, navigate to the `Thread Group` section.
-  - Adjust the `Number of Threads (users)` and `Ramp-Up Period` as per your testing requirements.  
-  - Increasing the number of threads simulates more users accessing the APIs simultaneously, which can help you test the performance under load. Reducing the number of threads simulates fewer users and allows you to test the system's behavior under lighter load conditions.
+  - Adjust the `Number of Threads (users)` and `Ramp-Up Period` as per your testing requirements.
 
 - **Enable/Disable APIs:**
   - Expand the test plan to view the API requests.
-  - Right-click on any API you want to disable and select `Disable`.  
-  - You can also enable specific APIs if needed. This allows you to focus on testing individual APIs or a subset of APIs, which is useful for targeted performance testing and debugging.
+  - Right-click on any API you want to disable and select `Disable`.
 
 - **Output Configuration:**
-  - **Response Time:** To get detailed response times, add a listener such as `Summary Report` or `Aggregate Report`. These listeners provide insights into average, minimum, maximum, and median response times for each API request.
-  - **Error Reporting:** To capture any errors or failures during the test, add a `View Results Tree` listener. This will log each request and response, allowing you to analyze failed requests in detail.
-  - **Throughput Analysis:** To monitor the number of requests processed per second (throughput), use the `Throughput vs Threads` or `Graph Results` listeners. These will give you a visual representation of how the system handles concurrent users.
+  - Add listeners such as `Summary Report`, `Aggregate Report`, or `View Results Tree` to analyze results.
+  - For detailed analysis, export results to a `.jtl` file for post-processing.
 
-  - **Data Export:** You can export the results to a `.csv` or `.xml` file for further analysis. Right-click on the listener (e.g., `Aggregate Report`) and choose `Save Table Data` to export the data.
+### 5. Run the Test
 
-  By configuring these elements, you can tailor the test to your specific needs, whether you're looking to assess performance under load, analyze error rates, or fine-tune individual API endpoints.
-### 6. Run the Test
-Once your configuration is complete, click the green start button (triangle icon) in the JMeter interface to run the test. 
+Once your configuration is complete, click the green start button (triangle icon) in the JMeter interface to run the test.
 
-JMeter will execute the test plan based on your configurations.
+## Integration with Mojafos Deployment
 
-### 7. Analyze the Results
-- View Results Tree: To see detailed logs of each request and response, right-click on the Test Plan or Thread Group and add a listener (e.g., View Results Tree).
-- Aggregate Report: To get a summary of the test results, add an Aggregate Report listener.
-- Review the results to identify any performance issues or API failures.
+The performance testing tools are designed to work with deployed Mojafos components. When running tests against a deployed environment:
+
+1. Make sure the appropriate components (PaymentHub EE, vNext) are deployed.
+2. Configure the host names in the test scripts to match your deployment.
+3. Run the tests as described above.
+
+To integrate with CI/CD pipelines, the master script can be executed as part of post-deployment verification.
+
+## Output and Reports
+
+The test results are organized in a directory structure:
+```
+results/
+  ├── YYYYMMDD_HHMMSS/
+      ├── phee/                 # PaymentHub EE test results
+      │   ├── results.jtl       # JMeter results
+      │   ├── jmeter.log        # JMeter log
+      │   └── html-report/      # HTML report
+      ├── vnext/                # vNext test results
+      │   ├── vnext-results.jtl # JMeter results for vNext
+      │   └── integrated-report.md # vNext report
+      └── reports/              # Combined reports
+          ├── phee-tco-estimate.json   # TCO for PaymentHub EE
+          ├── vnext-tco-estimate.json  # TCO for vNext
+          └── combined-report.md       # Combined performance and TCO report
+```
+
+The combined report (`combined-report.md`) provides a comprehensive overview of test results and TCO estimations.
+
+## TCO Estimation Methodology
+
+The TCO estimation tool analyzes JMeter performance test results to estimate cloud infrastructure costs. It considers:
+
+1. **Performance Metrics:**
+   - Average response time
+   - Throughput (transactions per second)
+   - Total transactions processed
+
+2. **Infrastructure Requirements:**
+   - Required number of instances based on performance
+   - Instance types and associated costs
+   - Storage and network requirements
+
+3. **Cost Factors:**
+   - Instance costs (various types available)
+   - Storage costs (per GB)
+   - Network costs (data transfer)
+   - Regional cost variations
+
+The estimates are provided for monthly, annual, and optional multi-year periods. The tool offers recommendations for cost optimization based on performance patterns.
+
+## Contributing
+
+To contribute to the performance testing tools:
+
+1. Review the existing test plans and scripts
+2. Add or modify test cases as needed
+3. Update documentation for any changes
+4. Test your changes before submitting
+5. Follow the project's coding standards and guidelines
+
+## Troubleshooting
+
+Common issues and solutions:
+
+1. **JMeter tests fail to connect:**
+   - Verify host configuration in host file
+   - Check that services are running and accessible
+   - Ensure firewalls allow the test traffic
+
+2. **TCO estimation script errors:**
+   - Verify JMeter output file format
+   - Ensure jq and bc are installed
+   - Check file permissions
+
+3. **vNext integration issues:**
+   - Check that ndogo-loop repository is accessible
+   - Verify Kubernetes cluster access
+   - Ensure vNext is properly deployed
 
 
