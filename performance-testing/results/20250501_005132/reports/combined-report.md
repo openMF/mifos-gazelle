@@ -1,4 +1,4 @@
-# Mojafos Performance Testing and TCO Estimation Report
+# Mifos Gazelle Performance Testing and TCO Estimation Report
 
 ## Test Configuration
 - Date: Thu May  1 00:51:32 IST 2025

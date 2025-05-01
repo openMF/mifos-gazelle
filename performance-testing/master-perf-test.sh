@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Master Performance Testing Script for Mojafos
+# Master Performance Testing Script for Mifos Gazelle
 # This script orchestrates all performance testing components
 
 set -e
@@ -12,7 +12,7 @@ USE_SAMPLE_DATA=false
 
 # Function to display help message
 display_help() {
-  echo "Mojafos Performance Testing and TCO Estimation Suite"
+  echo "Mifos Gazelle Performance Testing and TCO Estimation Suite"
   echo "Usage: $0 [options]"
   echo ""
   echo "Options:"
@@ -103,7 +103,7 @@ mkdir -p "${RESULTS_DIR}/phee"
 mkdir -p "${RESULTS_DIR}/vnext"
 
 echo "=========================================================="
-echo "Mojafos Performance Testing and TCO Estimation"
+echo "Mifos Gazelle Performance Testing and TCO Estimation"
 echo "=========================================================="
 echo "Date: $(date)"
 echo "Configuration:"
@@ -192,7 +192,7 @@ fi
 # Generate combined report
 echo "Generating final report..."
 cat > "${REPORT_DIR}/combined-report.md" << EOF
-# Mojafos Performance Testing and TCO Estimation Report
+# Mifos Gazelle Performance Testing and TCO Estimation Report
 
 ## Test Configuration
 - Date: $(date)

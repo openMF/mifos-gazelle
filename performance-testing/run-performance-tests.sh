@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Performance Testing Automation Script for Mojafos
+# Performance Testing Automation Script for Mifos Gazelle
 # This script automates running JMeter tests and collecting results
 
 set -e

@@ -1,6 +1,6 @@
-# Mojafos Performance Testing and TCO Estimation
+# Mifos Gazelle Performance Testing and TCO Estimation
 
-This directory contains tools for performance testing, analysis, and Total Cost of Ownership (TCO) estimation for the Mojafos platform components including PaymentHub EE and Mojaloop vNext.
+This directory contains tools for performance testing, analysis, and Total Cost of Ownership (TCO) estimation for the Mifos Gazelle platform components including PaymentHub EE and Mojaloop vNext.
 
 ## Overview
 
@@ -10,7 +10,7 @@ The performance testing suite includes:
 - TCO estimation based on performance metrics
 - Comprehensive reporting
 
-The tools can be used individually or together to assess performance, analyze bottlenecks, and estimate infrastructure costs for deploying Mojafos components.
+The tools can be used individually or together to assess performance, analyze bottlenecks, and estimate infrastructure costs for deploying Mifos Gazelle components.
 
 ## Prerequisites
 
@@ -136,9 +136,9 @@ In JMeter, navigate to `File > Open` and choose the `paymentHubEE.jmx` file.
 
 Once your configuration is complete, click the green start button (triangle icon) in the JMeter interface to run the test.
 
-## Integration with Mojafos Deployment
+## Integration with Mifos Gazelle Deployment
 
-The performance testing tools are designed to work with deployed Mojafos components. When running tests against a deployed environment:
+The performance testing tools are designed to work with deployed Mifos Gazelle components. When running tests against a deployed environment:
 
 1. Make sure the appropriate components (PaymentHub EE, vNext) are deployed.
 2. Configure the host names in the test scripts to match your deployment.
