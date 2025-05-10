@@ -83,4 +83,4 @@ dependencies:
   - gazelle
   - dependency
   - mysql
-  version: 9.4.5
+  version: 12.3.5
