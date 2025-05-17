@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import requests
+import random
 import json
 import datetime
 import uuid
@@ -10,95 +11,132 @@ import urllib3 # Import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning) # Disable InsecureRequestWarning
 
 # --- Configuration ---
-NUMBER_OF_CLIENTS = 1  # Reduced for brevity during testing
+TENANTS = {
+    "bluebank": 2,
+    "greenbank": 1
+}
 API_BASE_URL = "https://mifos.mifos.gazelle.test/fineract-provider/api/v1"
 CLIENTS_API_URL = f"{API_BASE_URL}/clients"
 SAVINGS_API_URL = f"{API_BASE_URL}/savingsaccounts"
 SAVINGS_PRODUCTS_API_URL = f"{API_BASE_URL}/savingsproducts"
 INTEROP_PARTIES_API_URL = f"{API_BASE_URL}/interoperation/parties/MSISDN"
 
-TENANT_ID = "bluebank"
-# It's better practice to store credentials securely, e.g., in environment variables
-# For demonstration, we'll decode the provided Basic auth header
+#TENANT_ID = "fredbank" # placeholder , should never be used
 AUTH_HEADER_VALUE = "Basic bWlmb3M6cGFzc3dvcmQ="
-# Optional: Decode and print credentials (DO NOT do this in production logs!)
-# try:
-#     decoded_credentials = base64.b64decode(AUTH_HEADER_VALUE.split(' ')[1]).decode('utf-8')
-#     print(f"Warning: Using hardcoded credentials: {decoded_credentials}", file=sys.stderr)
-# except Exception as e:
-#     print(f"Warning: Could not decode Authorization header: {e}", file=sys.stderr)
-
-
+# This is a base64 encoded string of "mifos:password"
 HEADERS = {
-    "Fineract-Platform-TenantId": TENANT_ID,
+    "Fineract-Platform-TenantId": " ",
     "Authorization": AUTH_HEADER_VALUE,
     "Content-Type": "application/json",
     "Accept": "*/*"
 }
 
-# Date format for API requests - Using "%d %B %Y" (e.g., 16 May 2025)
-# This format string should produce dates that the API parses correctly
-# when given the "dd MM\u200b\u200bYYYY" dateFormat literal.
 DATE_FORMAT = "%d %B %Y"
 LOCALE = "en" # Define LOCALE globally
 
 # Product details for creation
 PRODUCT_CURRENCY_CODE = "USD"  # <-- Change this to your desired currency
 PRODUCT_INTEREST_RATE = 5.0    # <-- Annual interest rate (float)
-PRODUCT_SHORTNAME = "savb"     # Using the shortname from your last attempt
-PRODUCT_NAME = f"{TENANT_ID}-savings" # Derived as requested
-PRODUCT_DESCRIPTION = f"Savings product for {TENANT_ID} demo"
+PRODUCT_SHORTNAME = "savb"    
+# PRODUCT_NAME = f"{tenant_id}-savings" 
+# PRODUCT_DESCRIPTION = f"Savings product for {tenant_id} demo"
 
 # Deposit details
 DEFAULT_DEPOSIT_AMOUNT = 10.0 # Default deposit amount
 DEFAULT_PAYMENT_TYPE_ID = 1 # Assuming payment type ID 1 exists and is suitable for deposits
 PAYLOAD_DATE_FORMAT_LITERAL = "dd MMMM yyyy"
 
+# generate random unique mobile numbers
+total_clients = sum(TENANTS.values())
+unique_mobile_numbers = [f"04{random.randint(10000000, 99999999)}" for _ in range(total_clients)]
+random.shuffle(unique_mobile_numbers)
 
 # --- Helper Function for API Calls ---
 def make_api_request(method, url, headers, json_data=None, params=None):
     """
-    Makes an API request and handles basic error checking.
-    Returns the JSON response body on success, None on failure.
+    Makes an API request and handles error checking based on status codes.
+    Returns the JSON response body on success (2xx/3xx with non-null JSON),
+    {} for 2xx/3xx with null JSON or JSONDecodeError, and None on failure (4xx/5xx or request error).
+    Includes debug prints to trace execution.
     """
+    #print(f"DEBUG make_api_request ENTERING for {method} {url}", file=sys.stderr)
+    response = None # Initialize response to None to check if one was received
+
     try:
-        # Disable SSL verification (-k in curl) - use with caution in production
+        # --- Step 1: Attempt the request ---
         response = requests.request(
             method,
             url,
             headers=headers,
             json=json_data,
             params=params,
-            verify=False # Equivalent to curl -k
+            verify=False # Equivalent to curl -k - Use with caution!
         )
 
-        # Raise an HTTPError for bad responses (4xx or 5xx)
+        #print(f"DEBUG Received response status: {response.status_code} for {method} {url}", file=sys.stderr)
+
+        # --- Step 2: Check for bad status codes (4xx, 5xx) ---
+        # raise_for_status() throws HTTPError (a subclass of RequestException) for 4xx/5xx.
+        # If no exception, status is 2xx or 3xx, and we proceed below.
         response.raise_for_status()
+        #print(f"DEBUG raise_for_status passed (status is 2xx/3xx) for {method} {url}", file=sys.stderr)
 
-        # Attempt to parse JSON response
+        # --- Step 3: Status is good (2xx/3xx). Try to parse JSON. ---
         try:
-            return response.json()
-        except json.JSONDecodeError:
-             # Handle cases where response is successful but not JSON (e.g., 204 No Content)
-             if response.status_code == 204:
-                 print(f"Successful request to {url} returned 204 No Content (expected no JSON body).", file=sys.stderr)
-                 return {} # Return an empty dict to indicate success with no body
-             else:
-                 # If it's not 204 and we expected JSON but got none, it's likely an error
-                 print(f"Warning: Could not decode JSON response from {url}. Status: {response.status_code}", file=sys.stderr)
-                 print(f"Response body: '{response.text}'", file=sys.stderr)
-                 return None # Return None on decode error
+            json_response = response.json()
+            #print(f"DEBUG JSON parsing successful for {method} {url}. Parsed value type: {type(json_response)}. Value: {json_response}", file=sys.stderr)
 
+            # If JSON parsing succeeded, check the *value*.
+            # If the value is None (from 'null' body) or an empty dictionary/list,
+            # treat it as a success without meaningful data and return {}.
+            # Otherwise, return the actual parsed value.
+            if json_response is None or (isinstance(json_response, (dict, list)) and not json_response):
+                 #print(f"DEBUG Parsed JSON is None or empty dict/list for {method} {url}. Returning {{}} to indicate success.", file=sys.stderr)
+                 return {}
+            else:
+                 # Return the JSON body if successful and not None/empty dict/list
+                 #print(f"DEBUG make_api_request returning parsed JSON (not None/empty) for {method} {url}", file=sys.stderr)
+                 return json_response
+
+        except json.JSONDecodeError:
+            # --- JSON Decode Error on a Successful Status ---
+            # This happens when status is 2xx/3xx (e.g., 204, 202, 200) but body is empty or non-JSON,
+            # despite a potential Content-Type: application/json header.
+            #print(f"DEBUG json.JSONDecodeError caught for {method} {url}. Status: {response.status_code}.", file=sys.stderr)
+            print(f"Warning: Successful response ({response.status_code}) from {url} but could not decode JSON.", file=sys.stderr)
+            print(f"Response body: '{response.text}'", file=sys.stderr)
+            # Indicate success but no parseable JSON payload.
+            #print(f"DEBUG make_api_request returning {{}} due to JSONDecodeError on 2xx/3xx status for {method} {url}", file=sys.stderr)
+            return {}
+        except Exception as e:
+            # --- Unexpected Error During Body Reading/Parsing on Successful Status ---
+            # Catches other exceptions *after* status check but *during* reading/parsing body.
+            #print(f"DEBUG Unexpected Exception caught AFTER raise_for_status but DURING JSON parse for {method} {url}", file=sys.stderr)
+            print(f"Error: {e}", file=sys.stderr)
+            # Log response details if available
+            if response is not None: # Should be true here as raise_for_status passed
+                 print(f"Response Status Code: {response.status_code}", file=sys.stderr)
+                 # Be cautious printing body here if it caused the error
+            #print(f"DEBUG make_api_request returning None due to unexpected Exception during parse for {method} {url}", file=sys.stderr)
+            return None # Indicate failure
 
     except requests.exceptions.RequestException as e:
+        # --- General Request Errors (Network, Timeout, Connection, or HTTPError caught here) ---
+        # This is a broad catch. HTTPError is a subclass and is explicitly handled first if needed.
+        # This block primarily catches errors *before* a response with a status code is fully received/processed.
         print(f"API Request Error ({method} {url}): {e}", file=sys.stderr)
+        # Log response details if they exist (often not for these types of errors, unless it's an HTTPError)
         if hasattr(e, 'response') and e.response is not None:
+             # If response exists here, it's likely an HTTPError that wasn't caught above, or similar.
              print(f"Response Status Code: {e.response.status_code}", file=sys.stderr)
              print(f"Response Body: {e.response.text}", file=sys.stderr)
         return None
+
     except Exception as e:
-        print(f"An unexpected error occurred during API request ({method} {url}): {e}", file=sys.stderr)
+        # --- Any Other Truly Unhandled Error ---
+        print(f"An unhandled error occurred during API request ({method} {url}): {e}", file=sys.stderr)
         return None
+    # finally:
 
 # --- Function to create a savings product ---
 def create_savings_product(headers):
@@ -180,7 +218,7 @@ def get_product_id_by_shortname(headers, shortname):
 
 # --- Function to create a client ---
 # Added locale as an argument
-def create_client(headers, locale):
+def create_client(headers, locale, tenant_id):
     """
     Creates a client in Fineract.
     Returns the client ID on success, None on failure.
@@ -191,9 +229,10 @@ def create_client(headers, locale):
     submitted_date = datetime.datetime.now().strftime(DATE_FORMAT)
     activation_date = submitted_date
     # Generate a plausible mobile number format
-    mobile_number = f"04{str(int(datetime.datetime.now().timestamp()))[-8:]}"
-
-    print(f"Creating client for <{TENANT_ID}>: {firstname} {lastname} with Mobile Number: {mobile_number} ...", file=sys.stderr)
+    #mobile_number = f"04{str(int(datetime.datetime.now().timestamp()))[-8:]}"
+    #mobile_number = f"04{random.randint(10000000, 99999999)}"
+    mobile_number = unique_mobile_numbers.pop(0)
+    print(f"Creating client for <{tenant_id}>: {firstname} {lastname} with Mobile Number: {mobile_number} ...", file=sys.stderr)
 
     client_payload = {
         "officeId": 1, # Assuming officeId 1 exists
@@ -426,102 +465,131 @@ def register_interop_party(headers, client_id, account_external_id, mobile_numbe
         print("Interoperation party registration failed.", file=sys.stderr)
         return False
 
+# --- Function to register client with Mojaloop ---
+def register_client_with_mojaloop(headers, tenant_id, mobile_number, currency="USD"):
+    """
+    Registers a client with Mojaloop using the MSISDN/mobile number.
+    Returns True on success, False on failure.
+    """
+    mojaloop_url = f"http://vnextadmin.mifos.gazelle.test/_interop/participants/MSISDN/{mobile_number}"
+    payload = {
+        "fspId": tenant_id,
+        "currency": currency
+    }
+
+    mojaloop_headers = {
+        "fspiop-source": tenant_id,
+        "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Accept": "application/vnd.interoperability.participants+json;version=1.1",
+        "Content-Type": "application/vnd.interoperability.participants+json;version=1.1"
+    }
+
+    response_data = make_api_request("POST", mojaloop_url, mojaloop_headers, json_data=payload)
+    print(f"Response data from Mojaloop: {response_data}", file=sys.stderr) # Debugging response
+
+    if response_data is not None:
+        print(f"Client with MSISDN {mobile_number} registered with Mojaloop successfully.", file=sys.stderr)
+        return True
+    else:
+        print(f"Failed to register client with MSISDN {mobile_number} with Mojaloop.", file=sys.stderr)
+        return False
+
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    # Define the date string used for various operations, formatted as per DATE_FORMAT
-    # Use today's date formatted as %d %B %Y (e.g., "16 May 2025")
-    PROCESS_DATE_STR = datetime.datetime.now().strftime(DATE_FORMAT)
-    # If you need a fixed date that matches the %d %B %Y format:
-    # PROCESS_DATE_STR = "16 May 2025"
+    for tenant_id, num_clients in TENANTS.items():
+        print(f"Processing tenant: {tenant_id}", file=sys.stderr)
+        
+        # Update the tenant ID and headers for each tenant
+        HEADERS["Fineract-Platform-TenantId"] = tenant_id
+        PRODUCT_NAME = f"{tenant_id}-savings"
+        PRODUCT_DESCRIPTION = f"Savings product for {tenant_id} demo"
 
-    print("Attempting to create or find savings product...", file=sys.stderr)
-    # The function now handles checking for existence first
-    savings_product_id = create_savings_product(HEADERS)
+        # Define the date string used for various operations, formatted as per DATE_FORMAT
+        PROCESS_DATE_STR = datetime.datetime.now().strftime(DATE_FORMAT)
 
-    if savings_product_id is None:
-        print("Fatal error: Could not create or find savings product. Exiting.", file=sys.stderr)
-        sys.exit(1) # Exit the script if product creation/lookup fails
-    else:
-        # Message about using the product ID is now printed inside create_savings_product
-        print("", file=sys.stderr) # Blank line for separation
+        print("Attempting to create or find savings product...", file=sys.stderr)
+        savings_product_id = create_savings_product(HEADERS)
 
+        if savings_product_id is None:
+            print(f"Fatal error: Could not create or find savings product for tenant {tenant_id}. Skipping.", file=sys.stderr)
+            continue
 
-    print(f"Starting loop to create {NUMBER_OF_CLIENTS} clients and associated accounts...", file=sys.stderr)
+        print(f"Starting loop to create {num_clients} clients and associated accounts for tenant {tenant_id}...", file=sys.stderr)
 
+        for i in range(1, num_clients + 1):
+            print(f"--- Processing client number {i} for tenant {tenant_id} ---", file=sys.stderr)
 
-    for i in range(1, NUMBER_OF_CLIENTS + 1):
-        print(f"--- Processing client number {i} ---", file=sys.stderr)
+            # Create Client - Pass LOCALE
+            client_result = create_client(HEADERS, LOCALE, tenant_id)
+            client_id, mobile_number = client_result if client_result else (None, None)
 
-        # Create Client - Pass LOCALE
-        client_result = create_client(HEADERS, LOCALE)
-        client_id, mobile_number = client_result if client_result else (None, None)
+            if client_id is None:
+                print(f"Skipping remaining steps due to client creation failure for iteration {i} of tenant {tenant_id}.", file=sys.stderr)
+                continue
 
-        if client_id is None:
-            print(f"Skipping remaining steps due to client creation failure for iteration {i}.", file=sys.stderr)
-            continue # Skip to the next iteration
+            # Create Savings Account - Pass LOCALE
+            savings_account_result  = create_savings_account(HEADERS, client_id, savings_product_id, LOCALE)
+            savings_account_id, external_id = savings_account_result if savings_account_result else (None, None)
 
-        # Create Savings Account - Pass LOCALE
-        savings_account_result  = create_savings_account(HEADERS, client_id, savings_product_id, LOCALE)
-        savings_account_id, external_id = savings_account_result if savings_account_result else (None, None)
+            if savings_account_id is None:
+                print(f"Skipping remaining steps due to savings account creation failure for Client ID: {client_id} of tenant {tenant_id}.", file=sys.stderr)
+                continue
 
-        if savings_account_id is None:
-            print(f"Skipping remaining steps due to savings account creation failure for Client ID: {client_id}.", file=sys.stderr)
-            continue # Skip to the next step
+            # --- Approve Savings Account ---
+            print(f"Attempting to approve savings account ID: {savings_account_id}", file=sys.stderr)
+            approval_response_data = approve_savings_account(
+                API_BASE_URL, 
+                HEADERS,
+                savings_account_id,
+                PROCESS_DATE_STR 
+            )
 
-        # --- Approve Savings Account ---
-        print(f"Attempting to approve savings account ID: {savings_account_id}", file=sys.stderr)
-        approval_response_data = approve_savings_account(
-            API_BASE_URL, # Use the standard API_BASE_URL
-            HEADERS,
-            savings_account_id,
-            PROCESS_DATE_STR # Use the defined process date string
-        )
+            # Check if the approval was successful
+            if approval_response_data is None:
+                print(f"Savings account {savings_account_id} approval failed. Skipping activation, deposit, and interoperation registration.", file=sys.stderr)
+                continue 
 
-        # Check if the approval was successful
-        if approval_response_data is None:
-             print(f"Savings account {savings_account_id} approval failed. Skipping activation, deposit, and interoperation registration.", file=sys.stderr)
-             continue # Skip if approval failed
+            # --- Activate Savings Account ---
+            print(f"Attempting to activate savings account ID: {savings_account_id}", file=sys.stderr)
+            activation_response_data = activate_savings_account(
+                API_BASE_URL, 
+                HEADERS,
+                savings_account_id,
+                PROCESS_DATE_STR 
+            )
 
-        # --- Activate Savings Account ---
-        print(f"Attempting to activate savings account ID: {savings_account_id}", file=sys.stderr)
-        activation_response_data = activate_savings_account(
-             API_BASE_URL, # Use the standard API_BASE_URL
-             HEADERS,
-             savings_account_id,
-             PROCESS_DATE_STR # Use the defined process date string for activation date
-        )
+            # Check if the activation was successful
+            if activation_response_data is None:
+                print(f"Savings account {savings_account_id} activation failed. Skipping deposit and interoperation registration.", file=sys.stderr)
+                continue 
 
-        # Check if the activation was successful
-        if activation_response_data is None:
-             print(f"Savings account {savings_account_id} activation failed. Skipping deposit and interoperation registration.", file=sys.stderr)
-             continue # Skip if activation failed
+            # --- Make a Deposit ---
+            print(f"Attempting to make a deposit of {DEFAULT_DEPOSIT_AMOUNT} to savings account ID: {savings_account_id}", file=sys.stderr)
+            deposit_response_data = make_deposit(
+                API_BASE_URL, 
+                HEADERS,
+                savings_account_id,
+                DEFAULT_DEPOSIT_AMOUNT, 
+                PROCESS_DATE_STR,       
+                DEFAULT_PAYMENT_TYPE_ID 
+            )
 
-        # --- Make a Deposit ---
-        print(f"Attempting to make a deposit of {DEFAULT_DEPOSIT_AMOUNT} to savings account ID: {savings_account_id}", file=sys.stderr)
-        deposit_response_data = make_deposit(
-            API_BASE_URL, # Use the standard API_BASE_URL
-            HEADERS,
-            savings_account_id,
-            DEFAULT_DEPOSIT_AMOUNT, # Use the default amount
-            PROCESS_DATE_STR,       # Use the defined process date string for transaction date
-            DEFAULT_PAYMENT_TYPE_ID # Use the default payment type
-        )
+            # Check if the deposit was successful
+            if deposit_response_data is None:
+                print(f"Deposit to savings account {savings_account_id} failed. Skipping interoperation registration.", file=sys.stderr)
+                continue 
 
-        # Check if the deposit was successful
-        if deposit_response_data is None:
-             print(f"Deposit to savings account {savings_account_id} failed. Skipping interoperation registration.", file=sys.stderr)
-             continue # Skip if deposit failed
+            # Register Interoperation Party
+            register_interop_party(HEADERS, client_id, external_id, mobile_number)
 
-        # Optional: Print deposit details if the API returns them
-        # print(f"Deposit successful. Transaction ID: {deposit_response_data.get('resourceId')}", file=sys.stderr)
+            # Register Client with Mojaloop
+            register_client_with_mojaloop(HEADERS, tenant_id, mobile_number)
 
+            print(f"--- Finished processing client number {i} for tenant {tenant_id} ---", file=sys.stderr)
+            print("", file=sys.stderr) 
 
-        # Register Interoperation Party
-        # We now have the mobile_number from the create_client step and the external_id from create_savings_account
-        register_interop_party(HEADERS, client_id, external_id, mobile_number)
+        print(f"Finished processing tenant: {tenant_id}", file=sys.stderr)
+        print("", file=sys.stderr)  
 
-        print(f"--- Finished processing client number {i} ---", file=sys.stderr)
-        print("", file=sys.stderr) # Add a blank line between iterations
-
-    print("Loop finished.", file=sys.stderr)
+    print("All tenants processed.", file=sys.stderr)
