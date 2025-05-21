@@ -5,7 +5,8 @@
 # https://download.java.net/java/GA/jdk11/9/GPL/openjdk-11.0.2_linux-x64_bin.tar.gz
 
 # Define an array of desired JDK versions (not used for URL construction)
-jdk_versions=( "17.0.2" "8u422-b05" "11.0.1")
+#jdk_versions=( "17.0.2" "8u422-b05" "11.0.1")
+jdk_versions=( "13.0.2" ) 
 
 # Define an array containing base download URLs 
 jdk_base_urls=(

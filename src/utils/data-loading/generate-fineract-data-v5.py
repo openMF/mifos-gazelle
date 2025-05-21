@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# generates demo data for Fineract and registers it with built-in Oracle in vNext
+# assumes all services are up because not much error checking is done
+# TODO
+# - add error checking
+# - generate the same set of unique clients by setting a seed value e.g. random.seed(42)  # Set a fixed seed
+#                                           and removing the shuffle step when creating clients 
+#                                           this should be a user argument because for dev/test need to be different
+
 
 import requests
 import random
@@ -465,33 +473,33 @@ def register_interop_party(headers, client_id, account_external_id, mobile_numbe
         print("Interoperation party registration failed.", file=sys.stderr)
         return False
 
-# --- Function to register client with Mojaloop ---
-def register_client_with_mojaloop(headers, tenant_id, mobile_number, currency="USD"):
+# --- Function to register client with vNext ---
+def register_client_with_vnext(headers, tenant_id, mobile_number, currency="USD"):
     """
-    Registers a client with Mojaloop using the MSISDN/mobile number.
+    Registers a client with vNext using the MSISDN/mobile number.
     Returns True on success, False on failure.
     """
-    mojaloop_url = f"http://vnextadmin.mifos.gazelle.test/_interop/participants/MSISDN/{mobile_number}"
+    vnext_url = f"http://vnextadmin.mifos.gazelle.test/_interop/participants/MSISDN/{mobile_number}"
     payload = {
         "fspId": tenant_id,
         "currency": currency
     }
 
-    mojaloop_headers = {
+    vnext_headers = {
         "fspiop-source": tenant_id,
         "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "Accept": "application/vnd.interoperability.participants+json;version=1.1",
         "Content-Type": "application/vnd.interoperability.participants+json;version=1.1"
     }
 
-    response_data = make_api_request("POST", mojaloop_url, mojaloop_headers, json_data=payload)
-    print(f"Response data from Mojaloop: {response_data}", file=sys.stderr) # Debugging response
+    response_data = make_api_request("POST", vnext_url, vnext_headers, json_data=payload)
+    print(f"Response data from vNext: {response_data}", file=sys.stderr) # Debugging response
 
     if response_data is not None:
-        print(f"Client with MSISDN {mobile_number} registered with Mojaloop successfully.", file=sys.stderr)
+        print(f"Client with MSISDN {mobile_number} registered with vNext successfully.", file=sys.stderr)
         return True
     else:
-        print(f"Failed to register client with MSISDN {mobile_number} with Mojaloop.", file=sys.stderr)
+        print(f"Failed to register client with MSISDN {mobile_number} with vNext.", file=sys.stderr)
         return False
 
 
@@ -583,8 +591,8 @@ if __name__ == "__main__":
             # Register Interoperation Party
             register_interop_party(HEADERS, client_id, external_id, mobile_number)
 
-            # Register Client with Mojaloop
-            register_client_with_mojaloop(HEADERS, tenant_id, mobile_number)
+            # Register Client with vNext
+            register_client_with_vnext(HEADERS, tenant_id, mobile_number)
 
             print(f"--- Finished processing client number {i} for tenant {tenant_id} ---", file=sys.stderr)
             print("", file=sys.stderr) 
