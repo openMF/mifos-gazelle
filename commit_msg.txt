@@ -1,0 +1,8 @@
+docs: improve Version Information section structure and readability
+
+Restructure the Version Information section in MIFOS-GAZELLE-README.md to:
+- Organize components hierarchically (MifosX, vNext, PaymentHub EE)
+- Add clear formatting and proper markdown headers
+- Improve readability with bullet points and code formatting
+- Separate standard and custom PaymentHub EE components
+- Add links to external documentation 

@@ -226,13 +226,29 @@ Please note that limitations here are entirely those of the Mifos Gazelle config
 - There are some issues on older (Intel/Opteron) hardware with nginx, MongoDB  and ElasticSearch. 
 - Reminder Mifos Gazelle deployment of the 3 DPGs is *not at all secure*. (Note this is true no matter of the security status of the underlying DPGs). Security will necessarily become a major focus as we look to more production ready deployments in future releases. 
 
-## Version information 
+## Version Information
 
-MifosX : i.e. Mifos and Mifos web-client uses docker container openmf/fineract:develop 
-vNext : vNext Beta1 release details see https://github.com/mojaloop/platform-shared-tools/blob/beta1/README.md
-PaymentHub EE : v1.13.0 subcharts and versions as documented at https://mifos.gitbook.io/docs/payment-hub-ee/release-notes/v1.13.0 but with the following exceptions :-
-- ph-ee-env-template : docker.io/openmf/ph-ee-env-template:v1.13.0-gazelle
-- ph-ee-integration-test : docker.io/openmf/ph-ee-integration-test:v1.6.2-gazelle
-- ph-ee-operations-web : docker.io/openmf/openmf/ph-ee-operations-web:dev1
+### MifosX Components
+- **Core Banking Platform**: 
+  - Image: `openmf/fineract:develop`
+  - Version: Latest development version
+- **Web Client**: 
+  - Uses the same container as Core Banking Platform
+
+### Mojaloop vNext
+- **Version**: vNext Beta1
+- **Details**: See [vNext Beta1 Release Documentation](https://github.com/mojaloop/platform-shared-tools/blob/beta1/README.md)
+
+### PaymentHub EE Components
+Base version: v1.13.0
+> For standard components and subcharts, refer to [PaymentHub EE v1.13.0 Documentation](https://mifos.gitbook.io/docs/payment-hub-ee/release-notes/v1.13.0)
+
+Custom component versions:
+- **Environment Template**:
+  - Image: `docker.io/openmf/ph-ee-env-template:v1.13.0-gazelle`
+- **Integration Tests**:
+  - Image: `docker.io/openmf/ph-ee-integration-test:v1.6.2-gazelle`
+- **Operations Web**:
+  - Image: `docker.io/openmf/openmf/ph-ee-operations-web:dev1`
 
 
