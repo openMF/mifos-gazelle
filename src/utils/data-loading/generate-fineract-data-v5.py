@@ -50,7 +50,7 @@ PRODUCT_SHORTNAME = "savb"
 # PRODUCT_DESCRIPTION = f"Savings product for {tenant_id} demo"
 
 # Deposit details
-DEFAULT_DEPOSIT_AMOUNT = 10.0 # Default deposit amount
+DEFAULT_DEPOSIT_AMOUNT = 5000.0 # Default deposit amount
 DEFAULT_PAYMENT_TYPE_ID = 1 # Assuming payment type ID 1 exists and is suitable for deposits
 PAYLOAD_DATE_FORMAT_LITERAL = "dd MMMM yyyy"
 
