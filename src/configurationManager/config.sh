@@ -31,7 +31,7 @@ PH_RELEASE_NAME="phee"
 PH_VALUES_FILE="$CONFIG_DIR/ph_values.yaml"
 PH_REPO_LINK="https://github.com/openMF/ph-ee-env-labs.git"
 PH_EE_ENV_TEMPLATE_REPO_LINK="https://github.com/openMF/ph-ee-env-template.git"
-PH_EE_ENV_TEMPLATE_REPO_BRANCH="v1.13.0-gazelle"
+PH_EE_ENV_TEMPLATE_REPO_BRANCH="v1.13.0-gazelle-1.1.0"
 PH_EE_ENV_TEMPLATE_REPO_DIR="ph_template"
 
 # Define Kubernetes service and MySQL connection details
