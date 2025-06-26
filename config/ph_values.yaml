@@ -231,8 +231,7 @@ ph-ee-engine:
     enabled: true
     SPRING_PROFILES_ACTIVE: "fin12,bb"
     #image: docker.io/openmf/ph-ee-connector-ams-mifos:v1.7.0
-    #IMAGETODO
-    image: docker.io/devarsh10/ph-ee-connector-ams-mifos:latest
+    image: docker.io/openmf/ph-ee-connector-ams-mifos:v1.7.0-gazelle-1.1.0
     # ams_local_interop_host: http://fineract-server.mifosx.svc.cluster.local:8080
     # ams_local_account_host: http://fineract-server.mifosx.svc.cluster.local:8080
     # ams_local_customer_host: http://fineract-server.mifosx.svc.cluster.local:8080
