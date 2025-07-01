@@ -239,11 +239,16 @@ function cloneRepo() {
     fi
   else
     # Clone the repository if it doesn't exist locally.
-    su - "$k8s_user" -c "git clone -b $branch $repo_link $repo_path" >> /dev/null 2>&1
+    if [ "$debug" = true ]; then
+      su - "$k8s_user" -c "git clone -b $branch $repo_link $repo_path"
+    else 
+      su - "$k8s_user" -c "git clone -b $branch $repo_link $repo_path" >> /dev/null 2>&1
+    fi
     if [ $? -eq 0 ]; then
       echo "    Repository $repo_path cloned successfully."
     else
-        echo "** Error Failed to clone the repository."
+        echo "** Error Failed to clone the repository.  run with -d true to see more details"
+        exit 1
     fi
   fi
 }
