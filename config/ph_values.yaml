@@ -17,7 +17,7 @@ ph-ee-engine:
 
   operations_web:
   #IMAGETODO 
-    image: docker.io/openmf/ph-ee-operations-web:dev1 
+    image: docker.io/openmf/ph-ee-operations-web:gazelle-v1.1.0 
 
 
 
@@ -116,7 +116,7 @@ ph-ee-engine:
           value: 'false'
       resources:
         requests:
-          cpu: 800m
+          cpu: 200m
           memory: 1200Mi
         limits:
           cpu: 960m
@@ -139,7 +139,7 @@ ph-ee-engine:
 
       resources:
         requests:
-          cpu: 400m
+          cpu: 100m
           memory: 450Mi
         limits:
           cpu: 400m
