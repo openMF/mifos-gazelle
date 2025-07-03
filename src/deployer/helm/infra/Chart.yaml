@@ -36,12 +36,12 @@ dependencies:
 - name: mongodb
   alias: mongodb
   condition: mongodb.enabled
-  repository: https://charts.bitnami.com/bitnami
+  repository: https://groundhog2k.github.io/helm-charts/
   tags:
   - gazelle
   - dependency
   - mongodb
-  version: 13.3.1
+  version: 0.6.0
 ## Mongo-express
 - name: mongo-express
   alias: mongo-express
@@ -51,7 +51,7 @@ dependencies:
   - gazelle
   - dependency
   - mongodb
-  version: 6.5.2
+  version: 6.5.1
 ## redis 
 - name: redis
   alias: redis 

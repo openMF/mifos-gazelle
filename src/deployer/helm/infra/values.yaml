@@ -112,42 +112,53 @@ redpanda-console:
             pathType: ImplementationSpecific
 
 ############### MongoDB  ####################
-# https://github.com/bitnami/charts/tree/main/bitnami/mongodb
+# X64 only => https://github.com/bitnami/charts/tree/main/bitnami/mongodb
+# testing for ARM64 : https://artifacthub.io/packages/helm/groundhog2k/mongodb/0.6.0
+# mongodb:
+#   enabled: true
+#   image:
+#     tag: 7.0
+
+#   fullnameOverride: "mongodb"
+#   auth:
+#     enabled: false
+
+#     rootUser: root
+#     rootPassword: mongoDbPas42
+#     usernames:
+#     - 'mojaloop'
+#     passwords:
+#     - 'password'
+#     databases:
+#     - 'mlos'
+
+    # replicaSetKey: ""
+    # existingSecret: ""
+  
 mongodb:
   enabled: true
-  image:
-    tag: 5.0.18-debian-11-r8
-
-  fullnameOverride: "mongodb"
-  auth:
-    enabled: true
-
-    rootUser: root
-    rootPassword: mongoDbPas42
-    usernames:
-    - 'mojaloop'
-    passwords:
-    - 'password'
-    databases:
-    - 'mlos'
-
-    replicaSetKey: ""
-    existingSecret: ""
   persistence:
-    enabled: false
+    enabled: true
+  image:
+    tag: 7.0
 
-############### Mongo Express ####################
+  fullnameOverride: mongodb
+  settings:
+    rootUsername: root
+    rootPassword: mongoDbPas42
+
+# ############### Mongo Express ####################
 # mongo express config
 mongo-express:
   fullnameOverride: mongo-express
-  enabled: true
+  enabled: false
 
   image:
     tag: 1.0.2
 
   ingress:
     enabled: true
-    ingressClassName: nginx
+    ingressClassName: nginx-ext
     hosts:
       - host: mongoexpress.mifos.gazelle.test
         paths:
@@ -155,6 +166,12 @@ mongo-express:
 
   mongodbEnableAdmin: true
   mongodbAdminPassword: mongoDbPas42
+  mongodbAdminUsername: root
+
+  livenessProbe:
+    enabled: false
+  readinessProbe:
+    enabled: false
 
 ############### Redis  ####################
 ## Reference: https://github.com/bitnami/charts/blob/main/bitnami/redis/values.yaml
