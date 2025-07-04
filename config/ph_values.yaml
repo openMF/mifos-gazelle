@@ -398,3 +398,5 @@ ph-ee-engine:
   ph-ee-connector:
     enabled: true
 
+  ph-ee-connector-gsma:
+    enabled: false
