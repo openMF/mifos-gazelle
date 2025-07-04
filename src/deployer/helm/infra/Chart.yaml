@@ -2,14 +2,12 @@ apiVersion: v2
 description: Helm chart formifos-gazelle infrastructure services
 name: gazelle-infra
 version: 0.1.0
-appVersion: "kafka: 19.0.2; console: 0.6.6; mongodb: 13.3.1; mongo-express: 1.0.2; elasticsearch:19.9.2; redis: 17.11.6"
+appVersion: "kafka: 3.2.3; console: 0.6.6; mongodb: 13.3.1; mongo-express: 1.0.2; elasticsearch:19.9.2; redis: 17.11.6"
 home: https://github.com/openMF/mifos-gazelle
 #icon: 
 sources:
 - https://github.com/openMF/mifos-gazelle
 maintainers:
-- name: Elijah Okello
-  email: elijahokello90@gmail.com
 - name: Tom Daly 
   email: tdaly61@gmail.com
 dependencies:
@@ -22,7 +20,7 @@ dependencies:
   - gazelle
   - dependency
   - kafka
-  version: 19.0.2
+  version: 18.5.0
 ## redpanda kafka console 
 - name: console
   alias: redpanda-console

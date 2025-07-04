@@ -8,6 +8,16 @@ kafka:
   enabled: true
   fullnameOverride: "kafka"
 
+  image:
+    registry: docker.io
+    repository: bitnami/kafka
+    tag: 3.2
+  # from chart heapOpts: -XX:InitialRAMPercentage=75 -XX:MaxRAMPercentage=75
+  heapOpts: "-Xms128m -Xmx256m"
+
+  controller:
+    controllerOnly: true 
+
   persistence:
     enabled: false
 
@@ -17,6 +27,12 @@ kafka:
       enabled: true
     fullnameOverride: "zookeeper"
 
+    image: # Explicitly define Zookeeper image for ARM if needed
+      registry: docker.io
+      repository: bitnami/zookeeper
+      tag: 3.7.1   
+    heapOpts: "-Xms128m -Xmx256m"
+    
   ## Kafka provisioning
   provisioning:
     enabled: true
@@ -166,7 +182,7 @@ mongo-express:
 ############### Redis  ####################
 ## Reference: https://github.com/bitnami/charts/blob/main/bitnami/redis/values.yaml
 redis:
-  enabled: true
+  enabled: false
   fullnameOverride: redis
   architecture: standalone
   auth:
@@ -178,7 +194,7 @@ redis:
 
 ############### Elasticsearch and Kibana  ####################
 elasticsearch:
-  enabled: true
+  enabled: false
   #fullnameOverride: "fredelastic"
 
   security:
@@ -210,7 +226,7 @@ elasticsearch:
 
   kibana:
     ingress:
-      enabled: true
+      enabled: false
       ingressClassName: nginx
       hostname: kibana.mifos.gazelle.test
       tls:
