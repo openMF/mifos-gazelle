@@ -151,7 +151,7 @@ mongodb:
 # mongo express config
 mongo-express:
   fullnameOverride: mongo-express
-  enabled: false
+  enabled: true
 
   image:
     tag: 1.0.2
@@ -188,7 +188,7 @@ redis:
 
 ############### Elasticsearch and Kibana  ####################
 elasticsearch:
-  enabled: false
+  enabled: true
   #fullnameOverride: "fredelastic"
 
   security:
