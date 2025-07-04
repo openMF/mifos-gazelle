@@ -160,7 +160,7 @@ ph-ee-engine:
 
       resources:
         requests:
-          cpu: 600m
+          cpu: 300m
           memory: 400Mi
 
           
