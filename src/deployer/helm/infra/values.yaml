@@ -194,7 +194,7 @@ redis:
 
 ############### Elasticsearch and Kibana  ####################
 elasticsearch:
-  enabled: false
+  enabled: true
   #fullnameOverride: "fredelastic"
 
   security:
