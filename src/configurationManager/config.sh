@@ -50,8 +50,8 @@ SQL_FILE="$BASE_DIR/src/deployer/setup.sql"
 #MifosX 
 MIFOSX_NAMESPACE="mifosx"
 MIFOSX_MANIFESTS_DIR="$APPS_DIR/mifosx/kubernetes/manifests"
-MIFOSX_BRANCH="gazelle-1.1.0"
-MIFOSX_REPO_LINK="https://github.com/openMF/mifosx-docker.git"
+MIFOSX_BRANCH="devarsh-arm-work-mifosx"
+MIFOSX_REPO_LINK="https://github.com/devarsh10/mifosx-platform.git"
 MIFOSX_REPO_DIR="mifosx"
 
 ########################################################################
