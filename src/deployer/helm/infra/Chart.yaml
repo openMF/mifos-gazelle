@@ -85,3 +85,24 @@ dependencies:
   - dependency
   - mysql
   version: 9.4.5
+## InfluxDB
+- name: influxdb
+  alias: influxdb
+  condition: influxdb.enabled
+  repository: https://charts.bitnami.com/bitnami
+  tags:
+    - gazelle
+    - dependency
+    - influxdb
+  version: 6.5.0
+
+## Cert-Manager
+- name: cert-manager
+  alias: cert-manager
+  condition: cert-manager.enabled
+  repository: https://charts.bitnami.com/bitnami
+  tags:
+    - gazelle
+    - dependency
+    - cert-manager
+  version: 1.0.0

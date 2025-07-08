@@ -230,3 +230,22 @@ mysql:
       GRANT ALL PRIVILEGES ON `bluebank`.* TO 'mifos';
       GRANT ALL ON *.* TO 'root'@'%';
 
+############### InfluxDB  ####################
+influxdb:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnami/influxdb
+    tag: 2.7.11-debian-12-r1
+    digest: ""
+    pullPolicy: IfNotPresent 
+
+############### cert-manager  ####################
+cert-manager:
+  enabled: true
+  installCRDs: true
+  image:
+    registry: docker.io
+    repository: bitnami/cert-manager
+    tag: 1.18.2-debian-12-r1
+    pullPolicy: IfNotPresent
