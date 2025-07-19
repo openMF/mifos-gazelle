@@ -416,7 +416,8 @@ function configure_k8s_user_env {
         echo "complete -F __start_kubectl k " >>  $k8s_user_home/.bashrc
         echo "alias ksetns=\"kubectl config set-context --current --namespace\" " >>  $k8s_user_home/.bashrc
         echo "alias ksetuser=\"kubectl config set-context --current --user\" "  >>  $k8s_user_home/.bashrc
-        echo "alias cdml=\"cd $k8s_user_home/mifos-gazelle\" " >>  $k8s_user_home/.bashrc
+        echo "alias cdg=\"cd $k8s_user_home/mifos-gazelle\" " >>  $k8s_user_home/.bashrc
+        echo "export PATH=\$PATH:/usr/local/bin" >> $k8s_user_home/.bashrc
         printf "#GAZELLE_END end of config added by mifos-gazelle #\n" >> $k8s_user_home/.bashrc
     else
         printf "\r==> Configuration for .bashrc for %s for user %s already exists ..skipping\n" "$k8s_distro" "$k8s_user"
@@ -531,13 +532,6 @@ function setup_k8s_cluster {
         fi
 }
 
-# function deleteAppResources(){
-#     deleteResourcesInNamespaceMatchingPattern "$FIN_NAMESPACE"
-#     deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
-#     deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
-#     deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
-#     deleteResourcesInNamespaceMatchingPattern "default"
-# }
 
 ################################################################################
 # MAIN
@@ -546,14 +540,14 @@ function envSetupMain {
     DEFAULT_K8S_DISTRO="k3s"  #only k3s is currently being tested 
     K8S_VERSION=""
 
-    HELM_VERSION="3.12.0"  # Feb 2023
+    HELM_VERSION="3.18.4"  # July 2025
     OS_VERSIONS_LIST=( 22 24 )
-    K8S_CURRENT_RELEASE_LIST=( "1.30" "1.31" )
+    K8S_CURRENT_RELEASE_LIST=( "1.31" "1.32" ) 
     CURRENT_RELEASE="false"
     k8s_user_home=""
     k8s_arch=`uname -p`  # what arch
     # Set the minimum amount of RAM in GB
-    MIN_RAM=4
+    MIN_RAM=6
     MIN_FREE_SPACE=30
     LINUX_OS_LIST=( "Ubuntu" )
     UBUNTU_OK_VERSIONS_LIST=(22 24)
@@ -594,6 +588,7 @@ function envSetupMain {
             install_k8s_tools
             add_helm_repos
             configure_k8s_user_env
+            $UTILS_DIR/install-k9s.sh > /dev/null 2>&1
         else 
             checkHelmandKubectl # ensure things really are in place properly 
         fi

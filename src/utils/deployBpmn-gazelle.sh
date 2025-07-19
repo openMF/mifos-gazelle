@@ -2,12 +2,11 @@
 
 # Define variables for the charts
 SCRIPT_DIR=$( cd $(dirname "$0") ; pwd )
-#BPMN_DIR="$( cd $(dirname "$SCRIPT_DIR")/../repos/ph_template/orchestration/phlabs ; pwd )"
 BPMN_DIR="$( cd $(dirname "$SCRIPT_DIR")/../orchestration/ ; pwd )"
 
 HOST="https://zeebeops.mifos.gazelle.test/zeebe/upload"
 DEBUG=false
-TENANT="ph_bluebank"  # Default tenant
+TENANT="greenbank"  # Default tenant TODO does this actually do anything 
 
 deploy() {
     local file="$1"
@@ -91,7 +90,6 @@ if [ -n "$SINGLE_FILE" ]; then
     fi
 else
     # Deploy files from predefined locations
-    #for location in "$BPMN_DIR/orchestration/feel/"*.bpmn "$BPMN_DIR/orchestration/feel/example/"*.bpmn; do
     echo "Deploying BPMN files from $BPMN_DIR/feel/"
     for location in "$BPMN_DIR/feel/"*.bpmn; do
         echo "Deploying BPMN file: $location"

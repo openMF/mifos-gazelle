@@ -186,14 +186,10 @@ ph-ee-engine:
       enabled: false
   #### end of camunda-platform
 
-
-  # PH-EE Connector Mojaloop
-  # Note 'fred' and 'FRED' are development hooks as we continue to work on end to end integration flows.
   ph_ee_connector_mojaloop:
     enabled: true
-    # the following 2 entries used only for dev/test of mojaloop connector 
-    # image: mojaloop-connector:gazelle
-    # imagePullPolicy: "Never"
+    image: docker.io/openmf/ph-ee-connector-mojaloop-java:gazelle-v1.1.0
+    imagePullPolicy: IfNotPresent
     # image: mojaloop:gazelle1 
     ingress:
       enabled: true
@@ -205,13 +201,13 @@ ph-ee-engine:
         host: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
         #service: "vnextadmin.mifos.gazelle.test/_interop"
       transfers:
-        host: "vnextadmin.mifos.gazelle.test/_interop"
-        service: "vnextadmin.mifos.gazelle.test/_interop"
+        host: http://fspiop-api-svc.vnext.svc.cluster.local:4000
+        service: http://fspiop-api-svc.vnext.svc.cluster.local:4000
       transactions:
-        host: "vnextadmin.mifos.gazelle.test/_interop"
-        service: "vnextadmin.mifos.gazelle.test/_interop"
+        host: http://fspiop-api-svc.vnext.svc.cluster.local:4000
+        service: http://fspiop-api-svc.vnext.svc.cluster.local:4000
       oracle:
-        host: "vnextadmin.mifos.gazelle.test/_interop"
+        host: http://fspiop-api-svc.vnext.svc.cluster.local:4000
     deployment:
       extraEnvs:
         - name: parties_0_domain
@@ -251,42 +247,38 @@ ph-ee-engine:
     memoryRequest: "500k"
     testResultsOutputDir: "/tmp"
 
-# deployment:
-#   extraEnvs:
-#     - name: TOM_OPTS_2
-#       value: "this is FRED2 one of toms deployment options"
-
   operations_app:
     enabled: true
+    image: docker.io/openmf/ph-ee-operations-app:v1.17.1-gazelle-1.1.0
+    imagePullPolicy: IfNotPresent
     #image: docker.io/openmf/ph-ee-operations-app:v1.20.0
     deployment:
       extraEnvs:
-        - name: "TOMS_OPTS"
-          value: "of-no-value"
-        - name: "TOMS_OPTS-3"
-          value: "of-no-value"
         - name: JAVA_TOOL_OPTIONS
           value: "-Xms128m -Xmx256m -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=0.0.0.0:9876"
 
   connector_bulk:
+    enabled: true
+    image: docker.io/openmf/ph-ee-bulk-processor:v1.12.1-gazelle-1.1.0
+    imagePullPolicy: IfNotPresent
     tenants: "greenbank,bluebank"
     operations_app:
       #contactpoint: "http://ph-ee-operations-app:5000"
       contactpoint: "http://ph-ee-operations-app:80"
       endpoints:
         batch_transaction: "/api/v1/batch/transactions"
-    spec:
-      template:
-        containers:
-          env:
-            - name: "BP_JAVA_OPTS"
-              value: ""
-            - name: "BP_JAVA_OPTS-1"
-              value: "fred5"
-            - name: "BP_JAVA_OPTS-2"
-              value: "fred6"  
-            # - name: "TOMS_OPTS"
-            #   value: "of-no-value"
+    # spec:
+      # template:
+      #   containers:
+      #     env:
+      #       - name: "BP_JAVA_OPTS"
+      #         value: ""
+      #       - name: "BP_JAVA_OPTS-1"
+      #         value: "fred5"
+      #       - name: "BP_JAVA_OPTS-2"
+      #         value: "fred6"  
+      #       # - name: "TOMS_OPTS"
+      #       #   value: "of-no-value"
     deployment:
       extraEnvs:
         - name: JAVA_TOOL_OPTIONS
@@ -384,7 +376,6 @@ ph-ee-engine:
       hosts:
         - minio.mifos.gazelle.test
 
-    
     consoleIngress:
       enabled: true 
       ingressClassName: nginx 
@@ -394,9 +385,27 @@ ph-ee-engine:
       hosts:
         - minio-console.mifos.gazelle.test
 
-
   ph-ee-connector:
     enabled: true
 
-  ph-ee-connector-gsma:
+  zeebe_ops:
+    enabled: true
+    image: docker.io/openmf/ph-ee-zeebe-ops:v1.4.0-gazelle-1.1.0
+    readinessProbe:
+      initialDelaySeconds: 60
+    livenessProbe:
+      initialDelaySeconds: 60
+    deployment:
+      extraEnvs:
+        - name: JAVA_TOOL_OPTIONS
+          value: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError"
+
+    limits:
+      memory: "768M"
+      cpu: "500m"
+    requests:
+      memory: "512M"
+      cpu: "50m"
+
+  ph_ee_connector_gsma:
     enabled: false

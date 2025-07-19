@@ -102,8 +102,8 @@ function cleanUp ()
     echo -e "${RED}Performing graceful clean up${RESET}"
 
     mode="cleanup"
-    echo "Doing cleanup" 
-    envSetupMain "$mode" "k3s" "1.26" "$environment"
+    echo "exiting via cleanUp function" 
+    #envSetupMain "$mode" "k3s" "1.26" "$environment"
 
     # exit shell script with error code 2
     # if omitted, shell script will continue execution
