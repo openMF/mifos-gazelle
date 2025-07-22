@@ -51,7 +51,7 @@ dependencies:
   - gazelle
   - dependency
   - mongodb
-  version: 6.5.1
+  version: 5.2.0
 ## redis 
 - name: redis
   alias: redis 
