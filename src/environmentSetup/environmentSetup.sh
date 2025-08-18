@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 
 function check_arch_ok {
-    if [[ ! "$k8s_arch" == "x86_64" ]]; then
-        printf " **** Warning : mifos-gazelle only works properly with x86_64 today but vNext should be ok *****\n"
+    local arch=$(uname -m)
+    if [[ "$arch" != "x86_64" && "$arch" != "arm64" && "$arch" != "aarch64" ]]; then
+        printf " **** Error: mifos-gazelle only works properly with x86_64, arm64, or aarch64 architectures today  *****\n"
+        exit 1 
     fi
 }
 
@@ -396,10 +398,10 @@ function add_helm_repos {
     printf "\r==> add the helm repos required to install and run infrastructure for vNext, Paymenthub EE and MifosX\n"
     su - $k8s_user -c "helm repo add kiwigrid https://kiwigrid.github.io" > /dev/null 2>&1
     su - $k8s_user -c "helm repo add kokuwa https://kokuwaio.github.io/helm-charts" > /dev/null 2>&1  #fluentd
-    su - $k8s_user -c "helm repo add elastic https://helm.elastic.co" > /dev/null 2>&1
+    #su - $k8s_user -c "helm repo add elastic https://helm.elastic.co" > /dev/null 2>&1
     su - $k8s_user -c "helm repo add codecentric https://codecentric.github.io/helm-charts" > /dev/null 2>&1 # keycloak for TTK
     su - $k8s_user -c "helm repo add bitnami https://charts.bitnami.com/bitnami" > /dev/null 2>&1
-    su - $k8s_user -c "helm repo add mojaloop http://mojaloop.io/helm/repo/" > /dev/null 2>&1
+    #su - $k8s_user -c "helm repo add mojaloop http://mojaloop.io/helm/repo/" > /dev/null 2>&1
     su - $k8s_user -c "helm repo add cowboysysop https://cowboysysop.github.io/charts/" > /dev/null 2>&1  # mongo-express
     su - $k8s_user -c "helm repo add redpanda-data https://charts.redpanda.com/ " > /dev/null 2>&1   # kafka console
     su - $k8s_user -c "helm repo update" > /dev/null 2>&1

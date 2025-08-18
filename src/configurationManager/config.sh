@@ -12,16 +12,20 @@ INFRA_RELEASE_NAME="infra"
 INFRA_CHART_DIR="$BASE_DIR/src/deployer/helm/infra" 
 NGINX_VALUES_FILE="$CONFIG_DIR/nginx_values.yaml"
 GAZELLE_DOMAIN="mifos.gazelle.test"
+GAZELLE_VERSION="1.1.0"
 
-# Mojaloop vNext 
+# Mojaloop vNext Beta1
 VNEXTBRANCH="beta1"
 VNEXTREPO_DIR="vnext"
 VNEXT_NAMESPACE="vnext"
 VNEXT_REPO_LINK="https://github.com/mojaloop/platform-shared-tools.git"
-VNEXT_LAYER_DIRS=("$APPS_DIR/vnext/packages/installer/manifests/crosscut" "$APPS_DIR/vnext/packages/installer/manifests/ttk" "$APPS_DIR/vnext/packages/installer/manifests/apps" "$APPS_DIR/vnext/packages/installer/manifests/reporting")
+#VNEXT_LAYER_DIRS=("$APPS_DIR/vnext/packages/installer/manifests/crosscut" "$APPS_DIR/vnext/packages/installer/manifests/ttk" "$APPS_DIR/vnext/packages/installer/manifests/apps" "$APPS_DIR/vnext/packages/installer/manifests/reporting")
+# for gazelle 1.1.0 we have removed the ttk layer as it is not needed as we have MifosX instance integrated as DFSPs 
+VNEXT_LAYER_DIRS=("$APPS_DIR/vnext/packages/installer/manifests/crosscut" "$APPS_DIR/vnext/packages/installer/manifests/apps" "$APPS_DIR/vnext/packages/installer/manifests/reporting")
+
 VNEXT_VALUES_FILE="$CONFIG_DIR/vnext_values.json"
 # => use CONFIG_DIR mongodb dump for gazelle 1.1.0 VNEXT_MONGODB_DATA_DIR="$APPS_DIR/$VNEXTREPO_DIR/packages/deployment/docker-compose-apps/ttk_files/mongodb"
-VNEXT_TTK_FILES_DIR="$APPS_DIR/$VNEXTREPO_DIR/packages/deployment/docker-compose-apps/ttk_files"
+# => not used for v1.1.0 VNEXT_TTK_FILES_DIR="$APPS_DIR/$VNEXTREPO_DIR/packages/deployment/docker-compose-apps/ttk_files"
 
 #PaymentHub EE 
 PHBRANCH="master"
@@ -105,7 +109,8 @@ function replaceValuesInFiles() {
 }
 
 function configurevNext() {
-  replaceValuesInFiles "${VNEXT_LAYER_DIRS[0]}" "${VNEXT_LAYER_DIRS[2]}" "${VNEXT_LAYER_DIRS[3]}"
+    #TODO this needs a for loop 
+  replaceValuesInFiles "${VNEXT_LAYER_DIRS[0]}" "${VNEXT_LAYER_DIRS[1]}" "${VNEXT_LAYER_DIRS[2]}"
   # Iterate over each directory in VNEXT_LAYER_DIRS
   for dir in "${VNEXT_LAYER_DIRS[@]}"; do
     # Find all YAML files in the directory

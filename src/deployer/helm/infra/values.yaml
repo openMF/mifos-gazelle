@@ -7,25 +7,67 @@ global:
 kafka:
   enabled: true
   fullnameOverride: "kafka"
-
-  image:
-    registry: docker.io
-    repository: bitnami/kafka
-    tag: 3.2
-  # from chart heapOpts: -XX:InitialRAMPercentage=75 -XX:MaxRAMPercentage=75
-  heapOpts: "-Xms128m -Xmx256m"
-
-  controller:
-    controllerOnly: true 
-
   persistence:
+    enabled: false
+  externalAccess:
+    enabled: false
+
+  broker:
+    replicaCount: 1
+    heapOpts: "-Xms64M -Xmx256M"
+    resources: 
+      limits:
+        memory: "500Mi" # Using Mi for clarity and consistency
+        cpu: "500m"
+      requests: 
+        memory: "64Mi" # Using Mi for clarity and consistency
+        cpu: "100m"
+  
+  extraConfig:
+    autoCreateTopicsEnabled: "true"
+    offsetsTopicReplicationFactor: "1"
+
+  # need this to ensure redpanda-console can connect to kafka
+  listeners:
+    client:
+      protocol: PLAINTEXT
+      # Explicitly advertise using the Kafka service name
+      advertisedListeners: PLAINTEXT://kafka:9092 
+    interBroker:
+      protocol: PLAINTEXT
+      # For a single-node setup, interBroker can also point to client.
+      advertisedListeners: PLAINTEXT://kafka:9092 
+
+  extraEnvVars:
+    - name: KAFKA_CFG_ADVERTISED_LISTENERS
+      value: PLAINTEXT://kafka:9092
+
+  auth:
+    enabled: false
+    clientProtocol: plaintext
+
+  kraft:
     enabled: false
 
   ## https://github.com/bitnami/charts/blob/main/bitnami/zookeeper/values.yaml
   zookeeper:
+    enabled: true
     persistence:
-      enabled: true
+      enabled: false
     fullnameOverride: "zookeeper"
+    heapOpts: "-Xms64M -Xmx256M"
+
+    resources: 
+      limits:
+        memory: "256Mi" # Using Mi for clarity and consistency
+        cpu: "200m"
+      requests: 
+        memory: "64Mi" # Using Mi for clarity and consistency
+        cpu: "50m"
+    #replicaCount: 1   
+
+  controller:
+    replicaCount: 0
 
     image: # Explicitly define Zookeeper image for ARM if needed
       registry: docker.io
@@ -40,59 +82,60 @@ kafka:
     replicationFactor: 1
 
     topics:
-    - name: KAFKA_AUDITS_TOPIC
-      value: audits
-    - name: KAFKA_LOGS_TOPIC
-      value: logs
-    - name: AccountLookupBcRequests
-      value: AccountLookupBcRequests
-    - name: AccountLookupBcEvents
-      value: AccountLookupBcEvents
-    - name: AccountLookupBcResponses
-      value: AccountLookupBcResponses
-    - name: AccountLookupBcErrors
-      value: AccountLookupBcErrors
-    - name: OperatorBcErrors
-      value: OperatorBcErrors
-    - name: QuotingBcErrors
-      value: QuotingBcErrors
-    - name: QuotingBcEvents
-      value: QuotingBcEvents
-    - name: QuotingBcRequests
-      value: QuotingBcRequests
-    - name: SettlementsBcRequests
-      value: SettlementsBcRequests
-    - name: TransfersBcErrors
-      value: TransfersBcErrors
-    - name: TransfersBcEvents
-      value: TransfersBcEvents
-    - name: TransfersBcRequests
-      value: TransfersBcRequests
-    - name: SettlementsBcEvents
-      value: SettlementsBcEvents
-    - name: SettlementsBcCommands
-      value: SettlementsBcCommands
-    - name: PlatformConfigurationBcEvents
-      value: PlatformConfigurationBcEvents
-    - name: TransfersBcTimeouts
-      value: TransfersBcTimeouts
-    - name: ParticipantsBcEvents
-      value: ParticipantsBcEvents
-    - name: SchedulingBcCommands
-      value: SchedulingBcCommands
-    - name: SchedulingBcEvents
-      value: SchedulingBcEvents
-    - name: SecurityBcAuthorizationEvents
-      value: SecurityBcAuthorizationEvents
-    - name: SecurityBcEvents
-      value: SecurityBcEvents
-
-
-
+      - name: __consumer_offsets
+        partitions: 50
+        replicationFactor: 1    
+      - name: KAFKA_AUDITS_TOPIC
+        value: audits
+      - name: KAFKA_LOGS_TOPIC
+        value: logs
+      - name: AccountLookupBcRequests
+        value: AccountLookupBcRequests
+      - name: AccountLookupBcEvents
+        value: AccountLookupBcEvents
+      - name: AccountLookupBcResponses
+        value: AccountLookupBcResponses
+      - name: AccountLookupBcErrors
+        value: AccountLookupBcErrors
+      - name: OperatorBcErrors
+        value: OperatorBcErrors
+      - name: QuotingBcErrors
+        value: QuotingBcErrors
+      - name: QuotingBcEvents
+        value: QuotingBcEvents
+      - name: QuotingBcRequests
+        value: QuotingBcRequests
+      - name: SettlementsBcRequests
+        value: SettlementsBcRequests
+      - name: TransfersBcErrors
+        value: TransfersBcErrors
+      - name: TransfersBcEvents
+        value: TransfersBcEvents
+      - name: TransfersBcRequests
+        value: TransfersBcRequests
+      - name: SettlementsBcEvents
+        value: SettlementsBcEvents
+      - name: SettlementsBcCommands
+        value: SettlementsBcCommands
+      - name: PlatformConfigurationBcEvents
+        value: PlatformConfigurationBcEvents
+      - name: TransfersBcTimeouts
+        value: TransfersBcTimeouts
+      - name: ParticipantsBcEvents
+        value: ParticipantsBcEvents
+      - name: SchedulingBcCommands
+        value: SchedulingBcCommands
+      - name: SchedulingBcEvents
+        value: SchedulingBcEvents
+      - name: SecurityBcAuthorizationEvents
+        value: SecurityBcAuthorizationEvents
+      - name: SecurityBcEvents
+        value: SecurityBcEvents
 
     nodeSelector: {}
     tolerations: []
     waitForKafka: true
+############### Kafka and Zookeeper ####################
 
 ############### RedPanda Console for Kafka  ####################
 # https://artifacthub.io/packages/helm/redpanda-data/console?modal=values
@@ -118,16 +161,16 @@ redpanda-console:
             pathType: ImplementationSpecific
 
 ############### MongoDB  ####################
-# X64 only => https://github.com/bitnami/charts/tree/main/bitnami/mongodb
-# testing for ARM64 : https://artifacthub.io/packages/helm/groundhog2k/mongodb/0.6.0
+#         older amd64 specific 
+# https://github.com/bitnami/charts/tree/main/bitnami/mongodb
 # mongodb:
 #   enabled: true
 #   image:
-#     tag: 7.0
+#     tag: 5.0.18-debian-11-r8
 
 #   fullnameOverride: "mongodb"
 #   auth:
-#     enabled: false
+#     enabled: true
 
 #     rootUser: root
 #     rootPassword: mongoDbPas42
@@ -138,29 +181,31 @@ redpanda-console:
 #     databases:
 #     - 'mlos'
 
-    # replicaSetKey: ""
-    # existingSecret: ""
-  
+#     replicaSetKey: ""
+#     existingSecret: ""
+#   persistence:
+#     enabled: false
+################### end of  older gazelle v1.1.0 amd64 only ##############
+
 mongodb:
   enabled: true
   persistence:
-    enabled: true
-  image:
-    tag: 7.0
+    enabled: false
+  # image:
+  #   tag: 7.0
 
   fullnameOverride: mongodb
   settings:
     rootUsername: root
     rootPassword: mongoDbPas42
-
-# ############### Mongo Express ####################
+############### Mongo Express ####################
 # mongo express config
 mongo-express:
   fullnameOverride: mongo-express
   enabled: true
 
-  image:
-    tag: 1.0.0
+  # image:
+  #   tag: 1.0.0
 
   ingress:
     enabled: true
@@ -171,6 +216,7 @@ mongo-express:
           - /
 
   mongodbEnableAdmin: true
+  mongodbAdminUsername: root
   mongodbAdminPassword: mongoDbPas42
   mongodbAdminUsername: root
 
@@ -178,6 +224,13 @@ mongo-express:
     enabled: false
   readinessProbe:
     enabled: false
+
+  basicAuthUsername: admin
+  basicAuthPassword: admin
+
+  extraEnv:
+    - name: ME_CONFIG_MONGODB_URL
+      value: "mongodb://root:mongoDbPas42@mongodb:27017/"
 
 ############### Redis  ####################
 ## Reference: https://github.com/bitnami/charts/blob/main/bitnami/redis/values.yaml
@@ -202,14 +255,28 @@ elasticsearch:
     tls:
       restEncryption: false
 
-  coordinating:
-    replicaCount: 1
+  # coordinating:
+  #   replicaCount: 1
 
   master:
     masterOnly: false
     replicaCount: 1
     persistence:
-      enabled: true
+      enabled: false
+    env:
+      - name: ES_JAVA_OPTS
+        # Set Xmx and Xms to the same value for stability. 768m is a common low-end starting point.
+        value: "-Xms256m -Xmx256m -XX:+HeapDumpOnOutOfMemoryError" 
+    # Define resources for this single 'all-in-one' master node
+    resources:
+      requests:
+        memory: "128Mi"  # Request enough memory for the heap + overhead
+        cpu: "100m"
+      limits:
+        memory: "800Mi" # Allow some buffer over the heap for OS page cache and other overhead
+        cpu: "400m" # 
+
+
   data:
     replicaCount: 0
   coordinating:
@@ -225,6 +292,19 @@ elasticsearch:
       - enabled: false
 
   kibana:
+    persistence:
+      enabled: false
+    env:
+      - name: NODE_OPTIONS
+        value: "--max-old-space-size=128" # Set Kibana's JS heap to 128MB 
+
+    resources:
+      requests:
+        memory: "300Mi"  # Request enough memory for the heap + overhead
+        cpu: "200m"
+      limits:
+        memory: "800Mi" # Allow some buffer over the heap for OS page cache and other overhead
+        cpu: "200m" # 
     ingress:
       enabled: false
       ingressClassName: nginx

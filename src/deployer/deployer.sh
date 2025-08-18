@@ -17,117 +17,60 @@ function function_exists() {
 }
 
 function isPodRunning() {
-    local podname="$1"
-    local namespace="$2"
-
-    # Get the pod status
+    local podname="$1" namespace="$2"
+    if [[ -z "$podname" || -z "$namespace" ]]; then
+        return 1
+    fi
     local pod_status
-    pod_status=$(kubectl get pod "$podname" -n "$namespace" -o jsonpath='{.status.phase}')
+    pod_status=$(kubectl get pod "$podname" -n "$namespace" -o jsonpath='{.status.phase}' 2>/dev/null)
+    [[ "$pod_status" == "Running" ]]
+}
 
-    # Check if the pod is running
-    if [[ "$pod_status" == "Running" ]]; then
+isDeployed() {
+    local app_name="$1" namespace="$2" pod_name="$3" full_pod_name
+    kubectl get namespace "$namespace" >/dev/null 2>&1 || { echo "false"; return; }
+    full_pod_name=$(kubectl get pods -n "$namespace" --no-headers -o custom-columns=":metadata.name" | grep -i "$pod_name" | head -1)
+    if [[ -z "$full_pod_name" ]]; then
+        echo "false"
+        return
+    fi
+    if isPodRunning "$full_pod_name" "$namespace"; then
         echo "true"
     else
         echo "false"
     fi
 }
 
-function isDeployed() {  # Added missing parentheses
-    local app_name="$1"
-    
-    if [[ "$app_name" == "infra" ]]; then
-        # Check if the namespace exists
-        if ! kubectl get namespace "$INFRA_NAMESPACE" > /dev/null 2>&1; then
-            echo "false"
-            return
-        fi
-        # namespace exists so Check if the infra Helm chart is deployed and running in the $INFRA_NAMESPACE
-        helm_status=$(helm status infra -n "$INFRA_NAMESPACE" 2>&1)
-        if echo "$helm_status" | awk '/^STATUS:/ {if ($2 == "deployed") exit 0; else exit 1}'; then
-            echo "true"
-        else
-            echo "false"
-        fi
-        
-    elif [[ "$app_name" == "phee" ]]; then
-        # Check if the namespace exists
-        if ! kubectl get namespace "$PH_NAMESPACE" > /dev/null 2>&1; then
-            echo "false"
-            return
-        fi
-        helm_status=$(helm status phee -n "$PHEE_NAMESPACE" 2>&1)  # Fixed: was "$PHEE_NAMESPACE", should be consistent
-        if echo "$helm_status" | awk '/^STATUS:/ {if ($2 == "deployed") exit 0; else exit 1}'; then
-            echo "true"
-        else
-            echo "false"
-        fi
-        
-    elif [[ "$app_name" == "vnext" ]]; then
-        # Check if the namespace exists
-        if ! kubectl get namespace "$VNEXT_NAMESPACE" > /dev/null 2>&1; then
-            echo "false"
-            return
-        fi
-        # assume if greenbank-backend-0 is running ok then vnext is installed
-        local vnext_podname="greenbank-backend-0"
-        if [[ "$(isPodRunning "$vnext_podname" "$VNEXT_NAMESPACE")" == "true" ]]; then
-            echo "true"
-        else
-            echo "false"
-        fi
-        
-    elif [[ "$app_name" == "mifosx" ]]; then
-        # Check if the namespace exists
-        if ! kubectl get namespace "$MIFOSX_NAMESPACE" > /dev/null 2>&1; then
-            echo "false"
-            return
-        fi
-        # More robust way to get the pod name
-        local mifosx_podname
-        mifosx_podname=$(kubectl get pods -n "$MIFOSX_NAMESPACE" --no-headers -o custom-columns=":metadata.name" | grep -i fineract-server | head -1)
-        
-        if [[ "$(isPodRunning "$mifosx_podname" "$MIFOSX_NAMESPACE")" == "true" ]]; then
-            echo "true"
-        else
-            echo "false"
-        fi
-        
-    else
-        echo "false"  # Added default case for unknown app names
+waitForPodReadyByPartialName() {
+  local namespace="$1"
+  local partial_podname="$2"
+  local max_wait_seconds=300
+  local sleep_interval=5
+  local elapsed=0
+  local podname
+
+  while (( elapsed < max_wait_seconds )); do
+    podname=$(kubectl get pods -n "$namespace" --no-headers -o custom-columns=":metadata.name" | grep -i "$partial_podname" | head -1)
+
+    if [[ -n "$podname" ]]; then
+      # Check if pod is Ready (Ready condition == True)
+      local ready_status
+      ready_status=$(kubectl get pod "$podname" -n "$namespace" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+
+      if [[ "$ready_status" == "True" ]]; then
+        echo "$podname"
+        return 0
+      fi
     fi
+
+    echo "⏳ Waiting for pod matching '$partial_podname' to be Ready in namespace '$namespace'... ($elapsed seconds elapsed)"
+    sleep "$sleep_interval"
+    ((elapsed+=sleep_interval))
+  done
+
+  echo -e "${RED}    Error: Pod matching '$partial_podname' did not become Ready within 5 minutes.${RESET}" >&2
+  return 1
 }
-
-# waitForPodReadyByPartialName() {
-#   local namespace="$1"
-#   local partial_podname="$2"
-#   local max_wait_seconds=300
-#   local sleep_interval=5
-#   local elapsed=0
-#   local podname
-
-#   while (( elapsed < max_wait_seconds )); do
-#     podname=$(kubectl get pods -n "$namespace" --no-headers -o custom-columns=":metadata.name" | grep -i "$partial_podname" | head -1)
-
-#     if [[ -n "$podname" ]]; then
-#       # Check if pod is Ready (Ready condition == True)
-#       local ready_status
-#       ready_status=$(kubectl get pod "$podname" -n "$namespace" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
-
-#       if [[ "$ready_status" == "True" ]]; then
-#         echo "$podname"
-#         return 0
-#       fi
-#     fi
-
-#     echo "⏳ Waiting for pod matching '$partial_podname' to be Ready in namespace '$namespace'... ($elapsed seconds elapsed)"
-#     sleep "$sleep_interval"
-#     ((elapsed+=sleep_interval))
-#   done
-
-#   echo -e "${RED}    Error: Pod matching '$partial_podname' did not become Ready within 5 minutes.${RESET}" >&2
-#   return 1
-# }
-
 
 deployBPMS() {
   local host="https://zeebeops.mifos.gazelle.test/zeebe/upload"
@@ -135,18 +78,7 @@ deployBPMS() {
   local successful_uploads=0
   local BPMNS_DIR="$BASE_DIR/orchestration/feel"  # BPMNs deployed from  Gazelle but probably eventually belong in ph-ee-env-template 
   local bpms_to_deploy=$(ls -l "$BPMNS_DIR"/*.bpmn | wc -l)
-  # echo "deploying $bpms_to_deploy BPMN diagrams to $host"
   printf "    Deploying BPMN diagrams from $BPMNS_DIR "
-  # wait to ensure zeebe-ops pod is running 
-  local zeebe_ops_podname="ph-ee-zeebe-ops"
-  # todo : this is not needed if we are ensuring that the PHEE helm chart is fully up before continuing 
-  #        in the deploy PH function 
-  # if ! full_podname=$(waitForPodReadyByPartialName "$PH_NAMESPACE" $zeebe_ops_podname ); then
-  #   #echo "    ❌ Pod $zeebe_ops_podname is not ready or not found, skipping BPMN loading."
-  #   return 1
-  # # else
-  # #   echo "    ✅ Found running pod: $full_podname"
-  # fi  
 
   # Find each .bpmn file in the specified directories and iterate over them
   for file in "$BPMNS_DIR"/*.bpmn;  do
@@ -170,7 +102,6 @@ deployBPMS() {
       fi 
 
       if [ "$exit_code" -eq 0 ] && [ "$http_code" -eq 200 ]; then
-          #echo "File: $file - Upload successful"
           ((successful_uploads++))
       fi
     else
@@ -381,7 +312,6 @@ function deployHelmChartFromDir() {
       su - $k8s_user -c "helm install --wait --timeout 600s $release_name $chart_dir -n $namespace "
   fi
 
-  # todo : is the chart really deployed ok, need a test
   # Use kubectl to get the resource count in the specified namespace
   resource_count=$(sudo -u $k8s_user kubectl get pods -n "$namespace" --ignore-not-found=true 2>/dev/null | grep -v "No resources found" | wc -l)
   # Check if the deployment was successful
@@ -468,38 +398,13 @@ function deployPhHelmChartFromDir(){
     echo -e "${RED}    ❌ Helm install of release '$releaseName' has failed :${RESET}"
     exit 1
   fi
-  # # Install the Helm chart from the local directory
-  # if [ -z "$valuesFile" ]; then
-  #   echo "default values file > $k8s_user -c helm install $PH_RELEASE_NAME $chartDir -n $namespace --wait --timeout $timeout"
-  #   if [ "$debug" = true ]; then
-  #     su - "$k8s_user" -c "helm install $PH_RELEASE_NAME $chartDir -n $namespace --wait --timeout $timeout"
-  #   else
-  #     su - "$k8s_user" -c "helm install $PH_RELEASE_NAME $chartDir -n $namespace --wait --timeout $timeout" >> /dev/null 2>&1
-  #   fi
-  # else
-  #   echo "    deploying using values file > $k8s_user -c helm install $PH_RELEASE_NAME $chartDir -n $namespace -f $valuesFile --wait --timeout $timeout "
-  #   if [ "$debug" = true ]; then
-  #     su - "$k8s_user" -c "helm install $PH_RELEASE_NAME $chartDir -n $namespace -f $valuesFile --wait --timeout $timeout"
-  #   else
-  #     su - "$k8s_user" -c "helm install $PH_RELEASE_NAME $chartDir -n $namespace -f $valuesFile --wait --timeout $timeout"  >> /dev/null 2>&1
-  #   fi
-  # fi
-
-  # Check deployment status
-  # TODO: should strengthen this check for deployment success 
-  # resource_count=$(kubectl get pods -n "$namespace" --ignore-not-found=true 2>/dev/null | grep -v "No resources found" | wc -l)
-  # if [ "$resource_count" -gt 0 ]; then
-  #   echo "    PaymentHub EE Helm chart deployed successfully."
-  # else
-  #   echo -e "${RED}Helm chart deployment failed.${RESET}"
-  #   cleanUp
-  # fi
 }
 
 function deployPH(){
   # TODO make this a global variable
   gazelleChartPath="$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/gazelle"
-  if [[ "$(isDeployed "phee" )" == "true" ]]; then
+  result=$(isDeployed "phee" "$PHEE_NAMESPACE" "ph-ee-connector-mojaloop-java" )
+  if [[ "$result" == "true" ]]; then
     if [[ "$redeploy" == "false" ]]; then
       echo "$PH_RELEASE_NAME is already deployed. Skipping deployment."
       return
@@ -534,7 +439,7 @@ function createNamespace () {
   printf "    Creating namespace $namespace "
   # Check if the namespace already exists
   if kubectl get namespace "$namespace" >> /dev/null 2>&1; then
-      echo -e "${RED}Namespace $namespace already exists -skipping creation.${RESET}"
+      echo -e "${BLUE}Namespace $namespace already exists -skipping creation.${RESET}"
       return 0
   fi
 
@@ -549,15 +454,18 @@ function createNamespace () {
 
 function deployInfrastructure () {
   local redeploy="$1"
+
   printf "==> Deploying infrastructure \n"
-  if [[ "$(isDeployed "infra")" == "true" ]]; then
-    if [[ "$redeploy" == "false" ]]; then
-      echo "    infrastructure is already deployed. Skipping deployment."
-      return
-    else # need to delete and deploy 
-      deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
-    fi
-  fi 
+  result=$(isDeployed "infra" "$INFRA_NAMESPACE" "mysql-0")
+  if [[ "$result" == "true" ]]; then
+      if [[ "$redeploy" == "false" ]]; then
+          echo "    infrastructure is already deployed. Skipping deployment."
+          return
+      else
+          deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
+      fi
+  fi
+
   createNamespace $INFRA_NAMESPACE
 
   # Update helm dependencies and repo index for infra chart 
@@ -585,7 +493,6 @@ function applyKubeManifests() {
         echo "Usage: applyKubeManifests <directory> <namespace>"
         return 1
     fi
-
     local directory="$1"
     local namespace="$2"
 
@@ -641,10 +548,18 @@ function vnext_restore_demo_data {
   local namespace=$3 
   printf "    restoring vNext mongodb demonstration/test data "
   mongopod=`kubectl get pods --namespace $namespace | grep -i mongodb |awk '{print $1}'` 
-  mongo_root_pw=`kubectl get secret --namespace $namespace  mongodb  -o jsonpath='{.data.mongodb-root-password}'| base64 -d` 
+  mongo_root_pw=`kubectl get secret --namespace $namespace  mongodb  -o jsonpath='{.data.MONGO_INITDB_ROOT_PASSWORD}'| base64 -d` 
+  if [[ -z "$mongo_root_pw" ]]; then
+    echo -e "${RED}   Restore Failed to retrieve MongoDB root password from secret in namespace '$namespace'${RESET}" 
+    return 1
+  fi
   kubectl cp  $mongo_data_dir/$mongo_dump_file $mongopod:/tmp/mongodump.gz  --namespace $namespace  >/dev/null 2>&1 # copy the demo / test data into the mongodb pod
-  kubectl exec --namespace $namespace --stdin --tty  $mongopod -- mongorestore  -u root -p $mongo_root_pw \
-               --gzip --archive=/tmp/mongodump.gz --authenticationDatabase admin  >/dev/null 2>&1  
+  # Execute mongorestore
+  if ! kubectl exec --namespace "$namespace" --stdin --tty "$mongopod" -- mongorestore -u root -p "$mongo_root_pw" \
+      --gzip --archive=/tmp/mongodump.gz --authenticationDatabase admin >/dev/null 2>&1; then
+    echo -e "${RED}   mongorestore command failed ${RESET}" 
+    return 1
+  fi
   printf " [ ok ] \n"
 }
 
@@ -699,8 +614,9 @@ function vnext_configure_ttk {
 
 function deployvNext() {
   printf "\n==> Deploying Mojaloop vNext application \n"
-
-  if [[ "$(isDeployed "vnext" )" == "true" ]]; then
+  
+  result=$(isDeployed "vnext" "$VNEXT_NAMESPACE" "reporting-api-svc" )
+  if [[ "$result" == "true" ]]; then
     if [[ "$redeploy" == "false" ]]; then
       echo "    vNext application is already deployed. Skipping deployment."
       return
@@ -711,21 +627,21 @@ function deployvNext() {
   createNamespace "$VNEXT_NAMESPACE"
   cloneRepo "$VNEXTBRANCH" "$VNEXT_REPO_LINK" "$APPS_DIR" "$VNEXTREPO_DIR"
   # remove the TTK-CLI pod as it is not needed and comes up in error mode 
-  rm  -f "$APPS_DIR/$VNEXTREPO_DIR/packages/installer/manifests/ttk/ttk-cli.yaml" 
-  
+  rm  -f "$APPS_DIR/$VNEXTREPO_DIR/packages/installer/manifests/ttk/ttk-cli.yaml" > /dev/null 2>&1
   configurevNext  # make any local mods to manifests
-  # original vNext Beta mongo data vnext_restore_demo_data $VNEXT_MONGODB_DATA_DIR $INFRA_NAMESPACE
   vnext_restore_demo_data $CONFIG_DIR "mongodump.gz" $INFRA_NAMESPACE
   for index in "${!VNEXT_LAYER_DIRS[@]}"; do
     folder="${VNEXT_LAYER_DIRS[index]}"
-    applyKubeManifests "$folder" "$VNEXT_NAMESPACE" >/dev/null 2>&1
+    applyKubeManifests "$folder" "$VNEXT_NAMESPACE" #>/dev/null 2>&1
     if [ "$index" -eq 0 ]; then
       echo -e "${BLUE}    Waiting for vnext cross cutting concerns to come up${RESET}"
       sleep 10
       echo -e "    Proceeding ..."
     fi
   done
-  vnext_configure_ttk $VNEXT_TTK_FILES_DIR  $VNEXT_NAMESPACE   # configure in the TTKs as participants 
+  ## don't do this by default for gazelle v1.1.0 as for v1.1.0 we now have Mifos greenbank/bluebank as much more realistic DFSPs 
+  ## It is true that in for vNext or subseqent we might want TTKs for debug and testing purposes hence leaving this here for the moment
+  ## vnext_configure_ttk $VNEXT_TTK_FILES_DIR  $VNEXT_NAMESPACE   # configure in the TTKs as participants 
 
   echo -e "\n${GREEN}============================"
   echo -e "vnext Deployed"
@@ -755,8 +671,7 @@ function DeployMifosXfromYaml() {
     else
         echo -e "${RED} ERROR: MifosX fineract-server pod failed to become ready within ${timeout_secs} seconds ${RESET}"
         return 1
-    fi
-    
+    fi  
     echo -e "\n${GREEN}====================================="
     echo -e "MifosX (fineract + web app) Deployed"
     echo -e "=====================================${RESET}\n"
@@ -764,7 +679,10 @@ function DeployMifosXfromYaml() {
 
 function generateMifosXandVNextData {
   # generate load and syncronize MifosX accounts and vNext Oracle associations  
-  if [[ "$(isDeployed "vnext" )" == "true" ]] && [[ "$(isDeployed "mifosx" )" == "true" ]] ; then
+  result_vnext=$(isDeployed "vnext" "$VNEXT_NAMESPACE" "reporting-api-svc" )
+  result_mifosx=$(isDeployed "mifosx" "$MIFOSX_NAMESPACE" "fineract-server" )
+
+  if [[ "$result_vnext" == "true" ]]  && [[ "$result_mifosx" == "true" ]] ; then
     echo -e "${BLUE}Generating MifosX clients and accounts & registering associations with vNext Oracle ...${RESET}"
     $RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py > /dev/null 2>&1
     if [[ "$?" -ne 0 ]]; then
@@ -836,9 +754,6 @@ function deleteApps {
 }
 
 function deployApps {
-  # deployBPMS
-  # exit 1 
-
   appsToDeploy="$2"
   redeploy="$3"
   echo "redeploy is $redeploy"

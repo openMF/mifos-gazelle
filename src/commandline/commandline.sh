@@ -12,6 +12,10 @@ function welcome {
     echo -e "██    ██ ██   ██  ███    ██      ██      ██      ██      "
     echo -e " ██████  ██   ██ ███████ ███████ ███████ ███████ ███████ "
     echo -e "${RESET}"
+    echo -e "Mifos Gazelle - a Mifos Digital Public Infrastructure as a Solution (DaaS) deployment tool."
+    echo -e "                deploying MifosX, PaymentHub EE and vNext on Kubernetes."
+    echo -e "Version: $GAZELLE_VERSION"
+    echo 
 }
 function showUsage {
     echo "
@@ -134,7 +138,7 @@ function main {
     echo -e "The deployment made by this script is currently recommended for demo, test and educational purposes "
     echo -e "======================================================================================================"
     echo -e "${RESET}"
-    envSetupMain "$mode" "k3s" "1.31" "$environment"
+    envSetupMain "$mode" "k3s" "1.32" "$environment"
     deployApps "$mifosx_instances" "$apps" "$redeploy" 
   elif [ $mode == "cleanapps" ]; then  
     logWithVerboseCheck $debug info "Cleaning up Mifos Gazelle applications only"
@@ -142,7 +146,7 @@ function main {
   elif [ $mode == "cleanall" ]; then
     logWithVerboseCheck $debug info "Cleaning up all traces of Mifos Gazelle "
     deleteApps "$mifosx_instances" "all"
-    envSetupMain "$mode" "k3s" "1.31" "$environment"
+    envSetupMain "$mode" "k3s" "1.32" "$environment"
   else
     showUsage
   fi

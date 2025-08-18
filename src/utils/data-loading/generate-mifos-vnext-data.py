@@ -10,6 +10,7 @@
 
 import requests
 import random
+import hashlib
 import json
 import datetime
 import uuid
@@ -23,6 +24,38 @@ TENANTS = {
     "bluebank": 2,
     "greenbank": 1
 }
+
+
+FIRST_NAMES = [
+    "Alice", "Bob", "Charlie", "Diana", "Ethan",
+    "Fiona", "George", "Hannah", "Isaac", "Julia",
+    "Liam", "Mia", "Noah", "Olivia", "Aiden",
+    "Zara", "Elijah", "Sophia", "Lucas", "Amelia",
+    "Mason", "Chloe", "Logan", "Ava", "James",
+    "Emily", "Benjamin", "Grace", "Jack", "Lily",
+    "Henry", "Ella", "Samuel", "Scarlett", "Owen",
+    "Aria", "Daniel", "Layla", "Leo", "Sofia",
+    "Nathan", "Ruby", "Gabriel", "Isla", "Sebastian",
+    "Evie", "Caleb", "Zoe", "Finn", "Nora"
+]
+
+
+LAST_NAMES = [
+    "Smith", "Johnson", "Williams", "Brown", "Jones",
+    "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
+    "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson",
+    "Thomas", "Taylor", "Moore", "Jackson", "Martin",
+    "Lee", "Perez", "Thompson", "White", "Harris",
+    "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
+    "Walker", "Young", "Allen", "King", "Wright",
+    "Scott", "Torres", "Nguyen", "Hill", "Flores",
+    "Green", "Adams", "Nelson", "Baker", "Hall",
+    "Rivera", "Campbell", "Mitchell", "Carter", "Roberts"
+]
+
+tenant_client_counter = {}
+
+
 API_BASE_URL = "https://mifos.mifos.gazelle.test/fineract-provider/api/v1"
 CLIENTS_API_URL = f"{API_BASE_URL}/clients"
 SAVINGS_API_URL = f"{API_BASE_URL}/savingsaccounts"
@@ -232,8 +265,20 @@ def create_client(headers, locale, tenant_id):
     Creates a client in Fineract.
     Returns the client ID on success, None on failure.
     """
-    firstname = f"John{datetime.datetime.now().timestamp()}".replace('.', '')
-    lastname = "Wick"
+    # Track how many clients created per tenant
+    count = tenant_client_counter.get(tenant_id, 0)
+    tenant_client_counter[tenant_id] = count + 1
+
+    # Deterministic name generation
+    seed_str = f"{tenant_id}-{count}"
+    seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (10 ** 8)
+    #rng = random.Random(seed)
+    rng = random.Random()  # Create a new Random instance with the seed
+
+    firstname = rng.choice(FIRST_NAMES)
+    lastname = rng.choice(LAST_NAMES)
+    # firstname = f"John{datetime.datetime.now().timestamp()}".replace('.', '')
+    # lastname = "Wick"
     # Use the DATE_FORMAT ("%d %B %Y") to generate date strings (e.g., "16 May 2025")
     submitted_date = datetime.datetime.now().strftime(DATE_FORMAT)
     activation_date = submitted_date

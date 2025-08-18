@@ -9,4 +9,4 @@ Any BPMNs added to this directory will automatically be loaded by:
 - **Mifos Gazelle**
 - The utility script: `mifos-gazelle/src/utils/deployBpmn-gazelle.sh`
 
-Feel free to add or modify BPMNs as needed for your implementation.
+Any valid BPMNs placed in this directory will be automatically deployed by the Mifos Gazelle scripts.

@@ -9,7 +9,7 @@ Mifos Gazelle is primarily a deployment tool it allows for deployment of multipl
 
 ## DPGs deployable
 
-- MifosX vx.x.x. including Apache Fineract vx.x.x
+- MifosX vx.x.x. including Apache Fineract v1.11.0
 - Payment Hub Enterprise Edition (PHEE) v1.13.0
 - Mojaloop vNext Beta1
 

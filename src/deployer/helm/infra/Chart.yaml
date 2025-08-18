@@ -2,7 +2,7 @@ apiVersion: v2
 description: Helm chart formifos-gazelle infrastructure services
 name: gazelle-infra
 version: 0.1.0
-appVersion: "kafka: 3.2.3; console: 0.6.6; mongodb: 13.3.1; mongo-express: 1.0.2; elasticsearch:19.9.2; redis: 17.11.6"
+appVersion: "kafka: 3.6.0; console: 0.6.6; mongodb: 7.0.2; mongo-express: 1.0.2; elasticsearch:19.9.2; redis: 17.11.6"
 home: https://github.com/openMF/mifos-gazelle
 #icon: 
 sources:
@@ -15,12 +15,12 @@ dependencies:
 - name: kafka
   alias: kafka
   condition: kafka.enabled
-  repository: https://charts.bitnami.com/bitnami
+  repository: oci://registry-1.docker.io/bitnamicharts
   tags:
   - gazelle
   - dependency
   - kafka
-  version: 18.5.0
+  version: 26.2.0
 ## redpanda kafka console 
 - name: console
   alias: redpanda-console
