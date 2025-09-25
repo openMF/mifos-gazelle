@@ -29,8 +29,10 @@ echo "=== Starting OpenCRVS installation automation ==="
 # --- STEP 1: Clone infrastructure repo ---
 echo "[1/7] Cloning OpenCRVS infrastructure repository..."
 if [ -d "$INFRA_DIR" ]; then
-    echo "Infrastructure repo already exists. Pulling latest changes..."
-    git -C "$INFRA_DIR" pull
+    echo "Infrastructure repo already exists. Deleting exiting... and Re-Cloning the updated version"
+    rm -rf "$INFRA_DIR"
+    git clone "$INFRA_REPO_URL"
+    # git -C "$INFRA_DIR" pull
 else
     git clone "$INFRA_REPO_URL"
 fi
@@ -51,7 +53,8 @@ yq -i ".hostname = \"$HOSTNAME\"" "$DEPENDENCIES"
 yq -i '
   .service_type = "ClusterIP" |
   .client.port = 80 |
-  .login.port = 80
+  .login.port = 80 |
+  .auth.env.COUNTRY_CONFIG_URL = "http://countryconfig.opencrvs-dev.svc.cluster.local:3040"
 ' "$OPENCRVS_SERVICES"
 
 echo "files updated: $OPENCRVS_SERVICES and $DEPENDENCIES"
@@ -101,6 +104,8 @@ helm template -f "$INFRA_DIR/examples/localhost/opencrvs-services/values-dev.yam
 # --- STEP 7: Final Step Setup ---
 echo "[7/7] === OpenCRVS deployment complete ==="
 echo ""
+echo ""
+echo "Example login credentials: "
 echo "Login URL: http://login.opencrvs.mifos.gazelle.test/"
 echo "To login as a Field Worker (Social Worker):"
 echo "Username: k.bwalya"
