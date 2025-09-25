@@ -11,7 +11,7 @@ Currently supports deploying MifosX, PaymentHub EE, and Mojaloop vNext Beta1 on 
 This repository contains the Mifos Gazelle deployment utilities
 
 ## Getting Started
-1. Review the [Mifos Gazelle README](docs/MIFOS-GAZELLE-README.md) for detailed usage and installation instructions
+1. Review the [Mifos Gazelle README](docs/MIFOS-GAZELLE-README.md) for detailed usage and installation instructions.
 
 ## Additional Resources
 - [Contributing Guidelines](CONTRIBUTING.md)
