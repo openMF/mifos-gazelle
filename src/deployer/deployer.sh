@@ -558,7 +558,7 @@ function deployInfrastructure () {
 
   # Add stability check for infrastructure
   echo "    Waiting for infrastructure to be stable..."
-  kubectl wait --for=condition=Ready pod --all -n "$INFRA_NAMESPACE" --timeout=1800s
+  kubectl wait --for=condition=Ready pod --all -n "$INFRA_NAMESPACE" --timeout=840s
   if [ $? -ne 0 ]; then
     echo -e "${RED}Infrastructure failed to stabilize. Exiting.${RESET}"
     exit 1
@@ -567,8 +567,8 @@ function deployInfrastructure () {
   STABLE_COUNT=0
 
   while [ $STABLE_COUNT -lt 3 ]; do
-    NOT_READY=$(kubectl get pods -n "$NAMESPACE" --no-headers | grep -vE 'Running|Completed' | wc -l)
-    if [ "$NOT_READY" -eq 0 ]; then
+    NOT_READY=$(kubectl get pods -n "$NAMESPACE" --no-headers | awk '$2 != "1/1"')
+    if [ -z "$NOT_READY" ]; then
       STABLE_COUNT=$((STABLE_COUNT + 1))
       echo "✅ All pods ready. Stable count: $STABLE_COUNT"
     else
@@ -746,7 +746,7 @@ function deployvNext() {
 
     # Add stability check for vNext
     echo "    Waiting for vNext to be stable..."
-    kubectl wait --for=condition=Ready pod --all -n "$VNEXT_NAMESPACE" --timeout=300s
+    kubectl wait --for=condition=Ready pod --all -n "$VNEXT_NAMESPACE" --timeout=600s
     if [ $? -ne 0 ]; then
       echo -e "${RED}vNext failed to stabilize. Exiting.${RESET}"
       exit 1

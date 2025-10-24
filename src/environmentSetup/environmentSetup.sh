@@ -593,6 +593,8 @@ function envSetupMain {
             $UTILS_DIR/install-k9s.sh > /dev/null 2>&1
         else 
             checkHelmandKubectl # ensure things really are in place properly 
+            # Ensure /etc/hosts is refreshed on every deploy (covers cases where boot removed entries)
+            add_hosts
         fi
         install_nginx $environment $k8s_distro # will skip if already running
         checkClusterConnection
