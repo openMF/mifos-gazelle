@@ -186,18 +186,70 @@ is_cluster_accessible() {
 # Parameters:
 #   $1 - Mode of operation: "deploy", "cleanapps"
 #------------------------------------------------------------------------------
+
+# GAZ-29: New function to setup remote cluster
 function env_setup_remote_cluster {
     local mode="$1"
+    
+    # 1. Validar qué nube estamos usando
+    if [[ -z "$REMOTE_CLUSTER_TYPE" ]]; then
+        echo "Error: REMOTE_CLUSTER_TYPE no está definido."
+        exit 1
+    fi
+
+    logWithLevel "$INFO" "==> Inicializando despliegue remoto en $REMOTE_CLUSTER_TYPE..."
+
+    # 2. Definir rutas según el proveedor
+    local TF_DIR=""
+    if [[ "$REMOTE_CLUSTER_TYPE" == "aks" ]]; then
+        TF_DIR="$RUN_DIR/terraform/azure"
+    elif [[ "$REMOTE_CLUSTER_TYPE" == "eks" ]]; then
+        TF_DIR="$RUN_DIR/terraform/aws"
+    else
+        echo "Error: Tipo de cluster '$REMOTE_CLUSTER_TYPE' no soportado por los scripts de Terraform aún."
+        exit 1
+    fi
+
+    # 3. Ejecutar Terraform
+    if [[ -d "$TF_DIR" ]]; then
+        cd "$TF_DIR" || exit 1
+        
+        echo "==> Comprobando si estás logueado en Azure..."
+        if ! az account show > /dev/null 2>&1; then
+             echo "Error: No has iniciado sesión en Azure CLI. Ejecuta 'az login' primero."
+             echo "Nota: Para pruebas automatizadas, se debería usar un Service Principal."
+             exit 1
+        fi
+
+        echo "==> Ejecutando Terraform Init..."
+        terraform init -upgrade
+        
+        echo "==> Ejecutando Terraform Apply (Creando infraestructura en Azure)..."
+        echo "AVISO: Esto creará recursos reales y costará dinero."
+        terraform apply -auto-approve
+        
+        # 4. Obtener credenciales (kubeconfig)
+        echo "==> Configurando kubectl para conectar con el cluster..."
+        if [[ "$REMOTE_CLUSTER_TYPE" == "aks" ]]; then
+             az aks get-credentials --resource-group mifos-gazelle-rg --name mifos-gazelle-aks --overwrite-existing
+        fi
+        
+        # Volver al directorio original
+        cd "$RUN_DIR"
+    else
+        echo "Error: No se encontró directorio Terraform en $TF_DIR"
+        exit 1
+    fi
+
+    # 5. Verificación final
     if ! is_cluster_accessible; then
-        printf "** Error: Remote kubernetes cluster is NOT accessible. Please check your KUBECONFIG and network connectivity. ** \n\n"
+        printf "** Error: El cluster remoto se creó, pero kubectl no puede conectar. ** \n\n"
         exit 1
     else 
-        printf "\r==> Remote kubernetes cluster is accessible       [ok]\n"
+        printf "\r==> Remote kubernetes cluster is ready & accessible [ok]\n"
         return 0
     fi
-    # note that we might need to install NGINX here or interrogate remote cluster for existing ingress controller
-    # For now we assume remote cluster is pre-configured with an ingress controller
-} 
+}
 
 #------------------------------------------------------------------------------
 # Function: env_setup_local_cluster   
@@ -205,47 +257,71 @@ function env_setup_remote_cluster {
 # Parameters:
 #   $1 - Mode of operation: "deploy", "cleanapps", or "cleanall"
 #------------------------------------------------------------------------------
-function env_setup_local_cluster {
+
+# GAZ-29: New function to setup remote cluster
+function env_setup_remote_cluster {
     local mode="$1"
-
-    if [[ "$mode" == "deploy" ]]; then
-        check_resources_ok
-        install_os_prerequisites
-        add_hosts
-
-        if ! is_local_cluster_installed; then
-            install_k3s
-            check_and_load_helm_repos
-            install_nginx_local_cluster
-            $UTILS_DIR/install-k9s.sh > /dev/null 2>&1
-        fi
-        printf "\r==> local kubernetes v%s configured  for %s \n" \
-                  "$k8s_version" "$k8s_user"
-        print_end_message
-    elif [[ "$mode" == "cleanapps" ]]; then
-        if ! is_local_cluster_installed; then
-            printf "    ** Error:  Local kubernetes cluster is NOT installed   \n\n"
-            exit 1
-        fi
-        if ! is_cluster_accessible; then
-            printf "    ** Error: Local kubernetes cluster is NOT accessible   \n\n"
-            exit 1
-        fi
-    elif [[ "$mode" == "cleanall" ]]; then
-        #printf "\n==> Deleting local kubernetes cluster...  \n"
-        if ! is_local_cluster_installed; then
-            printf "    Local kubernetes cluster is NOT installed   \n"
-            printf "    Nothing to delete. Exiting.\n\n"
-            print_end_message_delete
-            exit 0
-        fi
-        delete_k8s_local_cluster
-        print_end_message_delete
-    else
-        showUsage
+    
+    # Validate cloud provider definition
+    if [[ -z "$REMOTE_CLUSTER_TYPE" ]]; then
+        echo "Error: REMOTE_CLUSTER_TYPE is not defined."
         exit 1
     fi
-}   
+
+    logWithLevel "$INFO" "==> Initializing remote deployment on $REMOTE_CLUSTER_TYPE..."
+
+    # Define paths based on provider (Extensible for AWS/EKS in the future)
+    local TF_DIR=""
+    if [[ "$REMOTE_CLUSTER_TYPE" == "aks" ]]; then
+        TF_DIR="$RUN_DIR/terraform/azure"
+    elif [[ "$REMOTE_CLUSTER_TYPE" == "eks" ]]; then
+        TF_DIR="$RUN_DIR/terraform/aws"
+    else
+        echo "Error: Remote cluster type '$REMOTE_CLUSTER_TYPE' is not yet supported by Terraform scripts."
+        exit 1
+    fi
+
+    # Execute Terraform
+    if [[ -d "$TF_DIR" ]]; then
+        cd "$TF_DIR" || exit 1
+        
+        echo "==> Checking Azure login status..."
+        if ! az account show > /dev/null 2>&1; then
+            echo "Error: You are not logged into Azure CLI. Please run 'az login' first."
+            echo "Note: For automated CI/CD, a Service Principal should be used."
+            exit 1
+        fi
+
+        echo "==> Running Terraform Init..."
+        terraform init -upgrade
+        
+        echo "==> Running Terraform Apply (Creating infrastructure in Azure)..."
+        echo "WARNING: This will create real cloud resources and incur costs."
+        terraform apply -auto-approve
+        
+        # 4. Get credentials (kubeconfig)
+        echo "==> Configuring kubectl to connect to the cluster..."
+        if [[ "$REMOTE_CLUSTER_TYPE" == "aks" ]]; then
+            # Using hardcoded names matching main.tf for GAZ-29 baseline
+            az aks get-credentials --resource-group mifos-gazelle-rg --name mifos-gazelle-aks --overwrite-existing
+        fi
+        
+        # Return to original directory
+        cd "$RUN_DIR"
+    else
+        echo "Error: Terraform directory not found at $TF_DIR"
+        exit 1
+    fi
+
+    # 5. Final Verification
+    if ! is_cluster_accessible; then
+        printf "** Error: Remote cluster created, but kubectl cannot connect. Please check your network/firewall. ** \n\n"
+        exit 1
+    else 
+        printf "\r==> Remote kubernetes cluster is ready & accessible [ok]\n"
+        return 0
+    fi
+}
 
 function env_setup_main() {
     local mode="$1"
