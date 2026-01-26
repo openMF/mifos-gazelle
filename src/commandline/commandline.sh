@@ -189,10 +189,13 @@ function showUsage {
     -a apps .............. Comma-separated list of apps (vnext,phee,mifosx,infra) or 'all' (optional)
     -e environment ....... Cluster environment (local or remote, optional, default=local)
     -d debug ............. Enable debug mode (true|false, optional, default=false)
-    -r redeploy .......... Force redeployment of apps (true|false, optional, default=true)
+    -r remote type ....... Type of remote cluster (aks|eks|oke) - Forces -e remote
+    -R redeploy .......... Force redeployment of apps (true|false, optional, default=true)
     -h|H ................. Display this message
     "
 }
+
+# GAZ-29: change r to R and add r for remote cluster type
 
 #------------------------------------------------------------------------------
 # Function : check_duplicates
@@ -219,6 +222,16 @@ function check_duplicates() {
 # Description: Validates command-line inputs and configuration parameters.
 #------------------------------------------------------------------------------
 function validateInputs {
+
+    # GAZ-29 : Validate remote cluster type if provided
+    if [[ -n "$REMOTE_CLUSTER_TYPE" ]]; then
+        if [[ ! "$REMOTE_CLUSTER_TYPE" =~ ^(aks|eks|oke)$ ]]; then
+            echo "Error: Invalid remote cluster type '$REMOTE_CLUSTER_TYPE'. Supported types: aks, eks, oke"
+            showUsage
+            exit 1
+        fi
+    fi
+
     if [[ -z "$mode" || -z "$k8s_user" ]]; then
         echo "Error: Required options -m (mode) and -u (user) must be provided."
         showUsage
@@ -376,7 +389,8 @@ function getOptions() {
             d) options_map["debug"]="${OPTARG}" ;;
             a) options_map["apps"]="${OPTARG}" ;;
             u) options_map["k8s_user"]="${OPTARG}" ;;
-            r) options_map["redeploy"]="${OPTARG}" ;;
+            R) options_map["redeploy"]="${OPTARG}" ;; # GAZ-29
+            r) options_map["remote_cluster_type"]="${OPTARG}" ;; # GAZ-29 
             e) options_map["environment"]="${OPTARG}" ;;
             h|H) showUsage;
                  exit 0 ;;
@@ -414,6 +428,7 @@ trap "trapCtrlc" 2
 mode=""
 #k8s_user=""
 apps=""
+REMOTE_CLUSTER_TYPE=""  # GAZ-29
 environment=""
 debug="false"
 redeploy="true"
@@ -450,6 +465,13 @@ function main {
     if [[ -n "${cmd_args_map["debug"]}" ]]; then debug="${cmd_args_map["debug"]}"; fi
     if [[ -n "${cmd_args_map["redeploy"]}" ]]; then redeploy="${cmd_args_map["redeploy"]}"; fi
     if [[ -n "${cmd_args_map["environment"]}" ]]; then environment="${cmd_args_map["environment"]}"; fi
+    # GAZ-29
+    if [[ -n "${cmd_args_map["remote_cluster_type"]}" ]]; then 
+        REMOTE_CLUSTER_TYPE="${cmd_args_map["remote_cluster_type"]}"
+        # If the user sets -r aks, we automatically assume the environment is remote
+        environment="remote" 
+        logWithLevel "$INFO" "Remote cluster type set to: $REMOTE_CLUSTER_TYPE. Environment forced to 'remote'."
+    fi
 
     validateInputs
 

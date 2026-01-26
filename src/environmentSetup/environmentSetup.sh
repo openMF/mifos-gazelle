@@ -258,6 +258,12 @@ function env_setup_main() {
     install_k8s_tools
     configure_k8s_user_env
 
+    # GAZ-29: If we have remote cluster, we have to force remote mode
+    if [[ -n "$REMOTE_CLUSTER_TYPE" ]]; then
+        environment="remote"
+        logWithLevel "$INFO" "Remote cluster type '$REMOTE_CLUSTER_TYPE' detected. Skipping local setup."
+    fi
+
     if [[ "$environment" == "local" ]]; then
         env_setup_local_cluster "$mode"
     elif [[ "$environment" == "remote" ]]; then
