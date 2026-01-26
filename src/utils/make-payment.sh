@@ -8,9 +8,11 @@ BLUE='\033[0;34m'
 YELLOW='\033[0;33m'
 RESET='\033[0m'
 
-# API Configuration placeholders (will be set after parsing config)
-TRANSFER_URL=""
-MIFOS_CORE_API=""
+# API Configuration
+# TRANSFER_URL="https://channel.mifos.gazelle.test/channel/transfer"
+# MIFOS_CORE_API="http://mifos.mifos.gazelle.test/fineract-provider/api/v1"
+TRANSFER_URL="https://localhost:8443/channel/transfer" # we change it to localhost for local testing
+MIFOS_CORE_API="https://localhost:8443/fineract-provider/api/v1"
 MIFOS_AUTH="mifos:password"
 
 function usage() {
@@ -38,7 +40,9 @@ function lookup_client_name() {
     echo "🔍 Looking up $client_type for MSISDN: $msisdn in tenant: $tenant_id..." >&2
     
     # Build the curl command
-    local curl_cmd="curl -sk -u \"$MIFOS_AUTH\" -H \"Fineract-Platform-TenantId: $tenant_id\" \"$MIFOS_CORE_API/clients?phoneNumber=$msisdn\""
+    # local curl_cmd="curl -sk -u \"$MIFOS_AUTH\" -H \"Fineract-Platform-TenantId: $tenant_id\" \"$MIFOS_CORE_API/clients?phoneNumber=$msisdn\""
+    # we change it to avoid passing phoneNumber in URL for better logging
+    local curl_cmd="curl -sk -u \"$MIFOS_AUTH\" -H \"Fineract-Platform-TenantId: $tenant_id\" \"$MIFOS_CORE_API/clients\""
     
     # Show curl command if debug is enabled
     if [[ "$debug" == true ]]; then
@@ -350,6 +354,42 @@ if [[ "$http_code" == "200" ]]; then
     echo ""
     echo -e "${GREEN}=== Payment Completed ===${RESET}"
     echo -e "${GREEN}✓ \$${amount} USD transferred from $payer_name to $payee_name${RESET}"
+
+    # --- GAZ-230 ---
+    echo -e "${BLUE}=== Verification Phase ===${RESET}"
+
+    # retry loop
+    max_attempts=5
+    attempt=1
+    verified=false
+
+
+    while [ $attempt -le $max_attempts ]; do
+        echo "Checking transaction history... (Attempt $attempt)"
+        
+        # 1. Make a GET request to fetch the list of transactions
+        # We use the external-id (which is the payer's mobile number)
+        check_tx=$(curl -sk -u "$MIFOS_AUTH" \
+            -H "Fineract-Platform-TenantId: $tenant_id" \
+            "$MIFOS_CORE_API/clients/external-id/$payer_msisdn/transactions")
+                
+        # 2. Check if our reference (correlation_id) appears in the transaction history
+        if [[ "$check_tx" == *"$correlation_id"* ]]; then
+            verified=true
+            break
+        fi
+        
+        # 3. If not found, wait 5 seconds and try again
+        sleep 5
+        attempt=$((attempt+1))
+    done
+
+    if [ "$verified" = true ]; then
+        echo -e "${GREEN}Verification SUCCESS: Transaction found in Fineract Core.${RESET}"
+    else
+        echo -e "${YELLOW}Verification TIMEOUT: Transfer sent but not yet reflected in Core.${RESET}"
+    fi
+
 else
     echo -e "❌ ${RED}Transfer failed (HTTP $http_code)${RESET}"
     echo -e "${RED}Response:${RESET} $http_body"
