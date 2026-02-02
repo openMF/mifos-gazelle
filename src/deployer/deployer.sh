@@ -7,6 +7,61 @@ source "$RUN_DIR/src/deployer/mifosx.sh" || { echo "FATAL: Could not source mifo
 source "$RUN_DIR/src/deployer/phee.sh"   || { echo "FATAL: Could not source phee.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }  
 source "$RUN_DIR/src/utils/helpers.sh" || { echo "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 
+
+#------------------------------------------------------------
+# TIMING & MEMORY FUNCTIONS (GAZ-29)
+#------------------------------------------------------------
+
+declare -A DEPLOYMENT_TIMES
+
+start_timer() {
+    local component_name=$1
+    if [[ "${ENABLE_TIMERS}" == "true" ]]; then
+        echo "Starting deployment timer for: $component_name"
+        eval "START_TIME_${component_name}=$(date +%s)"
+    fi
+}
+
+stop_timer_and_log_memory() {
+    local component_name=$1
+    local namespace=$2 
+    
+    if [[ "${ENABLE_TIMERS}" == "true" ]]; then
+        local end_time=$(date +%s)
+        local start_var="START_TIME_${component_name}"
+        local start_time=${!start_var}
+        
+        if [[ -n "$start_time" ]]; then
+            local duration=$((end_time - start_time))
+            DEPLOYMENT_TIMES[$component_name]=$duration
+            
+            echo "$component_name deployed in ${duration} seconds."
+            
+            echo "Memory Usage for $component_name:"
+            if kubectl top pods -n "$namespace" &> /dev/null; then
+                kubectl top pods -n "$namespace" --no-headers | grep "$component_name" || echo "   No metrics available yet."
+            else
+                echo "   (Metrics server not available or pods starting)"
+            fi
+            echo "---------------------------------------------------"
+        fi
+    fi
+}
+
+print_final_summary() {
+    if [[ "${ENABLE_TIMERS}" == "true" ]]; then
+        echo ""
+        echo "==================================================="
+        echo "DEPLOYMENT SUMMARY REPORT"
+        echo "==================================================="
+        for component in "${!DEPLOYMENT_TIMES[@]}"; do
+            echo " - $component: ${DEPLOYMENT_TIMES[$component]} seconds"
+        done
+        echo "==================================================="
+        echo ""
+    fi
+}
+
 #------------------------------------------------------------
 # Description : Clones/updates a Git repo. Reclones only if repo or branch missing.
 # Usage : cloneRepo <branch> <repo_link> <target_dir> <dir_name>
@@ -351,25 +406,28 @@ function deployApps() {
     echo -e "${BLUE}Deploying application: $app...${RESET}"  
     case "$app" in
       "infra")
+        start_timer "Infrastructure" # GAZ-29
         deployInfrastructure "$redeploy"
+        stop_timer_and_log_memory "Infrastructure" "$INFRA_NAMESPACE" # GAZ-29
         ;;
       "vnext")
-        deployInfrastructure "false"  # deploy infra if not already there even if redeploy=true
+        deployInfrastructure "false" 
+        start_timer "Mojaloop_vNext" # GAZ-29
         deployvNext
+        stop_timer_and_log_memory "Mojaloop_vNext" "$VNEXT_NAMESPACE" # GAZ-29
         ;;
       "mifosx")
-        # if [[ "$redeploy" == "true" ]]; then 
-        #   #echo "Removing current mifosx and redeploying"
-        #   deleteApps "mifosx"
-          
-        # fi 
-        deployInfrastructure "false"  # deploy infra if not already there even if redeploy=true
+        deployInfrastructure "false"
+        start_timer "MifosX" # GAZ-29
         DeployMifosXfromYaml "$MIFOSX_MANIFESTS_DIR" 
         generateMifosXandVNextData
+        stop_timer_and_log_memory "MifosX" "$MIFOSX_NAMESPACE" # GAZ-29
         ;;
       "phee")
         deployInfrastructure "false"
+        start_timer "PaymentHub_EE" # GAZ-29
         deployPH
+        stop_timer_and_log_memory "PaymentHub_EE" "$PH_NAMESPACE" # GAZ-29
         ;;
       *)
         echo -e "${RED}Error: Unknown application '$app' in deployment list. This should have been caught by validation.${RESET}"
@@ -381,3 +439,4 @@ function deployApps() {
 
   print_deployment_end_message
 }
+

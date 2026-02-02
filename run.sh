@@ -33,3 +33,11 @@ HELM_VERSION="v3.14.4"
 
 # Call main with all arguments
 main "$@"
+
+# ------------------------------
+# GAZ 29
+# ------------------------------
+
+if typeset -f print_final_summary > /dev/null; then
+    print_final_summary
+fi
