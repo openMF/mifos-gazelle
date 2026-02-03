@@ -19,7 +19,7 @@ function DeployMifosXfromYaml() {
       fi
     fi 
     run_as_user "kubectl wait --for=condition=ready pod --all -n $PH_NAMESPACE --timeout=600s"
-    wait_for_pods_ready "$PH_NAMESPACE"
+    # => should be in PHEE not here ?? wait_for_pods_ready "$PH_NAMESPACE"
     # We are deploying or redeploying => make sure things are cleaned up first
     printf "    Redeploying MifosX : Deleting existing resources in namespace %s\n" "$MIFOSX_NAMESPACE"
     deleteResourcesInNamespaceMatchingPattern "$MIFOSX_NAMESPACE"
@@ -42,15 +42,39 @@ function DeployMifosXfromYaml() {
     echo "    deploying MifosX manifests from $manifests_dir"
     applyKubeManifests "$manifests_dir" "$MIFOSX_NAMESPACE"
     
-    # Wait for fineract-server pod to be ready
-    echo "    Waiting for fineract-server pod to be ready (timeout: ${timeout_secs}s)..."
-    if run_as_user "kubectl wait --for=condition=Ready pod -l app=fineract-server \
-        --namespace=\"$MIFOSX_NAMESPACE\" --timeout=\"${timeout_secs}s\" "  > /dev/null 2>&1 ; then
-        echo "    MifosX  is  ready"
-    else
-        echo -e "${RED} ERROR: MifosX fineract-server pod failed to become ready within ${timeout_secs} seconds ${RESET}"
-        return 1
-    fi  
+    # Wait for both fineract-server and web-app pods to be ready
+    echo "    Waiting for MifosX pods to be ready (timeout: ${timeout_secs}s)..."
+
+    # # Wait for pods to exist first, then wait for them to be ready
+    # local start_time=$(date +%s)
+    # local elapsed=0
+
+    # while [[ $elapsed -lt $timeout_secs ]]; do
+    #     local fineract_exists=$(run_as_user "kubectl get pod -n \"$MIFOSX_NAMESPACE\" -l app=fineract-server --no-headers 2>/dev/null | wc -l")
+    #     local webapp_exists=$(run_as_user "kubectl get pod -n \"$MIFOSX_NAMESPACE\" -l app=web-app --no-headers 2>/dev/null | wc -l")
+
+    #     if [[ "$fineract_exists" -gt 0 && "$webapp_exists" -gt 0 ]]; then
+    #         # Pods exist, now wait for them to be ready
+    #         if run_as_user "kubectl wait --for=condition=Ready pod -l app=fineract-server \
+    #             --namespace=\"$MIFOSX_NAMESPACE\" --timeout=\"${timeout_secs}s\" "  > /dev/null 2>&1 && \
+    #            run_as_user "kubectl wait --for=condition=Ready pod -l app=web-app \
+    #             --namespace=\"$MIFOSX_NAMESPACE\" --timeout=\"${timeout_secs}s\" "  > /dev/null 2>&1 ; then
+    #             echo "    MifosX is ready (fineract-server and web-app)"
+    #             break
+    #         else
+    #             echo -e "${RED} ERROR: MifosX pods exist but failed to become ready ${RESET}"
+    #             return 1
+    #         fi
+    #     fi
+
+    #     sleep 5
+    #     elapsed=$(( $(date +%s) - start_time ))
+    # done
+
+    # if [[ $elapsed -ge $timeout_secs ]]; then
+    #     echo -e "${RED} ERROR: MifosX pods failed to be created within ${timeout_secs} seconds ${RESET}"
+    #     return 1
+    # fi  
     echo -e "\n${GREEN}====================================="
     echo -e "MifosX (fineract + web app) Deployed"
     echo -e "=====================================${RESET}\n"

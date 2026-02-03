@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_0jj4tbk" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Zeebe Modeler" exporterVersion="0.11.0">
+  <bpmn:process id="minimal_mock_fund_transfer" name="Mock Payment Fund Transfer" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1" name="Start Payment">
+      <bpmn:outgoing>Flow_1iz4su9</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:endEvent id="Event_1sh6bqo" name="Payment Completed">
+      <bpmn:incoming>Flow_0gya237</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_0fq2w8b" sourceRef="accountLookup" targetRef="account-lookup-response" />
+    <bpmn:serviceTask id="accountLookup" name="Account Lookup Status">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="accountLookup" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1iz4su9</bpmn:incoming>
+      <bpmn:outgoing>Flow_0fq2w8b</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_1jlz33e" default="Flow_1v5oogu">
+      <bpmn:incoming>Flow_1bm2cy4</bpmn:incoming>
+      <bpmn:outgoing>Flow_1rd2qbu</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1v5oogu</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="mockInitiateTransfer" name="Mock Send Transfer Request">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="mockInitiateTransfer" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_0zhc5hk</bpmn:incoming>
+      <bpmn:outgoing>Flow_0vfzj5k</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_0vfzj5k" sourceRef="mockInitiateTransfer" targetRef="mockTransaferResponse" />
+    <bpmn:sequenceFlow id="Flow_1yuhu0t" sourceRef="mockTransaferResponse" targetRef="Gateway_1sp7hyy" />
+    <bpmn:exclusiveGateway id="Gateway_1sp7hyy" default="Flow_0gya237">
+      <bpmn:incoming>Flow_1yuhu0t</bpmn:incoming>
+      <bpmn:outgoing>Flow_0gya237</bpmn:outgoing>
+      <bpmn:outgoing>Flow_19zt5r8</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="Event_0yilwue" name="FundTransfer Error">
+      <bpmn:incoming>Flow_1rbhwaj</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_1iz4su9" sourceRef="StartEvent_1" targetRef="accountLookup" />
+    <bpmn:serviceTask id="Activity_1d2j8yq" name="Send Failure To Channel">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="sendFailureChannel" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1rd2qbu</bpmn:incoming>
+      <bpmn:incoming>Flow_19zt5r8</bpmn:incoming>
+      <bpmn:outgoing>Flow_1rbhwaj</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_1rbhwaj" sourceRef="Activity_1d2j8yq" targetRef="Event_0yilwue" />
+    <bpmn:sequenceFlow id="Flow_1rd2qbu" name="Account Lookup Failed" sourceRef="Gateway_1jlz33e" targetRef="Activity_1d2j8yq">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=accountLookupFailed = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:receiveTask id="mockTransaferResponse" name="Mock Transfer Callback" messageRef="Message_0bwdw0z">
+      <bpmn:incoming>Flow_0vfzj5k</bpmn:incoming>
+      <bpmn:outgoing>Flow_1yuhu0t</bpmn:outgoing>
+    </bpmn:receiveTask>
+    <bpmn:sequenceFlow id="Flow_0gya237" sourceRef="Gateway_1sp7hyy" targetRef="Event_1sh6bqo" />
+    <bpmn:sequenceFlow id="Flow_19zt5r8" name="Transfer Failed" sourceRef="Gateway_1sp7hyy" targetRef="Activity_1d2j8yq">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= transactionFailed = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:receiveTask id="account-lookup-response" name="Account Lookup response" messageRef="Message_0yy4pe9">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="mockPayeeAccountStatus" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_0fq2w8b</bpmn:incoming>
+      <bpmn:outgoing>Flow_1bm2cy4</bpmn:outgoing>
+    </bpmn:receiveTask>
+    <bpmn:serviceTask id="accountLookupCallback" name="Account Lookup Callback">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="accountLookupCallback" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1v5oogu</bpmn:incoming>
+      <bpmn:outgoing>Flow_0zhc5hk</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_1bm2cy4" sourceRef="account-lookup-response" targetRef="Gateway_1jlz33e" />
+    <bpmn:sequenceFlow id="Flow_1v5oogu" sourceRef="Gateway_1jlz33e" targetRef="accountLookupCallback" />
+    <bpmn:sequenceFlow id="Flow_0zhc5hk" sourceRef="accountLookupCallback" targetRef="mockInitiateTransfer" />
+  </bpmn:process>
+  <bpmn:message id="Message_19wj5f0" name="accessToken">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=accessToken" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+  <bpmn:message id="Message_1sto9pv" name="mockAccountStatus">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=transactionId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+  <bpmn:message id="Message_0bwdw0z" name="mockTransferResponse">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=transactionId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+  <bpmn:message id="Message_0yy4pe9" name="account-lookup">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=cachedTransactionId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="minimal_mock_fund_transfer">
+      <bpmndi:BPMNEdge id="Flow_0zhc5hk_di" bpmnElement="Flow_0zhc5hk">
+        <di:waypoint x="720" y="417" />
+        <di:waypoint x="750" y="417" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1v5oogu_di" bpmnElement="Flow_1v5oogu">
+        <di:waypoint x="595" y="417" />
+        <di:waypoint x="620" y="417" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1bm2cy4_di" bpmnElement="Flow_1bm2cy4">
+        <di:waypoint x="520" y="417" />
+        <di:waypoint x="545" y="417" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_19zt5r8_di" bpmnElement="Flow_19zt5r8">
+        <di:waypoint x="1090" y="392" />
+        <di:waypoint x="1090" y="200" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1093" y="293" width="74" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0gya237_di" bpmnElement="Flow_0gya237">
+        <di:waypoint x="1115" y="417" />
+        <di:waypoint x="1202" y="417" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1rd2qbu_di" bpmnElement="Flow_1rd2qbu">
+        <di:waypoint x="570" y="392" />
+        <di:waypoint x="570" y="160" />
+        <di:waypoint x="1040" y="160" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="574" y="274" width="79" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1rbhwaj_di" bpmnElement="Flow_1rbhwaj">
+        <di:waypoint x="1140" y="160" />
+        <di:waypoint x="1202" y="160" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1iz4su9_di" bpmnElement="Flow_1iz4su9">
+        <di:waypoint x="208" y="417" />
+        <di:waypoint x="250" y="417" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1yuhu0t_di" bpmnElement="Flow_1yuhu0t">
+        <di:waypoint x="990" y="417" />
+        <di:waypoint x="1065" y="417" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0vfzj5k_di" bpmnElement="Flow_0vfzj5k">
+        <di:waypoint x="850" y="417" />
+        <di:waypoint x="890" y="417" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0fq2w8b_di" bpmnElement="Flow_0fq2w8b">
+        <di:waypoint x="350" y="417" />
+        <di:waypoint x="420" y="417" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="_BPMNShape_StartEvent_2" bpmnElement="StartEvent_1" bioc:stroke="rgb(67, 160, 71)" bioc:fill="rgb(200, 230, 201)">
+        <dc:Bounds x="172" y="399" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="155" y="442" width="70" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_1sh6bqo_di" bpmnElement="Event_1sh6bqo" bioc:stroke="rgb(67, 160, 71)" bioc:fill="rgb(200, 230, 201)">
+        <dc:Bounds x="1202" y="399" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1193" y="442" width="54" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0a70hol_di" bpmnElement="accountLookup" bioc:stroke="rgb(251, 140, 0)" bioc:fill="rgb(255, 224, 178)">
+        <dc:Bounds x="250" y="377" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_1jlz33e_di" bpmnElement="Gateway_1jlz33e" isMarkerVisible="true">
+        <dc:Bounds x="545" y="392" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1l2g95h_di" bpmnElement="mockInitiateTransfer" bioc:stroke="rgb(142, 36, 170)" bioc:fill="rgb(225, 190, 231)">
+        <dc:Bounds x="750" y="377" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_1sp7hyy_di" bpmnElement="Gateway_1sp7hyy" isMarkerVisible="true">
+        <dc:Bounds x="1065" y="392" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_0yilwue_di" bpmnElement="Event_0yilwue" bioc:stroke="rgb(229, 57, 53)" bioc:fill="rgb(255, 205, 210)">
+        <dc:Bounds x="1202" y="142" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1188" y="185" width="66" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_03bqyg7_di" bpmnElement="Activity_1d2j8yq" bioc:stroke="rgb(30, 136, 229)" bioc:fill="rgb(187, 222, 251)">
+        <dc:Bounds x="1040" y="120" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1u1kbvk_di" bpmnElement="mockTransaferResponse" bioc:stroke="rgb(142, 36, 170)" bioc:fill="rgb(225, 190, 231)">
+        <dc:Bounds x="890" y="377" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1pgdum0_di" bpmnElement="account-lookup-response" bioc:stroke="rgb(251, 140, 0)" bioc:fill="rgb(255, 224, 178)">
+        <dc:Bounds x="420" y="377" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0ykp6ku_di" bpmnElement="accountLookupCallback" bioc:stroke="rgb(251, 140, 0)" bioc:fill="rgb(255, 224, 178)">
+        <dc:Bounds x="620" y="377" width="100" height="80" />
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -58,7 +58,7 @@ function add_hosts {
         mongoexpress.$DOMAIN fspiop.$DOMAIN bluebank.$DOMAIN greenbank.$DOMAIN  )
         
         PHEEHOSTS=( ops.$DOMAIN ops-bk.$DOMAIN \
-        bulk-connector.$DOMAIN messagegateway.$DOMAIN \
+        bulk-processor.$DOMAIN connector-bulk.$DOMAIN messagegateway.$DOMAIN \
         minio-console.$DOMAIN bill-pay.$DOMAIN channel.$DOMAIN \
         channel-gsma.$DOMAIN crm.$DOMAIN mockpayment.$DOMAIN \
         mojaloop.$DOMAIN identity-mapper.$DOMAIN vouchers.$DOMAIN \

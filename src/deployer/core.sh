@@ -39,10 +39,16 @@ function is_app_running() {
     # Count total pods and ready pods
     total_pods=$(echo "$pod_list" | grep -c '^')
     # Modified to count pods where READY column shows all containers ready (e.g., 1/1, 2/2)
-    ready_count=$(echo "$pod_list" | awk '$2 ~ /^[0-9]+\/[0-9]+$/ && $2 !~ /0\/[0-9]+/ {print $0}' | grep -c '^')
-    
+    # Match patterns like 1/1, 2/2, etc. where both numbers are the same and non-zero
+    ready_count=$(echo "$pod_list" | awk '{split($2,a,"/"); if(a[1]==a[2] && a[1]>0) print}' | grep -c '^')
+
     # Debug: Print kubectl exit code, pod list, total pods, and ready count
     logWithVerboseCheck "$debug" debug "kubectl exit code: $exit_code, pod list: [$pod_list], total pods: $total_pods, ready pods: $ready_count"
+
+    # Temporary debugging - always output for mifosx namespace
+    if [[ "$namespace" == "mifosx" ]]; then
+        echo "DEBUG is_app_running($namespace): total_pods=$total_pods, ready_count=$ready_count, min_pods=$min_pods" >&2
+    fi
     
     # Check if command failed
     [[ $exit_code -ne 0 ]] && {
@@ -72,8 +78,8 @@ function wait_for_pods_ready() {
     STABLE_COUNT=0
     
     while [ $STABLE_COUNT -lt 3 ]; do
-      NOT_READY=$(run_as_user "kubectl get pods -n "$namespace" --no-headers | awk '$2 !~ /^([0-9]+)\/\1$/'")
-      
+      NOT_READY=$(run_as_user "kubectl get pods -n \"$namespace\" --no-headers" | awk '{split($2,a,"/"); if(a[1]!=a[2] || a[1]==0) print}')
+
       if [ -z "$NOT_READY" ]; then
         STABLE_COUNT=$((STABLE_COUNT + 1))
         echo "✅ All pods ready. Stable count: $STABLE_COUNT"
@@ -86,80 +92,115 @@ function wait_for_pods_ready() {
     echo "🎉 All pods are stable and running."
 }
 #------------------------------------------------------------------------------
-# Function : createIngressSecret   
-# Description: Creates a self-signed TLS certificate and stores it as a Kubernetes secret.
-# Parameters: 
-#   $1 - Namespace to create the secret in  
-#   $2 - Domain name for the certificate
+# Function : createIngressSecret
+# Description: Creates a self-signed TLS cert with multiple SANs and stores it as a Kubernetes secret.
+# Parameters:
+#   $1 - Namespace
+#   $2 - Primary domain name (CN)
 #   $3 - Secret name
+#   $4 - Comma-separated SAN list (optional) - e.g. "ops.example.com,api.example.com,*.example.com"
 #------------------------------------------------------------------------------
 function createIngressSecret {
     local namespace="$1"
-    local domain_name="$2"
+    local primary_domain="$2"
     local secret_name="$3"
+    local sans="$4"
     local key_dir="$k8s_user_home/.ssh"
 
-    # Ensure key_dir exists and is accessible
-    mkdir -p "$key_dir" || { echo " ** Error creating directory $key_dir: $?"; exit 1; }
-    ls -ld "$key_dir" > /dev/null 2>&1 || echo "DEBUG: Directory $key_dir listing failed"
+    mkdir -p "$key_dir"
+
+    # Convert comma-separated SANs → OpenSSL format
+    local san_config="DNS.1 = $primary_domain"
+    local index=2
+    if [[ -n "$sans" ]]; then
+        IFS=',' read -ra san_list <<< "$sans"
+        for san in "${san_list[@]}"; do
+            # Trim whitespace from san
+            san=$(echo "$san" | xargs)
+            san_config="${san_config}"$'\n'"DNS.${index} = ${san}"
+            ((index++))
+        done
+    fi
+
+    echo "🔐 Creating TLS secret '$secret_name' in namespace '$namespace'"
+    echo "   Primary domain (CN): $primary_domain"
+    echo "   SAN list (count: $((index-1))):"
+    echo "$san_config" | sed 's/^/     /'
 
     # Generate private key
-    openssl genrsa -out "$key_dir/$domain_name.key" 2048 >/dev/null 2>&1 || { echo " ** Error generating private key: $?"; ls -l "$key_dir/$domain_name.key" 2>/dev/null || echo "DEBUG: Key file not found"; exit 1; }
+    openssl genrsa -out "$key_dir/$primary_domain.key" 2048 >/dev/null 2>&1
 
-    # Verify key file exists and is readable
-    if [ ! -f "$key_dir/$domain_name.key" ]; then
-        echo " ** Error: Private key $key_dir/$domain_name.key was not created"
-        exit 1
-    fi
-    # DEBUG ls -l "$key_dir/$domain_name.key"
+    # Set proper ownership and permissions on the key
+    chown "$k8s_user":"$k8s_user" "$key_dir/$primary_domain.key"
+    chmod 600 "$key_dir/$primary_domain.key"
 
-    # Generate self-signed certificate
-    openssl req -x509 -new -nodes -key "$key_dir/$domain_name.key" -sha256 -days 365 -out "$key_dir/$domain_name.crt" -subj "/CN=$domain_name" -extensions v3_req -config <(
-        cat <<EOF
+    # Generate certificate with SANs
+    openssl req -x509 -new -nodes \
+        -key "$key_dir/$primary_domain.key" \
+        -sha256 -days 365 \
+        -out "$key_dir/$primary_domain.crt" \
+        -subj "/CN=$primary_domain" \
+        -extensions v3_req \
+        -config <(
+            cat <<EOF
 [req]
-distinguished_name = req_distinguished_name
-x509_extensions = v3_req
-prompt = no
+distinguished_name=req_distinguished_name
+x509_extensions=v3_req
+prompt=no
+
 [req_distinguished_name]
-CN = $domain_name
+CN=$primary_domain
+
 [v3_req]
-subjectAltName = @alt_names
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
+subjectAltName=@alt_names
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+
 [alt_names]
-DNS.1 = $domain_name
+${san_config}
 EOF
-    ) >/dev/null 2>&1 || { echo " ** Error generating certificate: $?"; ls -l "$key_dir/$domain_name.crt" 2>/dev/null || echo "DEBUG: Certificate file not found"; exit 1; }
+        ) >/dev/null 2>&1
 
-    # Verify certificate file exists and is readable
-    if [ ! -f "$key_dir/$domain_name.crt" ]; then
-        echo " ** Error: Certificate $key_dir/$domain_name.crt was not created"
-        exit 1
+    # Set proper ownership and permissions on the certificate
+    chown "$k8s_user":"$k8s_user" "$key_dir/$primary_domain.crt"
+    chmod 644 "$key_dir/$primary_domain.crt"
+
+    # Verify the certificate was created correctly
+    echo "   Verifying certificate..."
+    if openssl x509 -in "$key_dir/$primary_domain.crt" -noout -text | grep -q "Subject Alternative Name"; then
+        echo "   ✓ Certificate created successfully with SANs:"
+        openssl x509 -in "$key_dir/$primary_domain.crt" -noout -text | grep -A 20 "Subject Alternative Name" | sed -n '/Subject Alternative Name/,/X509v3/p' | head -n -1 | sed 's/^/     /'
+    else
+        echo "   ⚠ Warning: Certificate created but no SANs found!"
     fi
-    # DEBUG ls -l "$key_dir/$domain_name.crt"
 
-    # Verify the certificate
-    openssl x509 -in "$key_dir/$domain_name.crt" -noout -text >/dev/null 2>&1 || { echo " ** Error verifying certificate: $?"; exit 1; }
+    # Create/replace TLS secret
+    # Check if we're already running as k8s_user or if we need to use run_as_user
+    if [ "$(whoami)" = "$k8s_user" ]; then
+        # Already the correct user, run kubectl directly
+        kubectl -n "$namespace" delete secret "$secret_name" --ignore-not-found >/dev/null 2>&1
 
-    # Change ownership of certificate files to k8s_user
-    # Ensure permissions are restrictive but readable by k8s_user
-    chown "$k8s_user":"$k8s_user" "$key_dir/$domain_name.crt" "$key_dir/$domain_name.key" || { echo " ** Error changing ownership of certificate files: $?"; ls -l "$key_dir/$domain_name."{crt,key}; exit 1; }
-    chmod 600 "$key_dir/$domain_name.crt" "$key_dir/$domain_name.key" || { echo " ** Error setting permissions on certificate files: $?"; ls -l "$key_dir/$domain_name."{crt,key}; exit 1; }
+        if kubectl -n "$namespace" create secret tls "$secret_name" \
+            --cert="$key_dir/$primary_domain.crt" \
+            --key="$key_dir/$primary_domain.key" >/dev/null 2>&1; then
+            echo "   ✓ Secret '$secret_name' created in namespace '$namespace'"
+        else
+            echo "   ✗ Failed to create secret '$secret_name'"
+            return 1
+        fi
+    else
+        # Running as different user (e.g., root), use run_as_user wrapper
+        run_as_user "kubectl -n \"$namespace\" delete secret \"$secret_name\" --ignore-not-found" >/dev/null 2>&1
 
-    # Verify k8s_user can access the files
-    #su - "$k8s_user" -c "test -r \"$key_dir/$domain_name.crt\" && test -r \"$key_dir/$domain_name.key\"" || { echo " ** Error: $k8s_user cannot read certificate files"; ls -l "$key_dir/$domain_name."{crt,key}; exit 1; }
-
-    # Create the Kubernetes TLS secret using run_as_user
-    local kubectl_output
-    kubectl_output=$(run_as_user "kubectl create secret tls \"$secret_name\" --cert=\"$key_dir/$domain_name.crt\" --key=\"$key_dir/$domain_name.key\" -n \"$namespace\"" 2>&1)
-    local kubectl_exit_code=$?
-
-    if [ $kubectl_exit_code -ne 0 ]; then
-        echo "   ** Error creating self-signed certificate and secret $secret_name in namespace $namespace"
-        echo "   ** kubectl error output: $kubectl_output"
-        exit 1
+        if run_as_user "kubectl -n \"$namespace\" create secret tls \"$secret_name\" --cert=\"$key_dir/$primary_domain.crt\" --key=\"$key_dir/$primary_domain.key\"" >/dev/null 2>&1; then
+            echo "   ✓ Secret '$secret_name' created in namespace '$namespace'"
+        else
+            echo "   ✗ Failed to create secret '$secret_name'"
+            return 1
+        fi
     fi
 }
+
 
 #------------------------------------------------------------------------------
 # Function : manageElasticSecrets

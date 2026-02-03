@@ -24,8 +24,15 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 _deterministic_mode = True          # default: deterministic
 TENANTS = {
     "bluebank": 2,
-    "greenbank": 1
+    "greenbank": 1,
+    "redbank": 1
 }
+# Only register payee tenants with identity-account-mapper (beneficiaries)
+# Payer tenants (greenbank, redbank) don't need identity-account-mapper registration
+IDENTITY_MAPPER_TENANTS = {"bluebank"}
+# Payer/government institutions that register beneficiaries for G2P programs
+# Beneficiaries will be registered under ALL of these institutions
+REGISTERING_INSTITUTIONS = ["greenbank", "redbank"]
 FIRST_NAMES = [
     "Alice", "Bob", "Charlie", "Diana", "Ethan",
     "Fiona", "George", "Hannah", "Isaac", "Julia",
@@ -52,6 +59,7 @@ LAST_NAMES = [
 ]
 
 tenant_client_counter = {}
+created_clients = []  # Track all created clients for CSV generation
 
 # ----------------------------------------------------------------------
 # Global URLs (filled in later)
@@ -62,6 +70,7 @@ SAVINGS_API_URL = None
 SAVINGS_PRODUCTS_API_URL = None
 INTEROP_PARTIES_API_URL = None
 VNEXT_BASE_URL = None
+IDENTITY_MAPPER_URL = None
 
 AUTH_HEADER_VALUE = "Basic bWlmb3M6cGFzc3dvcmQ="   # mifos:password
 HEADERS = {
@@ -75,7 +84,7 @@ DATE_FORMAT = "%d %B %Y"
 LOCALE = "en"
 PRODUCT_CURRENCY_CODE = "USD"
 PRODUCT_INTEREST_RATE = 5.0
-PRODUCT_SHORTNAME = "savb"
+PRODUCT_SHORTNAME = "savb"  # Max 4 chars, shared across tenants
 DEFAULT_DEPOSIT_AMOUNT = 5000.0
 DEFAULT_PAYMENT_TYPE_ID = 1
 PAYLOAD_DATE_FORMAT_LITERAL = "dd MMMM yyyy"
@@ -88,7 +97,6 @@ def make_api_request(
     max_retries=5, backoff_factor=2, timeout=30
 ):
     """Retry on transient errors (5xx, connection, timeout)."""
-    print(f"DEBUG make_api_request {method} {url}", file=sys.stderr)
     for attempt in range(max_retries):
         response = None
         try:
@@ -126,6 +134,12 @@ def make_api_request(
             else:
                 # 4xx or other non-retryable
                 print(f"Non-retryable HTTP error: {e}", file=sys.stderr)
+                if e.response is not None:
+                    try:
+                        error_detail = e.response.json()
+                        print(f"Error details: {json.dumps(error_detail, indent=2)}", file=sys.stderr)
+                    except:
+                        print(f"Error response text: {e.response.text}", file=sys.stderr)
                 return None
 
         # -------------------------------------------------
@@ -149,21 +163,26 @@ def make_api_request(
 # ----------------------------------------------------------------------
 def get_product_id_by_shortname(headers, shortname):
     data = make_api_request("GET", SAVINGS_PRODUCTS_API_URL, headers)
-    if data and isinstance(data, list):
-        for p in data:
-            if p.get("shortName") == shortname:
-                return p.get("id")
+    if data is None:
+        print(f"WARNING: Failed to retrieve products list", file=sys.stderr)
+        return None
+    if not isinstance(data, list):
+        print(f"WARNING: Unexpected response type: {type(data)}", file=sys.stderr)
+        return None
+    for p in data:
+        if p.get("shortName") == shortname:
+            return p.get("id")
     return None
 
-def create_savings_product(headers):
-    print(f"Finding/creating product '{PRODUCT_SHORTNAME}'...", file=sys.stderr)
+def create_savings_product(headers, product_name):
+    print(f"Finding/creating product '{PRODUCT_SHORTNAME}' for {product_name}...", file=sys.stderr)
     pid = get_product_id_by_shortname(headers, PRODUCT_SHORTNAME)
     if pid:
         print(f"Using existing product ID {pid}", file=sys.stderr)
         return pid
 
     payload = {
-        "name": PRODUCT_NAME,
+        "name": product_name,
         "shortName": PRODUCT_SHORTNAME,
         "currencyCode": PRODUCT_CURRENCY_CODE,
         "digitsAfterDecimal": 2,
@@ -182,13 +201,97 @@ def create_savings_product(headers):
         if pid:
             print(f"Created product ID {pid}", file=sys.stderr)
             return pid
-    print("Failed to create product", file=sys.stderr)
+    print(f"ERROR: Failed to create product for {product_name}", file=sys.stderr)
     return None
+
+# ----------------------------------------------------------------------
+# Query existing clients (for --regenerate mode)
+# ----------------------------------------------------------------------
+def get_clients_from_mifos(headers, tenant):
+    """Query Mifos to get all clients for a tenant."""
+    url = f"{CLIENTS_API_URL}"
+
+    data = make_api_request("GET", url, headers)
+
+    clients = []
+    if data and 'pageItems' in data:
+        for client in data['pageItems']:
+            clients.append({
+                'client_id': client.get('id'),
+                'name': client.get('displayName'),
+                'mobile': client.get('mobileNo'),
+                'tenant': tenant
+            })
+
+    return clients
+
+def check_client_exists_by_mobile(headers, mobile_number):
+    """Check if a client with this mobile number already exists."""
+    url = f"{CLIENTS_API_URL}"
+    params = {"mobileNo": mobile_number}
+
+    data = make_api_request("GET", url, headers, params=params)
+
+    if data and 'pageItems' in data and len(data['pageItems']) > 0:
+        client = data['pageItems'][0]
+        return {
+            'client_id': client.get('id'),
+            'name': client.get('displayName'),
+            'mobile': client.get('mobileNo')
+        }
+    return None
+
+def get_savings_accounts_for_client(headers, client_id):
+    """Get savings accounts for a specific client."""
+    url = f"{API_BASE_URL}/clients/{client_id}/accounts"
+
+    data = make_api_request("GET", url, headers)
+
+    if data:
+        # Get savings accounts
+        savings = data.get('savingsAccounts', [])
+        if savings:
+            # Return the first active savings account
+            for acct in savings:
+                if acct.get('status', {}).get('active'):
+                    return acct.get('id')
+            # If no active, return first one
+            return savings[0].get('id')
+
+    return None
+
+def fetch_all_clients_from_mifos(tenants):
+    """Fetch all clients with their savings accounts from Mifos."""
+    all_clients = []
+
+    for tenant in tenants:
+        print(f"Querying {tenant} for existing clients...", file=sys.stderr)
+        tenant_headers = HEADERS.copy()
+        tenant_headers["Fineract-Platform-TenantId"] = tenant
+
+        clients = get_clients_from_mifos(tenant_headers, tenant)
+
+        for client in clients:
+            if not client['mobile']:
+                print(f"  Skipping {client['name']} - no mobile number", file=sys.stderr)
+                continue
+
+            # Get savings account
+            account_id = get_savings_accounts_for_client(tenant_headers, client['client_id'])
+            if not account_id:
+                print(f"  Skipping {client['name']} - no savings account", file=sys.stderr)
+                continue
+
+            client['account_id'] = account_id
+            all_clients.append(client)
+            print(f"  Found: {client['name']} (MSISDN: {client['mobile']}, Account: {account_id})", file=sys.stderr)
+
+    return all_clients
 
 # ----------------------------------------------------------------------
 # Client creation
 # ----------------------------------------------------------------------
-def create_client(headers, locale, tenant_id):
+def create_client(headers, locale, tenant_id, mobile_number):
     count = tenant_client_counter.get(tenant_id, 0)
     tenant_client_counter[tenant_id] = count + 1
 
@@ -198,16 +301,21 @@ def create_client(headers, locale, tenant_id):
         seed_str = f"{tenant_id}-{count}"
         seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16) % (10 ** 8)
         rng = random.Random(seed)
+        # Use deterministic indices based on seed to ensure unique names
+        firstname_idx = seed % len(FIRST_NAMES)
+        lastname_idx = (seed // len(FIRST_NAMES)) % len(LAST_NAMES)
+        firstname = FIRST_NAMES[firstname_idx]
+        lastname = LAST_NAMES[lastname_idx]
     else:
         rng = random.Random()
+        firstname = rng.choice(FIRST_NAMES)
+        lastname = rng.choice(LAST_NAMES)
 
-    firstname = rng.choice(FIRST_NAMES)
-    lastname = rng.choice(LAST_NAMES)
+    full_name = f"{firstname} {lastname}"
 
     submitted_date = datetime.datetime.now().strftime(DATE_FORMAT)
-    mobile_number = unique_mobile_numbers.pop(0)
 
-    print(f"Creating client {firstname} {lastname} ({mobile_number}) for {tenant_id}", file=sys.stderr)
+    print(f"Creating client {full_name} ({mobile_number}) for {tenant_id}", file=sys.stderr)
 
     payload = {
         "officeId": 1,
@@ -226,9 +334,9 @@ def create_client(headers, locale, tenant_id):
         cid = resp.get("clientId")
         if cid:
             print(f"Client ID {cid}", file=sys.stderr)
-            return cid, mobile_number
+            return cid, mobile_number, full_name
     print("Client creation failed", file=sys.stderr)
-    return None, None
+    return None, None, None
 
 # ----------------------------------------------------------------------
 # Savings account helpers
@@ -303,6 +411,72 @@ def register_client_with_vnext(headers, tenant_id, mobile_number, currency="USD"
         return True
     return False
 
+def register_beneficiary_with_identity_mapper(tenant_id, mobile_number, account_id, registering_institution):
+    """Register beneficiary with identity-account-mapper.
+
+    Args:
+        tenant_id: The payee FSP where beneficiary has an account (e.g., 'bluebank')
+        mobile_number: Beneficiary MSISDN
+        account_id: Beneficiary account number at the payee FSP
+        registering_institution: The payer/government institution (e.g., 'greenbank', 'redbank')
+    """
+    if not mobile_number or not account_id:
+        return False
+
+    url = f"{IDENTITY_MAPPER_URL}/beneficiary"
+    # Request ID must be exactly 12 characters (matching register-and-generate-csv.py)
+    request_id = str(uuid.uuid4()).replace('-', '')[:12]
+
+    beneficiary = {
+        "payeeIdentity": mobile_number,
+        "paymentModality": "00",  # MSISDN payment modality
+        "financialAddress": str(account_id),
+        "bankingInstitutionCode": tenant_id  # Payee FSP
+    }
+
+    payload = {
+        "requestID": request_id,  # Note: capital ID required
+        "sourceBBID": registering_institution,  # Payer/government institution
+        "beneficiaries": [beneficiary]
+    }
+
+    mapper_headers = {
+        "X-CallbackURL": "https://localhost/callback",  # Dummy callback URL
+        "X-Registering-Institution-ID": registering_institution,  # Payer/government institution
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+
+    try:
+        # Use raw requests here to handle 500 responses with structured data
+        response = requests.post(url, json=payload, headers=mapper_headers, verify=False, timeout=30)
+
+        # Check if we got a structured response (even if HTTP status is 500)
+        # responseCode "01" means the identity mapper processed it
+        # (callback failure is expected with fake callback URL)
+        try:
+            resp_json = response.json()
+            if 'responseCode' in resp_json:
+                print(f"✓ Registered {mobile_number} → account {account_id} @ {tenant_id} (payer: {registering_institution})", file=sys.stderr)
+                print(f"   Response: {resp_json.get('responseDescription', 'OK')}", file=sys.stderr)
+                return True
+        except:
+            pass
+
+        # If 2xx status, consider it success
+        if 200 <= response.status_code < 300:
+            print(f"✓ Registered {mobile_number} → account {account_id} @ {tenant_id} (payer: {registering_institution})", file=sys.stderr)
+            return True
+
+        # Otherwise report error
+        print(f"✗ Failed to register {mobile_number}: HTTP {response.status_code}", file=sys.stderr)
+        print(f"   Response: {response.text}", file=sys.stderr)
+        return False
+
+    except Exception as e:
+        print(f"✗ Failed to register {mobile_number}: {e}", file=sys.stderr)
+        return False
+
 # ----------------------------------------------------------------------
 # Config / URL setup
 # ----------------------------------------------------------------------
@@ -322,13 +496,15 @@ def get_gazelle_domain(cfg):
 
 def set_global_urls(domain):
     global API_BASE_URL, CLIENTS_API_URL, SAVINGS_API_URL, SAVINGS_PRODUCTS_API_URL
-    global INTEROP_PARTIES_API_URL, VNEXT_BASE_URL
+    global INTEROP_PARTIES_API_URL, VNEXT_BASE_URL, IDENTITY_MAPPER_URL
     API_BASE_URL = f"https://mifos.{domain}/fineract-provider/api/v1"
     CLIENTS_API_URL = f"{API_BASE_URL}/clients"
     SAVINGS_API_URL = f"{API_BASE_URL}/savingsaccounts"
     SAVINGS_PRODUCTS_API_URL = f"{API_BASE_URL}/savingsproducts"
     INTEROP_PARTIES_API_URL = f"{API_BASE_URL}/interoperation/parties/MSISDN"
     VNEXT_BASE_URL = f"http://vnextadmin.{domain}/_interop/participants/MSISDN/"
+    IDENTITY_MAPPER_URL = f"https://identity-mapper.{domain}"
+
 
 # ----------------------------------------------------------------------
 # Main
@@ -345,6 +521,8 @@ if __name__ == "__main__":
                         help=f'Path to config.ini (default: {default_config})')
     parser.add_argument('--random', action='store_true',
                         help='Generate random (non-deterministic) clients')
+    parser.add_argument('--regenerate', action='store_true',
+                        help='Query existing clients and regenerate CSVs (idempotent mode)')
     args = parser.parse_args()
 
     # ----- config & URLs -----
@@ -352,34 +530,97 @@ if __name__ == "__main__":
     domain = get_gazelle_domain(cfg)
     set_global_urls(domain)
 
+    # ----- regenerate mode (query existing clients) -----
+    if args.regenerate:
+        print("\n=== REGENERATE MODE: Querying existing clients ===\n", file=sys.stderr)
+
+        tenants_list = list(TENANTS.keys())
+        all_clients = fetch_all_clients_from_mifos(tenants_list)
+
+        if not all_clients:
+            print("ERROR: No existing clients found in Mifos", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"\nFound {len(all_clients)} clients total", file=sys.stderr)
+
+        # Register clients with identity-account-mapper (payees only) and vNext (all)
+        print("\nRegistering clients with identity-account-mapper and vNext...", file=sys.stderr)
+        print(f"  Identity-mapper payee tenants: {', '.join(IDENTITY_MAPPER_TENANTS)}", file=sys.stderr)
+        print(f"  Registering under payers: {', '.join(REGISTERING_INSTITUTIONS)}", file=sys.stderr)
+        mapper_success_count = 0
+        vnext_success_count = 0
+        for client in all_clients:
+            # Register with identity-account-mapper (only for payee tenants)
+            # Register under ALL payer institutions (greenbank, redbank)
+            if client['tenant'] in IDENTITY_MAPPER_TENANTS:
+                for payer in REGISTERING_INSTITUTIONS:
+                    if register_beneficiary_with_identity_mapper(client['tenant'], client['mobile'], client['account_id'], payer):
+                        mapper_success_count += 1
+            else:
+                print(f"  Skipping identity-mapper for payer tenant: {client['tenant']} ({client['mobile']})", file=sys.stderr)
+
+            # Register with vNext oracle (all tenants need this for party lookup)
+            tenant_headers = HEADERS.copy()
+            tenant_headers["Fineract-Platform-TenantId"] = client['tenant']
+            if register_client_with_vnext(tenant_headers, client['tenant'], client['mobile']):
+                vnext_success_count += 1
+
+            # Add to created_clients for CSV generation
+            created_clients.append(client)
+
+        payee_count = sum(1 for c in all_clients if c['tenant'] in IDENTITY_MAPPER_TENANTS)
+        print(f"\nRegistered {mapper_success_count}/{payee_count} payee clients with identity-account-mapper", file=sys.stderr)
+        print(f"Registered {vnext_success_count}/{len(all_clients)} clients with vNext oracle", file=sys.stderr)
+
+        print("\n✓ Regeneration complete!", file=sys.stderr)
+        sys.exit(0)
+
+    # ----- create mode (default) -----
+    print("\n=== CREATE MODE: Generating new clients ===\n", file=sys.stderr)
+
     # ----- deterministic / random mode -----
     #global _deterministic_mode
     _deterministic_mode = not args.random
     if _deterministic_mode:
-        random.seed(42)
-        shuffle_numbers = False
+        # Use deterministic but unique MSISDNs per tenant
+        # Generate MSISDNs with tenant-specific prefixes to ensure uniqueness
+        unique_mobile_numbers = []
+        tenant_prefixes = {
+            'greenbank': '0413',  # 0413xxxxxx for greenbank
+            'redbank': '0423',    # 0423xxxxxx for redbank
+            'bluebank': '0495'    # 0495xxxxxx for bluebank
+        }
+        for tenant_id, num_clients in TENANTS.items():
+            prefix = tenant_prefixes.get(tenant_id, '0400')
+            # Use tenant-specific seed for deterministic but unique numbers
+            tenant_seed = int(hashlib.sha256(tenant_id.encode()).hexdigest(), 16) % (10 ** 8)
+            tenant_rng = random.Random(tenant_seed)
+            for i in range(num_clients):
+                # Generate 6-digit suffix (000000-999999)
+                suffix = tenant_rng.randint(100000, 999999)
+                unique_mobile_numbers.append(f"{prefix}{suffix}")
     else:
-        random.seed()          # OS entropy / time
-        shuffle_numbers = True
-
-    total_clients = sum(TENANTS.values())
-    unique_mobile_numbers = [
-        f"04{random.randint(10000000, 99999999)}" for _ in range(total_clients)
-    ]
-    if shuffle_numbers:
+        # Random mode - generate random MSISDNs
+        random.seed()
+        total_clients = sum(TENANTS.values())
+        unique_mobile_numbers = [
+            f"04{random.randint(10000000, 99999999)}" for _ in range(total_clients)
+        ]
         random.shuffle(unique_mobile_numbers)
 
     # ----- process each tenant -----
+    failed_tenants = []
     for tenant_id, num_clients in TENANTS.items():
         print(f"\n=== Tenant: {tenant_id} ===", file=sys.stderr)
         HEADERS["Fineract-Platform-TenantId"] = tenant_id
-        global PRODUCT_NAME
-        PRODUCT_NAME = f"{tenant_id}-savings"
+        product_name = f"{tenant_id}-savings"
 
         # product
-        product_id = create_savings_product(HEADERS)
+        product_id = create_savings_product(HEADERS, product_name)
         if not product_id:
-            print(f"Skipping tenant {tenant_id} – no product", file=sys.stderr)
+            error_msg = f"ERROR: Failed to create/find product for tenant {tenant_id}"
+            print(error_msg, file=sys.stderr)
+            failed_tenants.append(tenant_id)
             continue
 
         process_date = datetime.datetime.now().strftime(DATE_FORMAT)
@@ -387,8 +628,50 @@ if __name__ == "__main__":
         for i in range(1, num_clients + 1):
             print(f"\n--- Client {i}/{num_clients} for {tenant_id} ---", file=sys.stderr)
 
-            # client
-            client_id, mobile = create_client(HEADERS, LOCALE, tenant_id)
+            # Pre-generate the mobile number for this client
+            mobile = unique_mobile_numbers.pop(0)
+
+            # Check if client already exists with this mobile number
+            existing_client = check_client_exists_by_mobile(HEADERS, mobile)
+            if existing_client:
+                print(f"Client with mobile {mobile} already exists (ID: {existing_client['client_id']})", file=sys.stderr)
+                client_id = existing_client['client_id']
+                name = existing_client['name']
+
+                # Get existing savings account
+                acct_id = get_savings_accounts_for_client(HEADERS, client_id)
+                if not acct_id:
+                    print(f"No savings account found for existing client {mobile}, skipping", file=sys.stderr)
+                    continue
+
+                print(f"Using existing account {acct_id}", file=sys.stderr)
+
+                # Re-register with vNext and identity-account-mapper (idempotent)
+                # Note: We don't have ext_id for existing accounts, but it's only used for interop registration
+                register_client_with_vnext(HEADERS, tenant_id, mobile)
+
+                # Only register payee tenants with identity-account-mapper
+                # Register under ALL payer institutions (greenbank, redbank)
+                if tenant_id in IDENTITY_MAPPER_TENANTS:
+                    for payer in REGISTERING_INSTITUTIONS:
+                        register_beneficiary_with_identity_mapper(tenant_id, mobile, acct_id, payer)
+                else:
+                    print(f"Skipping identity-mapper for payer tenant {tenant_id}", file=sys.stderr)
+
+                # track client
+                created_clients.append({
+                    'tenant': tenant_id,
+                    'mobile': mobile,
+                    'account_id': acct_id,
+                    'client_id': client_id,
+                    'name': name
+                })
+
+                print(f"--- Re-registered existing client {i} ---", file=sys.stderr)
+                continue
+
+            # Create new client
+            client_id, mobile, name = create_client(HEADERS, LOCALE, tenant_id, mobile)
             if not client_id:
                 continue
 
@@ -414,8 +697,32 @@ if __name__ == "__main__":
             register_interop_party(HEADERS, client_id, ext_id, mobile)
             register_client_with_vnext(HEADERS, tenant_id, mobile)
 
+            # identity-account-mapper (only for payee tenants)
+            # Register under ALL payer institutions (greenbank, redbank)
+            if tenant_id in IDENTITY_MAPPER_TENANTS:
+                for payer in REGISTERING_INSTITUTIONS:
+                    register_beneficiary_with_identity_mapper(tenant_id, mobile, acct_id, payer)
+            else:
+                print(f"Skipping identity-mapper for payer tenant {tenant_id}", file=sys.stderr)
+
+            # track client for CSV generation
+            created_clients.append({
+                'tenant': tenant_id,
+                'mobile': mobile,
+                'account_id': acct_id,
+                'client_id': client_id,
+                'name': name
+            })
+
             print(f"--- Finished client {i} ---", file=sys.stderr)
 
         print(f"=== Finished tenant {tenant_id} ===\n", file=sys.stderr)
 
-    print("All tenants processed.", file=sys.stderr)
+    # ----- final status -----
+    if failed_tenants:
+        print(f"\n{'='*60}", file=sys.stderr)
+        print(f"ERROR: Failed to process {len(failed_tenants)} tenant(s): {', '.join(failed_tenants)}", file=sys.stderr)
+        print(f"{'='*60}", file=sys.stderr)
+        sys.exit(1)
+
+    print("\n✓ All tenants processed successfully.", file=sys.stderr)

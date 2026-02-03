@@ -8,7 +8,8 @@ POD_NAME="mysql-0"
 MYSQL_USER="root"
 MYSQL_PASSWORD="mysqlpw"
 DUMP_FILE="$CONFIG_DIR/fineract-db-dump-$(date +%Y%m%d%H%M%S).sql"
-RESTORE_FILE="$CONFIG_DIR/fineract-db-dump-20250318023009.sql"
+#RESTORE_FILE="$CONFIG_DIR/fineract-db-dump-20250318023009.sql"
+RESTORE_FILE="$CONFIG_DIR/fineract-db-dump-final.sql" # includes redbank
 #RESTORE_FILE="$CONFIG_DIR/fineract-db-dump.sql"
 
 # Function to dump all databases

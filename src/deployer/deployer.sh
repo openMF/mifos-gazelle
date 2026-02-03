@@ -177,10 +177,6 @@ function deployInfrastructure() {
   update_fqdn "$INFRA_CHART_DIR/values.yaml" "mifos.gazelle.test" "$GAZELLE_DOMAIN" 
   update_fqdn "$INFRA_CHART_DIR/values.yaml" "mifos.gazelle.localhost" "$GAZELLE_DOMAIN" 
 
-  # Update helm dependencies for infra chart
-  # run_as_user "cd $INFRA_CHART_DIR && helm dep update" # >> /dev/null 2>&1
-  # check_command_execution $? "helm dep update for infra chart"
-
   # make sure helm chart dependencies are up to date
   ensure_helm_dependencies "$INFRA_CHART_DIR"
 

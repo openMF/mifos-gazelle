@@ -1,0 +1,3 @@
+id,request_id,payment_mode,payer_identifier_type,payer_identifier,payee_identifier_type,payee_identifier,amount,currency,note
+0,4eb1bbdf-3ed3-4a81-8dfd-680ed9ad8325,MOJALOOP,MSISDN,0413509790,MSISDN,0495822412,10,USD,Payment to James Ramirez
+1,99610a6a-bbf3-406e-8bb2-8abdd8946b34,MOJALOOP,MSISDN,0413509790,MSISDN,0495822412,16,USD,Payment to James Ramirez

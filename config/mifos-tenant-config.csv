@@ -3,9 +3,10 @@
 # note the default Mifos tenant of  "default" is not touched by this script 
 # see https://fineract-academy.com/how-to-configure-multi-tenancy-for-fineract.html
 #
-# schema: 
+# schema:
 # tenant_id,tenant_identifier,tenant_name,tenant_timezone,db_host,db_port,db_name,db_user,db_password
 #
+tenant_id,tenant_identifier,tenant_name,tenant_timezone,db_host,db_port,db_name,db_user,db_password
 2,greenbank,Greenbank tenant,Australia/Adelaide,mysql.infra.svc.cluster.local,3306,greenbank,root,mysqlpw
 3,bluebank,Bluebank tenant,Australia/Adelaide,mysql.infra.svc.cluster.local,3306,bluebank,root,mysqlpw
-#4,ph_bluebank,PH_Bluebank tenant,Australia/Adelaide,mysql.infra.svc.cluster.local,3306,ph_bluebank,root,mysqlpw
+4,redbank,Redbank tenant,Australia/Adelaide,mysql.infra.svc.cluster.local,3306,redbank,root,mysqlpw

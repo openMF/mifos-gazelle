@@ -1,0 +1,8 @@
+ph_ee_connector_bulk:
+  extraEnvs:
+    - name: CHANNEL_CONTACTPOINT
+      value: https://ph-ee-connector-channel:8443
+    - name: CHANNEL_ENDPOINTS_BATCH-TRANSACTION
+      value: /channel/transfer
+    - name: BULK-PROCESSOR_ENDPOINTS_BATCH-EXECUTION
+      value: /batchtransactions/execution

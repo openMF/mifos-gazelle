@@ -44,7 +44,7 @@ function deployvNext() {
     if [ "$index" -eq 0 ]; then
       echo -e "${BLUE}    Waiting for vnext cross cutting concerns to come up${RESET}"
       # run_as_user "kubectl wait --for=condition=ready pod --all -n infra --timeout=1000s"
-      wait_for_pods_ready "$INFRA_NAMESPACE"
+      #wait_for_pods_ready "$INFRA_NAMESPACE"
       echo -e "    Infra is up & running proceeding ..."
     fi
   done

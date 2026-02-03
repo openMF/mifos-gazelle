@@ -17,12 +17,15 @@ function usage() {
 cat <<EOF
 Usage: $0 [-f <config_file>] [-p <payer_msisdn>] [-r <payee_msisdn>] [-t <tenant_id>] [-d <payee_dfsp_id>] [-v]
  -c Path to config.ini file (default: ../config/config.ini) [optional]
- -p Payer MSISDN (default: 0413356886) [optional]
- -r Payee MSISDN (default: 0495822412) [optional]
+ -p Payer MSISDN (default: auto-detect first client from payer tenant) [optional]
+ -r Payee MSISDN (default: auto-detect first client from payee tenant) [optional]
  -t Platform-TenantId (default: greenbank) [optional]
  -d X-PayeeDFSP-ID (default: bluebank) [optional]
  -v Enable debug/verbose mode [optional]
  -h Show this help message
+
+Note: If -p or -r are not provided, the script will automatically query for the
+      first available client in the respective tenant.
 EOF
 }
 
@@ -67,22 +70,22 @@ function lookup_client_name() {
         return 1
     fi
     
-    # Parse JSON to extract display name - try multiple approaches
-    local display_name
-    
-    # Method 1: Look for displayName in pageItems array
-    display_name=$(echo "$response" | grep -o '"displayName":"[^"]*"' | head -n1 | sed 's/"displayName":"\([^"]*\)"/\1/')
-    
-    # Method 2: If that fails, try looking for firstname and lastname
+    # Parse JSON to extract display name
+    # The API returns clients in pageItems array, find the one matching our MSISDN
+    local display_name=""
+
+    # Extract the client object matching our MSISDN
+    # Look for displayName that appears before the matching mobileNo
+    local json_section=""
+    json_section=$(echo "$response" | grep -o "\"displayName\":\"[^\"]*\"[^}]*\"mobileNo\":\"$msisdn\"" | head -n1 || echo "")
+
+    if [[ -n "$json_section" ]]; then
+        display_name=$(echo "$json_section" | grep -o '"displayName":"[^"]*"' | sed 's/"displayName":"\([^"]*\)"/\1/')
+    fi
+
+    # If that didn't work, fall back to the first displayName (for backward compatibility)
     if [[ -z "$display_name" ]]; then
-        local firstname lastname
-        firstname=$(echo "$response" | grep -o '"firstname":"[^"]*"' | head -n1 | sed 's/"firstname":"\([^"]*\)"/\1/')
-        lastname=$(echo "$response" | grep -o '"lastname":"[^"]*"' | head -n1 | sed 's/"lastname":"\([^"]*\)"/\1/')
-        if [[ -n "$firstname" ]] && [[ -n "$lastname" ]]; then
-            display_name="$firstname $lastname"
-        elif [[ -n "$firstname" ]]; then
-            display_name="$firstname"
-        fi
+        display_name=$(echo "$response" | grep -o '"displayName":"[^"]*"' | head -n1 | sed 's/"displayName":"\([^"]*\)"/\1/')
     fi
     
     if [[ "$debug" == true ]]; then
@@ -99,14 +102,49 @@ function lookup_client_name() {
     fi
 }
 
+# Function to get first client MSISDN from tenant
+function get_first_client_msisdn() {
+    local tenant="$1"
+    local client_type="$2"  # "payer" or "payee" for logging
+
+    echo "🔍 Querying first $client_type client in tenant: $tenant..." >&2
+
+    local response
+    response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
+        "$MIFOS_CORE_API/clients?limit=1&orderBy=id&sortOrder=ASC" 2>/dev/null || echo "")
+
+    if [[ "$debug" == true ]]; then
+        echo -e "${BLUE}DEBUG - First client API response:${RESET}" >&2
+        echo "$response" >&2
+        echo "" >&2
+    fi
+
+    if [[ -z "$response" ]] || [[ "$response" == *"error"* ]]; then
+        echo "" >&2
+        return 1
+    fi
+
+    # Extract mobile number from first client in pageItems
+    local msisdn
+    msisdn=$(echo "$response" | grep -o '"mobileNo":"[^"]*"' | head -n1 | sed 's/"mobileNo":"\([^"]*\)"/\1/')
+
+    if [[ -n "$msisdn" ]] && [[ "$msisdn" != "null" ]]; then
+        echo "$msisdn"
+        return 0
+    else
+        echo "" >&2
+        return 1
+    fi
+}
+
 # Defaults
 SCRIPT_DIR=$( cd $(dirname "$0") ; pwd )
 default_config_dir="$( cd $(dirname "$SCRIPT_DIR")/../config ; pwd )"
 default_config_ini="$default_config_dir/config.ini"
 config_ini=""  # Will be set after parsing options
 
-payer_msisdn="0413356886"
-payee_msisdn="0495822412"
+payer_msisdn=""  # Will be auto-detected from greenbank tenant if not provided
+payee_msisdn=""  # Will be auto-detected from bluebank tenant if not provided
 tenant_id="greenbank"
 payee_dfsp_id="bluebank"
 debug=false
@@ -163,10 +201,45 @@ if [[ "$debug" == true ]]; then
     echo ""
 fi
 
+# Auto-detect payer MSISDN if not provided
+if [[ -z "$payer_msisdn" ]]; then
+    echo "🔍 Auto-detecting payer MSISDN from tenant: $tenant_id..."
+    set +e
+    payer_msisdn=$(get_first_client_msisdn "$tenant_id" "payer")
+    detection_status=$?
+    set -e
+    if [[ $detection_status -ne 0 ]] || [[ -z "$payer_msisdn" ]]; then
+        echo -e "${RED}Error: Could not auto-detect payer MSISDN from tenant $tenant_id${RESET}" >&2
+        echo -e "${RED}Please ensure clients exist or specify -p <payer_msisdn>${RESET}" >&2
+        exit 1
+    fi
+    echo "✓ Auto-detected payer MSISDN: $payer_msisdn"
+    echo ""
+fi
+
+# Auto-detect payee MSISDN if not provided
+if [[ -z "$payee_msisdn" ]]; then
+    echo "🔍 Auto-detecting payee MSISDN from tenant: $payee_dfsp_id..."
+    set +e
+    payee_msisdn=$(get_first_client_msisdn "$payee_dfsp_id" "payee")
+    detection_status=$?
+    set -e
+    if [[ $detection_status -ne 0 ]] || [[ -z "$payee_msisdn" ]]; then
+        echo -e "${RED}Error: Could not auto-detect payee MSISDN from tenant $payee_dfsp_id${RESET}" >&2
+        echo -e "${RED}Please ensure clients exist or specify -r <payee_msisdn>${RESET}" >&2
+        exit 1
+    fi
+    echo "✓ Auto-detected payee MSISDN: $payee_msisdn"
+    echo ""
+fi
+
 # Lookup client names
 echo -e "${BLUE}=== Client Lookup ===${RESET}"
+set +e  # Temporarily disable exit on error
 payer_name=$(lookup_client_name "$payer_msisdn" "$tenant_id" "payer")
-if [[ $? -ne 0 ]]; then
+payer_lookup_status=$?
+set -e  # Re-enable exit on error
+if [[ $payer_lookup_status -ne 0 ]]; then
     echo -e "${RED}Error: Unable to find payer with MSISDN $payer_msisdn in tenant $tenant_id${RESET}" >&2
     exit 1
 fi
@@ -178,7 +251,14 @@ if [[ "$payee_dfsp_id" != "$tenant_id" ]]; then
     payee_tenant="$payee_dfsp_id"
 fi
 
+set +e  # Temporarily disable exit on error
 payee_name=$(lookup_client_name "$payee_msisdn" "$payee_tenant" "payee")
+payee_lookup_status=$?
+set -e  # Re-enable exit on error
+if [[ $payee_lookup_status -ne 0 ]]; then
+    echo -e "${RED}Error: Unable to find payee with MSISDN $payee_msisdn in tenant $payee_tenant${RESET}" >&2
+    exit 1
+fi
 
 # Display payment details
 echo -e "${BLUE}=== Payment Details ===${RESET}"
