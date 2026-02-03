@@ -340,6 +340,60 @@ function deleteApps() {
   print_cleanup_end_message
 }
 
+
+# --- GAZ-215: Timer Functions ---
+declare -a COMPONENT_NAMES
+declare -a COMPONENT_TIMES
+
+function start_timer() {
+    if [ -z "${ENABLE_TIMERS}" ]; then
+        # we look for ENABLE_TIMERS with grep
+        if [ -f "config/config.ini" ]; then
+            ENABLE_TIMERS=$(grep "^ENABLE_TIMERS=" config/config.ini | cut -d'=' -f2 | tr -d ' ' | tr -d '"' | tr -d "'")
+        fi
+    fi
+    
+    if [ "${ENABLE_TIMERS}" == "true" ]; then
+        CURRENT_COMPONENT="$1"
+        START_TIME=$(date +%s)
+        echo "------------------------------------------------"
+        echo " [GAZ-215] Starting deployment of: $CURRENT_COMPONENT"
+        echo "------------------------------------------------"
+    fi
+}
+
+function stop_timer() {
+    if [ "${ENABLE_TIMERS}" == "true" ] && [ -n "$START_TIME" ]; then
+        END_TIME=$(date +%s)
+        DURATION=$((END_TIME - START_TIME))
+        COMPONENT_NAMES+=("$CURRENT_COMPONENT")
+        COMPONENT_TIMES+=("$DURATION")
+        echo "Finished $CURRENT_COMPONENT in ${DURATION} seconds."
+    fi
+}
+
+function print_final_summary() {
+    if [ "${ENABLE_TIMERS}" == "true" ]; then
+        echo ""
+        echo "==================================================="
+        echo "   DEPLOYMENT TIMING SUMMARY (GAZ-215) "
+        echo "==================================================="
+        if [ ${#COMPONENT_NAMES[@]} -eq 0 ]; then
+            echo "   No components tracked."
+        else
+            for i in "${!COMPONENT_NAMES[@]}"; do
+                printf "   %-25s : %s seconds\n" "${COMPONENT_NAMES[$i]}" "${COMPONENT_TIMES[$i]}"
+            done
+        fi
+        echo "==================================================="
+        echo ""
+    fi
+}
+# --------------------------------
+
+
+
+
 #------------------------------------------------------------
 # Description : Orchestrates deployment of apps (infra, vnext, etc.).
 # Usage : deployApps <"app1 app2"... > [redeploy]
@@ -355,11 +409,16 @@ function deployApps() {
     echo -e "${BLUE}Deploying application: $app...${RESET}"  
     case "$app" in
       "infra")
+        start_timer "Infrastructure"
         deployInfrastructure "$redeploy"
+        stop_timer
         ;;
       "vnext")
+        
         deployInfrastructure "false"  # deploy infra if not already there even if redeploy=true
+        start_timer "vNext"
         deployvNext
+        stop_timer
         ;;
       "mifosx")
         # if [[ "$redeploy" == "true" ]]; then 
@@ -368,12 +427,16 @@ function deployApps() {
           
         # fi 
         deployInfrastructure "false"  # deploy infra if not already there even if redeploy=true
+        start_timer "MifosX"
         DeployMifosXfromYaml "$MIFOSX_MANIFESTS_DIR" 
         generateMifosXandVNextData
+        stop_timer
         ;;
       "phee")
         deployInfrastructure "false"
+        start_timer "deployPH"
         deployPH
+        stop_timer
         ;;
       *)
         echo -e "${RED}Error: Unknown application '$app' in deployment list. This should have been caught by validation.${RESET}"
