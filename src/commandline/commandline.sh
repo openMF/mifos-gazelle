@@ -181,6 +181,7 @@ function showUsage {
     Example 6 : sudo $0 -a \"mifosx,vnext\"                        # deploy MifosX and vNext only 
     Example 7 : sudo $0 -f /opt/my_config.ini                    # Use a custom config file
     Example 8 : sudo $0 -a \"phee,mifosx\" -e remote -d true       # deploy PHEE and MifosX on remote cluster with debug mode
+    Example 9 : sudo $0 -m deploy -p aks                       # deploy to Azure AKS (implies remote)
 
     Options:
     -f config_file_path .. Specify an alternative config.ini file path (optional)
@@ -188,6 +189,7 @@ function showUsage {
     -u user .............. (non root) user that the process will use for execution (required)
     -a apps .............. Comma-separated list of apps (vnext,phee,mifosx,infra) or 'all' (optional)
     -e environment ....... Cluster environment (local or remote, optional, default=local)
+    -p provider .......... Cloud provider for remote deploy (aks|eks|oke). Implies -e remote. # GAZ-23
     -d debug ............. Enable debug mode (true|false, optional, default=false)
     -r redeploy .......... Force redeployment of apps (true|false, optional, default=true)
     -h|H ................. Display this message
@@ -236,6 +238,21 @@ function validateInputs {
         showUsage
         exit 1
     fi
+
+    # --- GAZ-23 - validate provider and enforce environment=remote if provider is specified ---
+    if [[ -n "$provider" ]]; then
+        if [[ "$provider" != "aks" && "$provider" != "eks" && "$provider" != "oke" ]]; then
+            echo "Error: Invalid provider '$provider'. Must be one of: aks, eks, oke."
+            showUsage
+            exit 1
+        fi
+        # If provider is specified and environment is not specified or is local, switch to remote with a warning since provider implies remote deployment
+        if [[ -z "$environment" || "$environment" == "local" ]]; then
+            logWithLevel "$INFO" "Provider specified ($provider). Switching environment to 'remote'."
+            environment="remote"
+        fi
+    fi
+    # ---------------------------------
 
     if [[ "$mode" == "deploy" || "$mode" == "cleanapps" ]]; then
         if [[ -z "$apps" ]]; then
@@ -318,6 +335,20 @@ function validateInputs {
     fi
 
     if [[ "$environment" == "local" ]]; then
+        # GAZ-23 - For local environment, validate that the OS is Ubuntu and version is supported, and that k8s_version is specified
+        if [[ ! " $linux_os_list " =~ " Ubuntu " ]]; then
+            echo "Error: Only Ubuntu is supported for LOCAL deployment."
+            showUsage
+            exit 1
+        fi
+        
+        # we add here a check for ubuntu version only for local environment since remote environment may be any k8s cluster and we will not be running kind or minikube locally in that case so we do not need to validate ubuntu version for remote environment, rather than out of this check
+        local os_version=$(lsb_release -r -s | cut -d'.' -f1)
+        if [[ ! " $ubuntu_ok_versions_list " =~ " $os_version " ]]; then
+            echo "Error: Ubuntu version '$os_version' not supported for local setup."
+            showUsage
+            exit 1
+        fi
         if [[ -z "$k8s_version" ]]; then
             echo "Error: k8s_version must be specified for local environment."
             showUsage
@@ -335,13 +366,6 @@ function validateInputs {
 
     if [[ ! " $linux_os_list " =~ " Ubuntu " ]]; then
         echo "Error: Only Ubuntu is supported in linux_os_list: $linux_os_list."
-        showUsage
-        exit 1
-    fi
-
-    local os_version=$(lsb_release -r -s | cut -d'.' -f1)
-    if [[ ! " $ubuntu_ok_versions_list " =~ " $os_version " ]]; then
-        echo "Error: Ubuntu version '$os_version' is not supported. Supported versions: $ubuntu_ok_versions_list."
         showUsage
         exit 1
     fi
@@ -369,7 +393,7 @@ function getOptions() {
     shift
 
     OPTIND=1
-    while getopts "m:k:d:a:v:u:r:f:e:hH" OPTION ; do
+    while getopts "m:k:d:a:v:u:r:f:e:p:hH" OPTION ; do
         case "${OPTION}" in
             f) options_map["config_file_path"]="${OPTARG}" ;;
             m) options_map["mode"]="${OPTARG}" ;;
@@ -378,6 +402,7 @@ function getOptions() {
             u) options_map["k8s_user"]="${OPTARG}" ;;
             r) options_map["redeploy"]="${OPTARG}" ;;
             e) options_map["environment"]="${OPTARG}" ;;
+            p) options_map["provider"]="${OPTARG}" ;; # GAZ-23
             h|H) showUsage;
                  exit 0 ;;
             *) echo "Unknown option: -${OPTION}"
@@ -415,6 +440,7 @@ mode=""
 #k8s_user=""
 apps=""
 environment=""
+provider="" # GAZ-23
 debug="false"
 redeploy="true"
 kubeconfig_path=""
@@ -450,8 +476,11 @@ function main {
     if [[ -n "${cmd_args_map["debug"]}" ]]; then debug="${cmd_args_map["debug"]}"; fi
     if [[ -n "${cmd_args_map["redeploy"]}" ]]; then redeploy="${cmd_args_map["redeploy"]}"; fi
     if [[ -n "${cmd_args_map["environment"]}" ]]; then environment="${cmd_args_map["environment"]}"; fi
+    if [[ -n "${cmd_args_map["provider"]}" ]]; then provider="${cmd_args_map["provider"]}"; fi # GAZ-23
 
     validateInputs
+
+    export CLOUD_PROVIDER="$provider" # GAZ-23 - make export in order to be available to other scripts
 
     if [ "$mode" == "deploy" ]; then
         echo -e "${YELLOW}"

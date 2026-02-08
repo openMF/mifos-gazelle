@@ -180,6 +180,125 @@ is_cluster_accessible() {
     fi
     return 0
 }
+
+#------------------------------------------------------------------------------
+# Function: provision_infra_via_terraform
+# Description: Detects provider flag and runs Terraform to provision infrastructure.
+#------------------------------------------------------------------------------
+function provision_infra_via_terraform {
+    # The CLOUD_PROVIDER variable is exported from commandline.sh
+    if [[ -z "$CLOUD_PROVIDER" ]]; then
+        return 0 
+    fi
+
+    echo -e "\n${BLUE}==> Provisioning Infrastructure on $CLOUD_PROVIDER via Terraform...${RESET}"
+
+    # Validate necessary tools are installed before proceeding
+    if ! command -v terraform &> /dev/null; then
+        echo -e "${RED}Error: terraform is not installed. Please install it to proceed.${RESET}"
+        exit 1
+    fi
+
+    # Select the correct Terraform directory based on the cloud provider
+    local tf_dir=""
+    if [[ "$CLOUD_PROVIDER" == "aks" ]]; then
+        tf_dir="$RUN_DIR/terraform/azure"
+        if ! command -v az &> /dev/null; then
+            echo -e "${RED}Error: Azure CLI (az) is not installed. Required for AKS.${RESET}"
+            exit 1
+        fi
+    elif [[ "$CLOUD_PROVIDER" == "eks" ]]; then
+        echo "EKS implementation coming soon..."
+        exit 1
+    elif [[ "$CLOUD_PROVIDER" == "oke" ]]; then
+        echo "OKE implementation coming soon..."
+        exit 1
+    fi
+
+    if [[ ! -d "$tf_dir" ]]; then
+        echo -e "${RED}Error: Terraform directory not found at $tf_dir${RESET}"
+        exit 1
+    fi
+
+    # Run Terraform
+    pushd "$tf_dir" > /dev/null
+    
+    echo "Initializing Terraform..."
+    terraform init -input=false
+    
+    echo "Applying Terraform (this may take 5-10 mins)..."
+    terraform apply -auto-approve -input=false
+    
+    if [[ $? -ne 0 ]]; then
+        echo -e "${RED}Error: Terraform apply failed.${RESET}"
+        popd > /dev/null
+        exit 1
+    fi
+
+    # Configure kubectl connectivity (Post-provisioning)
+    echo "Configuring kubectl connectivity..."
+    
+    if [[ "$CLOUD_PROVIDER" == "aks" ]]; then
+        # Get Terraform output names
+        local rg_name=$(terraform output -raw resource_group_name)
+        local cluster_name=$(terraform output -raw kubernetes_cluster_name)
+        
+        # Azure CLI magic to download the kubeconfig
+        # We use --overwrite-existing to ensure the config is updated
+        az aks get-credentials --resource-group "$rg_name" --name "$cluster_name" --overwrite-existing --admin
+        
+        # Ensure the KUBECONFIG variable points correctly for the rest of the script
+        export KUBECONFIG="$HOME/.kube/config" 
+    fi
+
+    popd > /dev/null
+    echo -e "${GREEN}==> Infrastructure provisioned and kubectl configured successfully.${RESET}"
+}
+
+#------------------------------------------------------------------------------
+# Function: destroy_infra_via_terraform
+# Description: Destroys infrastructure via Terraform when mode is cleanall.
+#------------------------------------------------------------------------------
+function destroy_infra_via_terraform {
+    if [[ -z "$CLOUD_PROVIDER" ]]; then
+        return 0 
+    fi
+
+    echo -e "\n${RED}==> DESTROYING Infrastructure on $CLOUD_PROVIDER via Terraform...${RESET}"
+    echo -e "${YELLOW}WARNING: This will delete the Kubernetes cluster and all data.${RESET}"
+    
+    # Small safety pause (optional, but recommended)
+    sleep 3
+
+    local tf_dir=""
+    if [[ "$CLOUD_PROVIDER" == "aks" ]]; then
+        tf_dir="$RUN_DIR/terraform/azure"
+    # Add else if for eks/oke in the future
+    fi
+
+    if [[ ! -d "$tf_dir" ]]; then
+        echo -e "${RED}Error: Terraform directory not found at $tf_dir${RESET}"
+        exit 1
+    fi
+
+    pushd "$tf_dir" > /dev/null
+    
+    # Not strictly necessary if state exists, but safer:
+    terraform init -input=false
+    
+    echo "Running terraform destroy..."
+    terraform destroy -auto-approve -input=false
+    
+    if [[ $? -ne 0 ]]; then
+        echo -e "${RED}Error: Terraform destroy failed.${RESET}"
+        popd > /dev/null
+        exit 1
+    fi
+
+    popd > /dev/null
+    echo -e "${GREEN}==> Infrastructure destroyed successfully.${RESET}"
+}
+
 #------------------------------------------------------------------------------
 # Function: env_setup_remote_cluster   
 # Description: Sets up a remote Kubernetes cluster.
@@ -188,16 +307,28 @@ is_cluster_accessible() {
 #------------------------------------------------------------------------------
 function env_setup_remote_cluster {
     local mode="$1"
-    if ! is_cluster_accessible; then
-        printf "** Error: Remote kubernetes cluster is NOT accessible. Please check your KUBECONFIG and network connectivity. ** \n\n"
-        exit 1
-    else 
-        printf "\r==> Remote kubernetes cluster is accessible       [ok]\n"
-        return 0
+
+    if [[ "$mode" == "cleanall" ]]; then
+        destroy_infra_via_terraform
+        print_end_message_delete
+        exit 0
+    elif [[ "$mode" == "deploy" ]]; then
+        provision_infra_via_terraform
+        
+        # Verify cluster accessibility 
+        if ! is_cluster_accessible; then
+            printf "** Error: Remote kubernetes cluster is NOT accessible. ** \n\n"
+            exit 1
+        else 
+            printf "\r==> Remote kubernetes cluster is accessible       [ok]\n"
+            return 0
+        fi
+    else
+        # Other modes like 'cleanapps' do not affect the infrastructure, 
+        # they only delete pods (helm delete), so we do nothing here.
+        printf "==> Remote cluster: Mode '$mode' does not require infra changes. Skipping.\n"
     fi
-    # note that we might need to install NGINX here or interrogate remote cluster for existing ingress controller
-    # For now we assume remote cluster is pre-configured with an ingress controller
-} 
+}
 
 #------------------------------------------------------------------------------
 # Function: env_setup_local_cluster   
@@ -253,12 +384,14 @@ function env_setup_main() {
     check_sudo
     check_arch_ok
     verify_user
-    check_os_ok  
-    install_os_prerequisites
+
     install_k8s_tools
     configure_k8s_user_env
 
     if [[ "$environment" == "local" ]]; then
+        # we have moved the OS checks and prerequisites to be inside the local cluster setup, since for remote we assume that it is not necessary
+        check_os_ok
+        install_os_prerequisites
         env_setup_local_cluster "$mode"
     elif [[ "$environment" == "remote" ]]; then
         print_remote_cluster_start_message

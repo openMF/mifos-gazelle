@@ -13,6 +13,7 @@ Currently supports deploying MifosX, PaymentHub EE, and Mojaloop vNext Beta1 on 
   - [Prerequisites](#prerequisites)
   - [Quick Start](#quick-start)
   - [Deployment Options](#deployment-options)
+  - [Remote Deployment (Azure AKS)](#remote-deployment-azure-aks)
   - [What to Do Next](#what-to-do-next)
   - [Execute a Transfer from Greenbank to Bluebank (New in v1.1.0)](#execute-a-transfer-from-greenbank-to-bluebank-new-in-v110)
   - [Application Deployment Modes](#application-deployment-modes)
@@ -42,6 +43,7 @@ The aim of Mifos Gazelle is to provide a trivially simple installation and confi
 - Fully functioning MifosX with the addition of tools to simply add additional tenants
 - Fully functioning vNext (beta1) with integrated demo and test environment, admin UI, and pre-loaded demo data
 - Installed and partially configured PHEE with deployed Web Client (note: see limitations under Development Status)
+- **Cloud Native Support**: Provisions and deploys to managed Kubernetes (Azure AKS) via Terraform
 
 ## Prerequisites
 
@@ -54,6 +56,13 @@ Before proceeding with the deployment, ensure your system meets the following re
 - Non-root user with sudo privileges
 
 **Note regarding memory use**: It is possible to deploy each product individually and hence possible to use Mifos Gazelle with far less memory if not all products are deployed at once.
+
+**For Remote Deployment (Optional):**
+If you intend to deploy to a managed cloud environment instead of local K3s:
+- **Azure CLI (`az`)** installed and logged in (`az login`)
+- **Terraform** (v1.0+) installed
+- An active Azure Subscription (Free Tier/Student supported)
+- *Note: Docker/K3s requirements are skipped in remote mode.*
 
 ## Quick Start
 
@@ -85,8 +94,30 @@ sudo ./run.sh -u $USER -m deploy -a all
 | `-h` | Display help message | - |
 | `-u` | Non-root user for deployment | Current user (`$USER`) |
 | `-m` | Execution mode | `deploy`, `cleanapps`, `cleanall` |
+| `-p` | Cloud provider for remote deploy | `aks` (Azure) |
 | `-d` | Verbose output | `true`, `false` |
 | `-a` | Applications to deploy | `all`, `vnext`, `mifosx`, `phee` |
+
+## Remote Deployment (Azure AKS)
+
+Mifos Gazelle now supports deploying to managed Kubernetes environments, starting with Azure Kubernetes Service (AKS). This allows for a Cloud Native deployment, leveraging Terraform for infrastructure provisioning.
+
+1. Deploy to Azure AKS
+
+    This command will provision the resource group and AKS cluster using Terraform, configure your local kubectl, and then deploy the Gazelle applications to the cloud.
+
+    ```bash
+    # Ensure you are logged in: az login
+    sudo ./run.sh -u <your_user> -m deploy -p aks
+    ```
+
+2. Cleanup (Destroy Infrastructure)
+
+    Important: Running AKS incurs costs. To avoid unexpected charges, ensure you destroy the infrastructure when finished. This executes terraform destroy.
+
+    ```bash
+    sudo ./run.sh -u <your_user> -m cleanall -p aks
+    ```
 
 ## What to Do Next
 
@@ -142,7 +173,7 @@ sudo ./run.sh -u $USER -m deploy -a phee
 Remove deployed components:
 
 ```bash
-# Remove everything including Kubernetes server
+# Remove everything including Kubernetes server (Local) or Destroy Cloud Infra (Remote)
 sudo ./run.sh -u $USER -m cleanall
 
 # Remove all applications from the Kubernetes server  
