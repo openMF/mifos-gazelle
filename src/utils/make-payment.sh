@@ -8,6 +8,14 @@ BLUE='\033[0;34m'
 YELLOW='\033[0;33m'
 RESET='\033[0m'
 
+# Check for jq - GAZ-230
+if ! command -v jq &> /dev/null; then
+    echo -e "${RED}Error: 'jq' is not installed.${RESET}"
+    echo "This script requires jq to parse API responses for verification."
+    echo "Please install it (e.g., 'sudo apt install jq' or 'brew install jq') and try again."
+    exit 1
+fi
+
 # API Configuration placeholders (will be set after parsing config)
 TRANSFER_URL=""
 MIFOS_CORE_API=""
@@ -135,6 +143,86 @@ function get_first_client_msisdn() {
         echo "" >&2
         return 1
     fi
+}
+
+# Function to get Savings Account ID by MSISDN - GAZ-230
+function get_savings_account_id() {
+    local msisdn="$1"
+    local tenant="$2"
+    
+    # Get Client ID first
+    local client_response
+    client_response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
+        "$MIFOS_CORE_API/clients?phoneNumber=$msisdn")
+    
+    local client_id
+    client_id=$(echo "$client_response" | jq -r '.pageItems[0].id // empty')
+
+    if [[ -z "$client_id" ]]; then
+        return 1
+    fi
+
+    # Get Savings Accounts for this Client
+    local accounts_response
+    accounts_response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
+        "$MIFOS_CORE_API/clients/$client_id/accounts")
+
+    # Extract the first active savings account ID
+    local account_id
+    account_id=$(echo "$accounts_response" | jq -r '.savingsAccounts[0].id // empty')
+
+    if [[ -n "$account_id" ]]; then
+        echo "$account_id"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to verify payment completion - GAZ-230
+function verify_payment() {
+    local account_id="$1"
+    local tenant="$2"
+    local expected_amount="$3"
+    local type="$4" # "Payer" or "Payee" for logging
+    
+    local max_retries=10
+    local sleep_time=3
+    local count=0
+    
+    echo -n "Verifying $type transaction..."
+    
+    while [ $count -lt $max_retries ]; do
+        # Fetch account summary and latest transactions
+        local response
+        response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
+            "$MIFOS_CORE_API/savingsaccounts/$account_id?associations=transactions")
+
+        # Extract Balance
+        local balance
+        balance=$(echo "$response" | jq -r '.summary.accountBalance')
+        
+        # Extract Amount of the LAST transaction
+        local last_tx_amount
+        last_tx_amount=$(echo "$response" | jq -r '.transactions[0].amount // 0')
+
+        # Check if the last transaction matches our transfer amount
+        # Note: We compare as floating point just in case
+        if (( $(echo "$last_tx_amount == $expected_amount" | bc -l 2>/dev/null || echo "$last_tx_amount == $expected_amount" | awk '{print ($1 == $3)}') )); then
+            echo -e " ${GREEN}OK!${RESET}"
+            echo -e "   Current Balance: ${GREEN}\$$balance${RESET}"
+            echo -e "   Last Transaction: ${GREEN}\$$last_tx_amount${RESET}"
+            return 0
+        fi
+
+        echo -n "."
+        sleep $sleep_time
+        count=$((count+1))
+    done
+
+    echo -e " ${RED}Timeout.${RESET}"
+    echo "   Could not verify transaction in time."
+    return 1
 }
 
 # Defaults
@@ -346,14 +434,32 @@ http_code=$(echo "$response" | tail -n1)
 # Check status and print result
 if [[ "$http_code" == "200" ]]; then
     echo -e "✅ ${GREEN}Transfer successful (HTTP $http_code)${RESET}"
-    echo -e "${GREEN}Response:${RESET} $http_body"
     echo ""
-    echo -e "${GREEN}=== Payment Completed ===${RESET}"
+    echo -e "${BLUE}=== Verifying Transaction Logic ===${RESET}"
+
+    # Get Account IDs
+    echo "Fetching account details..."
+    payer_acc_id=$(get_savings_account_id "$payer_msisdn" "$tenant_id")
+    payee_acc_id=$(get_savings_account_id "$payee_msisdn" "$payee_tenant")
+
+    if [[ -z "$payer_acc_id" ]] || [[ -z "$payee_acc_id" ]]; then
+        echo -e "${RED}Error: Could not retrieve savings account IDs for verification.${RESET}"
+        # Still considered partial success as the API call worked
+    else 
+        # Verify Payer (Debit)
+        verify_payment "$payer_acc_id" "$tenant_id" "$amount" "Payer"
+        
+        # Verify Payee (Credit)
+        verify_payment "$payee_acc_id" "$payee_tenant" "$amount" "Payee"
+    fi
+
+    echo ""
+    echo -e "${GREEN}=== Payment Process Completed ===${RESET}"
     echo -e "${GREEN}✓ \$${amount} USD transferred from $payer_name to $payee_name${RESET}"
+
 else
     echo -e "❌ ${RED}Transfer failed (HTTP $http_code)${RESET}"
     echo -e "${RED}Response:${RESET} $http_body"
-    echo -e "${RED}Note: for payments to be processed successfully Mifos Gazelle needs to be fully deployed and running${RESET}"
-    echo -e "${RED}and the hosts added to your hosts file as documented in the MIFOS-GAZELLE-README.md under docs directory${RESET}"
+    echo -e "${RED}Note: for payments to be processed successfully Mifos Gazelle needs to be fully deployed.${RESET}"
     exit 1
 fi
