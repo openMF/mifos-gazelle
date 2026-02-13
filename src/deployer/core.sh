@@ -415,6 +415,11 @@ function ensure_helm_dependencies() {
   local chartName=$(basename "$chartPath")
   
   echo "    ensuring dependencies for $chartName chart"
+
+  # This prevents stale DNS entries from blocking repository access
+  if command -v resolvectl &> /dev/null; then
+    resolvectl flush-caches 2>/dev/null || true
+  fi
   
   if [[ -f "$chartPath/Chart.lock" && -s "$chartPath/Chart.lock" ]]; then
     # Count entries in Chart.lock and compare with .tgz files in charts/
