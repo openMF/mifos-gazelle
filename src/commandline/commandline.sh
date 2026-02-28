@@ -248,7 +248,6 @@ function validateInputs {
 
         local current_apps_array
         IFS=' ' read -r -a current_apps_array <<< "$apps"
-        echo "DEBUG TODO -> current_apps_array: ${current_apps_array[*]}"
 
 
         local found_all_keyword="false"
@@ -284,7 +283,6 @@ function validateInputs {
             logWithLevel "$INFO" "Expanded 'all' keyword to: $apps"
         fi
 
-        echo "DEBUG : Apps to process: $apps"
         if [[ " $apps " =~ " infra " ]]; then
             if [[ "$mode" == "deploy" ]]; then
                 # for mode = deploy ensure 'infra' is first app if present
@@ -296,7 +294,6 @@ function validateInputs {
                     apps=$(echo $apps | xargs) # trim any extra spaces
             fi  
         fi
-        echo "DEBUG Final apps to process order: $apps"
     fi
 
     if [[ -n "$debug" && "$debug" != "true" && "$debug" != "false" ]]; then
