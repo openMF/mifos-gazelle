@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # helpers.sh -- Shared utility functions for Mifos Gazelle deployment
 
+# Logging (keep standalone compatibility)
+source "$(dirname "${BASH_SOURCE[0]}")/logger.sh"
+
 # Prevent direct execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    echo "This is a library file and should not be executed directly. Source it from another script."
+    logWithLevel "$ERROR" "This is a library file and should not be executed directly. Source it from another script."
     exit 1
 fi
 
@@ -13,7 +16,7 @@ fi
 #------------------------------------------------------------------------------
 function check_sudo() {
     if [[ $EUID -ne 0 ]]; then
-        printf "** Error: This script must be run with sudo or as root user ** \n"
+        logWithLevel "$ERROR" "This script must be run with sudo or as root user"
         exit 1
     fi
 }
@@ -52,7 +55,7 @@ function check_command_execution() {
     local exit_code=$1
     local cmd="$2"
     if [[ $exit_code -ne 0 ]]; then
-        echo "  ** Error: Command execution failed: $cmd ** "
+        logWithLevel "$ERROR" "Command execution failed: $cmd"
         logWithVerboseCheck "$debug" error "Failed to execute: $cmd"
         exit $exit_code
     fi

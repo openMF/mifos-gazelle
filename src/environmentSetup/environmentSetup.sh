@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # environmentSetup.sh -- Mifos Gazelle environment setup script
 
-source "$RUN_DIR/src/environmentSetup/helpers.sh" || { echo "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
-source "$RUN_DIR/src/environmentSetup/k8s.sh" || { echo "FATAL: Could not source k8s.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$(dirname "${BASH_SOURCE[0]}")/../utils/logger.sh"
+
+source "$RUN_DIR/src/environmentSetup/helpers.sh" || { logWithLevel "$ERROR" "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/environmentSetup/k8s.sh" || { logWithLevel "$ERROR" "FATAL: Could not source k8s.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 
 #------------------------------------------------------------------------------
 # Function: install_os_prerequisites   
 # Description: Installs required operating system packages if they are not already installed.
 #------------------------------------------------------------------------------
 function install_os_prerequisites {
-    printf "\n\r==> Check & install operating system packages" 
+    logWithLevel "$INFO" "Check & install operating system packages"
     if ! command -v docker &> /dev/null; then
         logWithVerboseCheck "$debug" debug "Docker is not installed. Installing Docker..."
         apt update >> /dev/null 2>&1
@@ -19,7 +21,7 @@ function install_os_prerequisites {
         apt update >> /dev/null 2>&1
         apt install -y docker-ce docker-ce-cli containerd.io >> /dev/null 2>&1
         usermod -aG docker "$k8s_user"
-        printf "   ok \n"
+        logWithLevel "$INFO" "Docker installed"
     else
         logWithVerboseCheck "$debug" debug "Docker is already installed.\n"
     fi
@@ -27,7 +29,7 @@ function install_os_prerequisites {
         logWithVerboseCheck "$debug" debug "nc (netcat) is not installed. Installing..."
         apt-get update >> /dev/null 2>&1
         apt-get install -y netcat >> /dev/null 2>&1
-        printf "ok\n"
+        logWithLevel "$INFO" "netcat installed"
     else
         logWithVerboseCheck "$debug" debug "nc (netcat) is already installed.\n"
     fi
@@ -35,11 +37,11 @@ function install_os_prerequisites {
         logWithVerboseCheck "$debug" debug "jq is not installed. Installing ..."
         apt-get update >> /dev/null 2>&1
         apt-get -y install jq >> /dev/null 2>&1
-        printf "ok\n"
+        logWithLevel "$INFO" "jq installed"
     else
         logWithVerboseCheck "$debug" debug "jq is already installed\n"
     fi
-    printf "       [ok]\n"
+    logWithLevel "$INFO" "Operating system prerequisites OK"
 }
 
 #------------------------------------------------------------------------------
@@ -48,7 +50,7 @@ function install_os_prerequisites {
 #------------------------------------------------------------------------------
 function add_hosts {
     if [[ "$environment" == "local" ]]; then
-        printf "==> Mifos-gazelle: update local hosts file  "
+        logWithLevel "$INFO" "Mifos-gazelle: update local hosts file"
         
         # Use GAZELLE_DOMAIN variable, with fallback to default
         DOMAIN="${GAZELLE_DOMAIN:-mifos.gazelle.test}"
@@ -72,31 +74,29 @@ function add_hosts {
         perl -pi -e 's/^(127\.0\.0\.1\s+)(.*)/$1localhost/' /etc/hosts
         perl -p -i.bak -e 's/127\.0\.0\.1.*localhost.*$/$ENV{ENDPOINTS} /' /etc/hosts
     else
-        printf "==> Skipping /etc/hosts modification for remote cluster \n"
+        logWithLevel "$INFO" "Skipping /etc/hosts modification for remote cluster"
     fi
-    printf "        [ok]\n"
+    logWithLevel "$INFO" "Hosts file OK"
 }
 #------------------------------------------------------------------------------
 # Function: delete_k8s_local_cluster   
 # Description: Deletes the local Kubernetes cluster and removes related configurations.
 #------------------------------------------------------------------------------
 function delete_k8s_local_cluster {
-    printf "    removing local kubernetes cluster   "
+    logWithLevel "$INFO" "Removing local kubernetes cluster"
     rm -f /usr/local/bin/helm >> /dev/null 2>&1
     /usr/local/bin/k3s-uninstall.sh >> /dev/null 2>&1
     if [[ $? -eq 0 ]]; then
-        printf "            [ok] \n"
+        logWithLevel "$INFO" "Local kubernetes cluster removed"
     else
-        echo -e "\n==> k3s not installed"
+        logWithLevel "$INFO" "k3s not installed"
     fi
     perl -i -ne 'print unless /START_GAZELLE/ .. /END_GAZELLE/' "$k8s_user_home/.bashrc"
     perl -i -ne 'print unless /START_GAZELLE/ .. /END_GAZELLE/' "$k8s_user_home/.bash_profile"
 }
 
 function print_end_message {
-    echo -e "\n${GREEN}============================"
-    echo -e "Environment setup successful"
-    echo -e "============================${RESET}"
+    logWithLevel "$INFO" "Environment setup successful"
 }
 
 #------------------------------------------------------------------------------
@@ -104,17 +104,13 @@ function print_end_message {
 # Description: Prints a message indicating successful cleanup of the environment.
 #------------------------------------------------------------------------------
 function print_end_message_delete {
-    echo -e "\n===================================================="
-    echo -e "cleanup successful "
-    echo -e "Thank you for using Mifos Gazelle"
-    echo -e "======================================================"
-    echo -e "Copyright © 2023 The Mifos Initiative\n"
+    logWithLevel "$INFO" "Cleanup successful"
+    logWithLevel "$INFO" "Thank you for using Mifos Gazelle"
+    logWithLevel "$INFO" "Copyright © 2023 The Mifos Initiative"
 }
 
 function print_remote_cluster_start_message {
-    echo -e "\n${BLUE}================================"
-    echo -e "Remote Cluster Setup and deployment "
-    echo -e "================================${RESET}\n"
+    logWithLevel "$INFO" "Remote Cluster Setup and deployment"
 }
 
 #------------------------------------------------------------------------------
@@ -127,7 +123,7 @@ function configure_k8s_user_env {
     # config .bashrc for k8s_user
     grep "start of config added by mifos-gazelle" "$k8s_user_home/.bashrc" >/dev/null 2>&1
     if [[ $? -ne 0 ]]; then
-        printf "==> Configure users .bashrc for kubernetes " 
+        logWithLevel "$INFO" "Configure user's .bashrc for kubernetes"
         printf "%s\n" "$start_message" >> "$k8s_user_home/.bashrc"
         echo "source <(kubectl completion bash)" >> "$k8s_user_home/.bashrc"
         echo "alias k=kubectl " >> "$k8s_user_home/.bashrc"
@@ -146,9 +142,9 @@ function configure_k8s_user_env {
         echo "export KUBECONFIG=$kubeconfig_path" >> "$k8s_user_home/.bash_profile"
 
         chown "$k8s_user":"$k8s_user" "$k8s_user_home/.bashrc" "$k8s_user_home/.bash_profile"
-        printf "         [ok]\n"
+        logWithLevel "$INFO" "User shell configuration updated"
     else
-        printf "\r==> user's .bashrc already configured for k8s       [skipping]\n"
+        logWithLevel "$INFO" "User's .bashrc already configured for k8s [skipping]"
     fi
 }
 
@@ -189,10 +185,10 @@ is_cluster_accessible() {
 function env_setup_remote_cluster {
     local mode="$1"
     if ! is_cluster_accessible; then
-        printf "** Error: Remote kubernetes cluster is NOT accessible. Please check your KUBECONFIG and network connectivity. ** \n\n"
+        logWithLevel "$ERROR" "Remote kubernetes cluster is NOT accessible. Please check your KUBECONFIG and network connectivity."
         exit 1
     else 
-        printf "\r==> Remote kubernetes cluster is accessible       [ok]\n"
+        logWithLevel "$INFO" "Remote kubernetes cluster is accessible [ok]"
         return 0
     fi
     # note that we might need to install NGINX here or interrogate remote cluster for existing ingress controller
@@ -219,23 +215,22 @@ function env_setup_local_cluster {
             install_nginx_local_cluster
             $UTILS_DIR/install-k9s.sh > /dev/null 2>&1
         fi
-        printf "\r==> local kubernetes v%s configured  for %s \n" \
-                  "$k8s_version" "$k8s_user"
+        logWithLevel "$INFO" "Local kubernetes v${k8s_version} configured for ${k8s_user}"
         print_end_message
     elif [[ "$mode" == "cleanapps" ]]; then
         if ! is_local_cluster_installed; then
-            printf "    ** Error:  Local kubernetes cluster is NOT installed   \n\n"
+            logWithLevel "$ERROR" "Local kubernetes cluster is NOT installed"
             exit 1
         fi
         if ! is_cluster_accessible; then
-            printf "    ** Error: Local kubernetes cluster is NOT accessible   \n\n"
+            logWithLevel "$ERROR" "Local kubernetes cluster is NOT accessible"
             exit 1
         fi
     elif [[ "$mode" == "cleanall" ]]; then
         #printf "\n==> Deleting local kubernetes cluster...  \n"
         if ! is_local_cluster_installed; then
-            printf "    Local kubernetes cluster is NOT installed   \n"
-            printf "    Nothing to delete. Exiting.\n\n"
+            logWithLevel "$INFO" "Local kubernetes cluster is NOT installed"
+            logWithLevel "$INFO" "Nothing to delete. Exiting."
             print_end_message_delete
             exit 0
         fi
@@ -264,7 +259,7 @@ function env_setup_main() {
         print_remote_cluster_start_message
         env_setup_remote_cluster "$mode"
     else
-        printf "** Error: Invalid environment type specified: %s. Must be 'local' or 'remote'. **\n" "$environment"
+        logWithLevel "$ERROR" "Invalid environment type specified: $environment. Must be 'local' or 'remote'."
         exit 1
     fi
 } 

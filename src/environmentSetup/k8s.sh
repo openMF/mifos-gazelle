@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # kubernetes specific functions 
 
+source "$(dirname "${BASH_SOURCE[0]}")/../utils/logger.sh"
+
 #------------------------------------------------------------------------------
 # Checks K3s status and returns 0 for 'pass' or 1 for failure.
 # based on k3s check-config output parsing and removing ANSI escape codes if any
@@ -25,15 +27,14 @@ function check_k3s_cluster_status {
 function install_k3s {
     # TODO check this i.e. do we need to remove old kube config like this 
     rm -rf "$k8s_user_home/.kube" >> /dev/null 2>&1
-    printf "\r==> install local k3s cluster v%s user [%s]    " "$k8s_version" "$k8s_user"
+    logWithLevel "$INFO" "Install local k3s cluster v${k8s_version} for user [${k8s_user}]"
     curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE="644" \
                             INSTALL_K3S_CHANNEL="v$k8s_version" \
                             INSTALL_K3S_EXEC=" --disable traefik " sh > /dev/null 2>&1
 
     if ! check_k3s_cluster_status ; then
-        printf "[fail]\n"
-        printf "    ** Error: k3s check-config not reporting status of pass ** \n"
-        printf "    ** run sudo k3s check-config manually as user [%s] for more information   ** \n" "$k8s_user"
+        logWithLevel "$ERROR" "k3s check-config not reporting status of pass"
+        logWithLevel "$ERROR" "Run 'sudo k3s check-config' manually as user [${k8s_user}] for more information"
         exit 1
     fi
 
@@ -45,7 +46,7 @@ function install_k3s {
     chmod 600 "$kubeconfig_path"
 
     logWithVerboseCheck "$debug" debug "k3s kubeconfig copied to $kubeconfig_path"
-    printf "[ok]\n"
+    logWithLevel "$INFO" "k3s cluster installed and kubeconfig updated"
 
 }
 
@@ -78,12 +79,12 @@ function get_ingress_ip {
             ingress_ip="not-assigned"
         fi
     fi
-    printf "\r==> NGINX Ingress Controller external address: %s\n" "$ingress_ip"
+    logWithLevel "$INFO" "NGINX Ingress Controller external address: ${ingress_ip}"
     if [[ "$ingress_ip" == "not-assigned" ]]; then
-        printf "    Note: No external IP or hostname assigned yet. It may take a few minutes for the cloud provider to assign one.\n"
-        printf "    Run 'kubectl get svc -n ingress-nginx ingress-nginx-controller' to check the status.\n"
+        logWithLevel "$INFO" "No external IP or hostname assigned yet. It may take a few minutes for the cloud provider to assign one."
+        logWithLevel "$INFO" "Run 'kubectl get svc -n ingress-nginx ingress-nginx-controller' to check the status."
     else
-        printf "    Configure DNS to point Mifos Gazelle domains (e.g., *.mifos.gazelle.test) to %s\n" "$ingress_ip"
+        logWithLevel "$INFO" "Configure DNS to point Mifos Gazelle domains (e.g., *.mifos.gazelle.test) to ${ingress_ip}"
     fi
 }
 
@@ -94,7 +95,7 @@ function get_ingress_ip {
 #              minimises updates and network traffic 
 #------------------------------------------------------------------------------
 check_and_load_helm_repos() {
-printf "\r==> Check and load Helm repositories    "
+  logWithLevel "$INFO" "Check and load Helm repositories"
   local updated=false
 
   # Gazelle Repos List (name and URL)
@@ -121,23 +122,21 @@ printf "\r==> Check and load Helm repositories    "
     existing_url=$(echo "$repo_list_yaml" | grep -A1 "^- name: $repo_name" | grep "url:" | awk '{print $2}')
     if [[ -z "$existing_url" ]]; then
       if ! run_as_user "helm repo add $repo_name $repo_url" >/dev/null 2>&1; then
-        echo "  ** Error: Failed to add Helm repo '$repo_name' ($repo_url)" >&2
+        logWithLevel "$ERROR" "Failed to add Helm repo '$repo_name' ($repo_url)"
         exit 1
       fi
       updated=true
 
     elif [[ "$existing_url" != "$repo_url" ]]; then
-      echo "  ** Warning: Helm repo '$repo_name' URL mismatch." >&2
-      echo "     Found: $existing_url" >&2
-      echo "     Expected: $repo_url" >&2
+      logWithLevel "$ERROR" "Helm repo '$repo_name' URL mismatch. Found: $existing_url Expected: $repo_url"
 
       if ! run_as_user "helm repo remove $repo_name" >/dev/null 2>&1; then
-        echo "  ** Error: Failed to remove mismatched Helm repo '$repo_name'" >&2
+        logWithLevel "$ERROR" "Failed to remove mismatched Helm repo '$repo_name'"
         return 1
       fi
 
       if ! run_as_user "helm repo add $repo_name $repo_url" >/dev/null 2>&1; then
-        echo "  ** Error: Failed to re-add Helm repo '$repo_name' ($repo_url)" >&2
+        logWithLevel "$ERROR" "Failed to re-add Helm repo '$repo_name' ($repo_url)"
         return 1
       fi
       updated=true
@@ -147,11 +146,11 @@ printf "\r==> Check and load Helm repositories    "
   # Refresh all repos once if needed
   if [[ "$updated" == true ]]; then
     if ! run_as_user "helm repo update" >/dev/null 2>&1; then
-      echo "  ** Error: Failed to update Helm repos" >&2
+      logWithLevel "$ERROR" "Failed to update Helm repos"
       exit 1
     fi
   fi
-  printf "            [ok]\n"
+  logWithLevel "$INFO" "Helm repositories OK"
 }
 
 #------------------------------------------------------------------------------
@@ -159,7 +158,7 @@ printf "\r==> Check and load Helm repositories    "
 #              if not already installed. Wait for it to be running.   
 #------------------------------------------------------------------------------ 
 function install_nginx_local_cluster {
-    printf "\r==> Installing NGINX to local cluster "
+    logWithLevel "$INFO" "Installing NGINX to local cluster"
     if ! check_nginx_running; then 
         run_as_user  "helm delete ingress-nginx -n default " > /dev/null 2>&1
         run_as_user  "helm install --wait --timeout 1200s ingress-nginx ingress-nginx \
@@ -167,9 +166,9 @@ function install_nginx_local_cluster {
                             -n default -f $NGINX_VALUES_FILE"  > /dev/null 2>&1
     fi 
     if check_nginx_running; then 
-        printf "              [ok]\n"
+        logWithLevel "$INFO" "NGINX ingress controller is running"
     else
-        printf "** Error: Helm install of NGINX ingress controller failed, pod is not running **\n"
+        logWithLevel "$ERROR" "Helm install of NGINX ingress controller failed, pod is not running"
         exit 1
     fi
 }
@@ -178,7 +177,7 @@ function install_nginx_local_cluster {
 # Install k8s related tools if not already installed
 #------------------------------------------------------------------------------
 function install_k8s_tools {
-    printf "\r==> Checking and installing Kubernetes tools     "
+    logWithLevel "$INFO" "Checking and installing Kubernetes tools"
 
     # --- NOTE ON VERSIONING ---
     # TODO 
@@ -191,7 +190,7 @@ function install_k8s_tools {
     case "$ARCH" in
         x86_64) ARCH_TYPE="amd64" ;;
         aarch64|arm64) ARCH_TYPE="arm64" ;;
-        *) echo "Unsupported architecture: $ARCH"; echo "error ***  Wrong CPU Type ****" ; exit 1 ;;
+        *) logWithLevel "$ERROR" "Unsupported architecture: $ARCH. Wrong CPU Type."; exit 1 ;;
     esac
 
     # Array of tools and their installation details
@@ -207,10 +206,7 @@ function install_k8s_tools {
 
     for tool in "${!tools[@]}"; do
         if command -v "$tool" >/dev/null 2>&1; then
-            if [[ "$debug" == "true" ]]; then
-                echo "    $tool is already installed. Skipping."
-            fi
-            
+            logWithVerboseCheck "$debug" "$INFO" "$tool is already installed. Skipping."
             continue
         else
             #echo "Installing $tool..."
@@ -241,15 +237,13 @@ function install_k8s_tools {
             
             # Verify installation
             if command -v "$tool" >/dev/null 2>&1; then
-                if [[ "$debug" == "true" ]]; then
-                    echo "    $tool installed successfully."
-                fi
+                logWithVerboseCheck "$debug" "$INFO" "$tool installed successfully."
             else
-                echo "Error: $tool installation failed."
+                logWithLevel "$ERROR" "$tool installation failed."
             fi
         fi
     done
-    printf "   [ok]\n"
+    logWithLevel "$INFO" "Kubernetes tools installation check complete"
 }
 
 
@@ -261,7 +255,7 @@ function report_cluster_info {
     #export KUBECONFIG="$kubeconfig_path"
     num_nodes=$(kubectl get nodes --no-headers | wc -l)
     k8s_version=$(kubectl version | grep Server | awk '{print $3}')
-    printf "\r==> Cluster is available.\n"
-    printf "    Number of nodes: %s\n" "$num_nodes"
-    printf "    Kubernetes version: %s\n" "$k8s_version"
+    logWithLevel "$INFO" "Cluster is available"
+    logWithLevel "$INFO" "Number of nodes: ${num_nodes}"
+    logWithLevel "$INFO" "Kubernetes version: ${k8s_version}"
 }
