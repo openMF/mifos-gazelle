@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # deployer.sh -- the main Mifos Gazelle deployer script
 
+source "$(dirname "${BASH_SOURCE[0]}")/../utils/logger.sh"
+
 source "$RUN_DIR/src/deployer/core.sh" || { echo "FATAL: Could not source core.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/vnext.sh" || { echo "FATAL: Could not source vnext.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/mifosx.sh" || { echo "FATAL: Could not source mifosx.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
@@ -14,7 +16,7 @@ source "$RUN_DIR/src/utils/helpers.sh" || { echo "FATAL: Could not source helper
 #------------------------------------------------------------
 function cloneRepo() {
   if [ "$#" -ne 4 ]; then
-    echo "Usage: cloneRepo <branch> <repo_link> <target_directory> <cloned_directory_name>"
+    logWithLevel "$ERROR" "Usage: cloneRepo <branch> <repo_link> <target_directory> <cloned_directory_name>"
     return 1
   fi
 
@@ -35,16 +37,16 @@ function cloneRepo() {
       return 0
     fi
     # Remove repo if branch doesn't exist
-    echo "Branch $branch not found in $repo_path. Recloning..."
+    logWithLevel "$INFO" "Branch $branch not found in $repo_path. Recloning..."
     rm -rf "$repo_path"
   fi
 
   # Clone the repository
   run_as_user "git clone -b \"$branch\" \"$repo_link\" \"$repo_path\" " >/dev/null 2>&1
   if [ $? -eq 0 ]; then
-    echo "    Repository $repo_path cloned successfully."
+  logWithLevel "$INFO" "Repository $repo_path cloned successfully."
   else
-    echo "Failed to clone $repo_link to $repo_path."
+    logWithLevel "$ERROR" "Failed to clone $repo_link to $repo_path."
     return 1
   fi
 }
@@ -57,7 +59,7 @@ function cloneRepo() {
 function deleteResourcesInNamespaceMatchingPattern() {
     local pattern="$1"
     if [ -z "$pattern" ]; then
-        echo "  ** Error: need to specify resources to delete  ."
+        logWithLevel "$ERROR" "Need to specify resources to delete."
         exit 1 
     fi
         
@@ -85,8 +87,7 @@ function deleteResourcesInNamespaceMatchingPattern() {
 
         # Delete the namespace (this removes all resources within it)
         if ! run_as_user "kubectl delete ns \"$namespace\" --ignore-not-found=true" >> /dev/null 2>&1 ; then
-            echo " [FAILED]"
-            echo "Failed to delete namespace $namespace. Check logs for details."
+            logWithLevel "$ERROR" "Failed to delete namespace $namespace. Check logs for details."
             exit_code=1
         fi
     done <<< "$matching_namespaces"
@@ -101,7 +102,7 @@ function deleteResourcesInNamespaceMatchingPattern() {
 #------------------------------------------------------------
 function deployHelmChartFromDir() {
   if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
-    echo "Usage: deployHelmChartFromDir <chart_dir> <namespace> <release_name> [values_file]"
+    logWithLevel "$ERROR" "Usage: deployHelmChartFromDir <chart_dir> <namespace> <release_name> [values_file]"
     return 1
   fi
 
@@ -111,7 +112,7 @@ function deployHelmChartFromDir() {
   local values_file="$4"
 
   if [ ! -d "$chart_dir" ]; then
-    echo "Error: Chart directory '$chart_dir' does not exist."
+    logWithLevel "$ERROR" "Chart directory '$chart_dir' does not exist."
     return 1
   fi
 
@@ -125,10 +126,10 @@ function deployHelmChartFromDir() {
   check_command_execution $? "$helm_cmd"
   
   if is_app_running $namespace; then
-    echo "Helm chart deployed successfully."
+    logWithLevel "$INFO" "Helm chart deployed successfully for namespace $namespace."
     return 0
   else
-    echo -e "${RED}Helm chart deployment failed.${RESET}"
+    logWithLevel "$ERROR" "Helm chart deployment failed for namespace $namespace."
     return 1
   fi
 }
@@ -157,14 +158,14 @@ function createNamespace() {
 function deployInfrastructure() {
   local redeploy="${1:-false}"
 
-  printf "==> Deploying infrastructure \n"
+  logWithLevel "$INFO" "Deploying infrastructure"
 
   if is_app_running  "$INFRA_NAMESPACE"; then
     if [[ "$redeploy" == "false" ]]; then
-        echo "    Infrastructure is already deployed. Skipping deployment."
+        logWithLevel "$INFO" "Infrastructure is already deployed. Skipping deployment."
         return 0
     else
-        printf "    Redeploying infrastructure : Deleting existing resources in namespace %s\n" "$INFRA_NAMESPACE"
+        logWithLevel "$INFO" "Redeploying infrastructure: deleting existing resources in namespace $INFRA_NAMESPACE"
         deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
     fi
   fi
@@ -173,7 +174,7 @@ function deployInfrastructure() {
   check_command_execution $? "createNamespace $INFRA_NAMESPACE"
 
   # ensure we use the right domain name  in infra chart
-  echo "    Updating FQDNs in INFRA Helm chart values.yaml to use domain $GAZELLE_DOMAIN"
+  logWithLevel "$INFO" "Updating FQDNs in INFRA Helm chart values.yaml to use domain $GAZELLE_DOMAIN"
   update_fqdn "$INFRA_CHART_DIR/values.yaml" "mifos.gazelle.test" "$GAZELLE_DOMAIN" 
   update_fqdn "$INFRA_CHART_DIR/values.yaml" "mifos.gazelle.localhost" "$GAZELLE_DOMAIN" 
 
@@ -181,7 +182,7 @@ function deployInfrastructure() {
   ensure_helm_dependencies "$INFRA_CHART_DIR"
 
   # Deploy infra helm chart
-  printf "    Deploying infra helm chart  "
+  logWithLevel "$INFO" "Deploying infra helm chart"
   if [ "$debug" = true ]; then
     deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME"
     check_command_execution $? "deployHelmChartFromDir infra"
@@ -189,11 +190,7 @@ function deployInfrastructure() {
     deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" >> /dev/null 2>&1
     check_command_execution $? "deployHelmChartFromDir infra"
   fi
-  echo " [ok] "
-  
-  echo -e "\n${GREEN}============================"
-  echo -e "Infrastructure Deployed"
-  echo -e "============================${RESET}\n"
+  logWithLevel "$INFO" "Infrastructure Deployed"
 }
 
 #------------------------------------------------------------
@@ -203,7 +200,7 @@ function deployInfrastructure() {
 #------------------------------------------------------------
 function applyKubeManifests() {
     if [ "$#" -ne 2 ]; then
-        echo "Usage: applyKubeManifests <directory> <namespace>"
+        logWithLevel "$ERROR" "Usage: applyKubeManifests <directory> <namespace>"
         return 1
     fi
     
@@ -211,7 +208,7 @@ function applyKubeManifests() {
     local namespace="$2"
 
     if [ ! -d "$directory" ]; then
-        echo "Error: Directory '$directory' not found."
+        logWithLevel "$ERROR" "Directory '$directory' not found."
         return 1
     fi
 
@@ -302,10 +299,10 @@ function deleteApps() {
   local appsToDelete="$1"
   
   for app in $appsToDelete; do
-    echo -e "${BLUE}Deleting application: $app...${RESET}"
+    logWithLevel "$INFO" "Deleting application: $app..."
     case "$app" in
       "vnext")
-        printf "    deleting vnext "
+        logWithLevel "$INFO" "Deleting vnext/mifosx/paymenthub/infra"
         deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
         printf "                                 [ok]\n"
         ;;
@@ -326,7 +323,7 @@ function deleteApps() {
 
         ;;
       *)
-        echo -e "${RED}Invalid app '$app' for deletion. This should have been caught by validateInputs.${RESET}"
+        logWithLevel "$ERROR" "Invalid app '$app' for deletion. This should have been caught by validateInputs."
         showUsage
         exit 1
         ;;
