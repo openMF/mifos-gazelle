@@ -154,7 +154,7 @@ deploy_bpmns() {
       http_code=$(eval "$cmd")
       exit_code=$?
 
-      if [ "$exit_code" -eq 0 ] && [ "$http_code" -eq 200 ]; then
+      if [ "$exit_code" -eq 0 ] && ([ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]); then
           ((successful_uploads++))
       fi
     else
@@ -197,8 +197,8 @@ generate_sample_csvs() {
         run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\""
         run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\""
     else
-        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" > /tmp/phee-csv-gen.log 2>&1
-        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1
+        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\" 2>&1" > /tmp/phee-csv-gen.log
+        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\" 2>&1" >> /tmp/phee-csv-gen.log
     fi
 
     if [ $? -ne 0 ]; then
