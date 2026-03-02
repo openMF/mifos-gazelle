@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 import argparse
 import urllib3
+import subprocess
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -35,6 +36,262 @@ def get_gazelle_domain(cfg):
     except (configparser.NoSectionError, configparser.NoOptionError) as e:
         print(f"Config error: {e}", file=sys.stderr)
         sys.exit(1)
+
+# ----------------------------------------------------------------------
+# Tenant Validation
+# ----------------------------------------------------------------------
+def get_valid_tenants(namespace='paymenthub', pod='operationsmysql-0'):
+    """
+    Query the operationsmysql pod to get list of valid tenant names from
+    tenant_server_connections table.
+
+    Returns:
+        list: List of valid tenant names (schema_name values)
+        None: If query fails (e.g., kubectl not available, pod not found)
+    """
+    try:
+        # First get the mysql root password from secret
+        password_cmd = [
+            'kubectl', 'get', 'secret', '-n', namespace, 'operationsmysql',
+            '-o', "jsonpath={.data.mysql-root-password}"
+        ]
+        password_result = subprocess.run(
+            password_cmd,
+            capture_output=True,
+            text=False,
+            timeout=10
+        )
+
+        if password_result.returncode != 0:
+            print(f"Warning: Could not retrieve mysql password from secret", file=sys.stderr)
+            return None
+
+        # Decode base64 password
+        import base64
+        password = base64.b64decode(password_result.stdout).decode('utf-8').strip()
+
+        # Query tenants database
+        query_cmd = [
+            'kubectl', 'exec', '-n', namespace, pod, '--',
+            'mysql', '-uroot', f'-p{password}', 'tenants',
+            '-e', 'SELECT schema_name FROM tenant_server_connections',
+            '--batch', '--skip-column-names'
+        ]
+
+        result = subprocess.run(
+            query_cmd,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode != 0:
+            print(f"Warning: Could not query tenants database", file=sys.stderr)
+            return None
+
+        # Parse output - each line is a tenant name
+        tenants = [line.strip() for line in result.stdout.split('\n') if line.strip() and not line.startswith('mysql:')]
+        return tenants
+
+    except subprocess.TimeoutExpired:
+        print("Warning: Tenant validation query timed out", file=sys.stderr)
+        return None
+    except FileNotFoundError:
+        print("Warning: kubectl not found - skipping tenant validation", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"Warning: Tenant validation failed: {e}", file=sys.stderr)
+        return None
+
+def validate_tenant(tenant, namespace='paymenthub'):
+    """
+    Validate that the specified tenant exists in the database.
+
+    Args:
+        tenant: Tenant name to validate
+        namespace: Kubernetes namespace (default: paymenthub)
+
+    Returns:
+        bool: True if tenant is valid, False otherwise
+    """
+    valid_tenants = get_valid_tenants(namespace=namespace)
+
+    if valid_tenants is None:
+        # Could not query database - warn but allow to proceed
+        print(f"⚠️  Warning: Could not validate tenant '{tenant}' - proceeding anyway", file=sys.stderr)
+        return True
+
+    if tenant not in valid_tenants:
+        print(f"\n❌ ERROR: Tenant '{tenant}' does not exist!", file=sys.stderr)
+        print(f"\nValid tenants are: {', '.join(valid_tenants)}", file=sys.stderr)
+        print(f"\nTenants are configured in the tenant_server_connections table", file=sys.stderr)
+        print(f"in the 'tenants' database on the operationsmysql pod.", file=sys.stderr)
+        return False
+
+    print(f"✓ Tenant '{tenant}' validated", file=sys.stderr)
+    return True
+
+# ----------------------------------------------------------------------
+# GovStack Pre-flight Check
+# ----------------------------------------------------------------------
+def check_identity_mapper(registering_institution, debug=False):
+    """
+    Check if identity-account-mapper has entries for the given institution.
+
+    Returns:
+        int: Count of beneficiary entries, or None if the check could not run.
+    """
+    if debug:
+        print(f"\nPre-flight: checking identity mapper for '{registering_institution}'...", file=sys.stderr)
+
+    try:
+        query_cmd = [
+            'kubectl', 'exec', '-n', 'infra', 'mysql-0', '--',
+            'mysql', '-umifos', '-ppassword', 'identity_account_mapper',
+            '-e', (
+                f"SELECT COUNT(*) FROM identity_details "
+                f"WHERE registering_institution_id = '{registering_institution}'"
+            ),
+            '--batch', '--skip-column-names'
+        ]
+        result = subprocess.run(query_cmd, capture_output=True, text=True, timeout=10)
+
+        if result.returncode != 0:
+            return None
+
+        lines = [l for l in result.stdout.split('\n')
+                 if l.strip() and not l.startswith('mysql:')]
+        return int(lines[0].strip()) if lines else None
+
+    except subprocess.TimeoutExpired:
+        print("Warning: Identity mapper check timed out", file=sys.stderr)
+        return None
+    except FileNotFoundError:
+        print("Warning: kubectl not found — skipping identity mapper check", file=sys.stderr)
+        return None
+    except Exception as e:
+        if debug:
+            print(f"Warning: Identity mapper check failed: {e}", file=sys.stderr)
+        return None
+
+
+def get_payment_modes_from_csv(csv_file_path):
+    """Return the set of unique payment_mode values found in the CSV."""
+    import csv as csv_module
+    try:
+        modes = set()
+        with open(csv_file_path, 'r') as f:
+            reader = csv_module.DictReader(f)
+            for row in reader:
+                key = next((k for k in row if k.lower() == 'payment_mode'), None)
+                if key and row[key]:
+                    modes.add(row[key].strip().upper())
+        return modes
+    except Exception:
+        return set()
+
+
+def get_payee_identifiers_from_csv(csv_file_path):
+    """Return list of payee_identifier values (MSISDNs) from the CSV."""
+    import csv as csv_module
+    try:
+        payees = []
+        with open(csv_file_path, 'r') as f:
+            reader = csv_module.DictReader(f)
+            for row in reader:
+                key = next((k for k in row if k.lower() == 'payee_identifier'), None)
+                if key and row[key]:
+                    payees.append(row[key].strip())
+        return payees
+    except Exception:
+        return []
+
+
+def detect_registering_institution(payee_identifiers, debug=False):
+    """
+    Query identity_details to find which registering_institution_id(s) the
+    payee MSISDNs from the CSV belong to.
+
+    Returns:
+        (str or None, dict): (best_institution, {institution: match_count})
+        best_institution is None if no matches found or query failed.
+    """
+    if not payee_identifiers:
+        return None, {}
+
+    if debug:
+        print(f"\nAuto-detecting registering institution from "
+              f"{len(payee_identifiers)} payee identifiers...", file=sys.stderr)
+
+    # MSISDNs are digits — safe to embed in IN clause
+    in_clause = "', '".join(payee_identifiers)
+
+    try:
+        query_cmd = [
+            'kubectl', 'exec', '-n', 'infra', 'mysql-0', '--',
+            'mysql', '-umifos', '-ppassword', 'identity_account_mapper',
+            '-e', (
+                f"SELECT registering_institution_id, COUNT(*) as cnt "
+                f"FROM identity_details "
+                f"WHERE payee_identity IN ('{in_clause}') "
+                f"GROUP BY registering_institution_id "
+                f"ORDER BY cnt DESC"
+            ),
+            '--batch', '--skip-column-names'
+        ]
+        result = subprocess.run(query_cmd, capture_output=True, text=True, timeout=10)
+
+        if result.returncode != 0:
+            return None, {}
+
+        counts = {}
+        for line in result.stdout.split('\n'):
+            if line.strip() and not line.startswith('mysql:'):
+                parts = line.strip().split('\t')
+                if len(parts) == 2:
+                    try:
+                        counts[parts[0]] = int(parts[1])
+                    except ValueError:
+                        pass
+
+        if not counts:
+            return None, {}
+
+        best = max(counts, key=counts.get)
+        return best, counts
+
+    except subprocess.TimeoutExpired:
+        print("Warning: Institution detection query timed out", file=sys.stderr)
+        return None, {}
+    except FileNotFoundError:
+        return None, {}
+    except Exception as e:
+        if debug:
+            print(f"Warning: Institution detection failed: {e}", file=sys.stderr)
+        return None, {}
+
+
+def print_workflow_info(tenant, govstack, csv_file_path):
+    """Print BPMN workflow details. Called only in --debug mode."""
+    bulk_workflow = (
+        f"bulk_processor_account_lookup-{tenant}" if govstack
+        else f"bulk_processor-{tenant}"
+    )
+    payment_modes = get_payment_modes_from_csv(csv_file_path)
+    mode_desc = (
+        "GovStack — identity validation + de-bulking by payee FSP"
+        if govstack else
+        "Standard — no identity validation, payer from CSV"
+    )
+
+    print(f"\nWORKFLOW DETAILS", file=sys.stderr)
+    print(f"{'─' * 50}", file=sys.stderr)
+    print(f"  Bulk-processor workflow : {bulk_workflow}", file=sys.stderr)
+    if payment_modes:
+        print(f"  Payment mode(s) in CSV  : {', '.join(sorted(payment_modes))}", file=sys.stderr)
+    print(f"  Submission mode         : {mode_desc}", file=sys.stderr)
+    print(f"{'─' * 50}", file=sys.stderr)
+
 
 # ----------------------------------------------------------------------
 # Signature Generation
@@ -182,32 +439,52 @@ def main():
         description="Submit batch CSV file to Payment Hub bulk-processor",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Submit CSV in non-GovStack mode (uses payer from CSV, partyLookup workflow)
-  ./submit-batch.py --csv-file tom-bulk4.csv
+WHEN TO USE --govstack:
+  --govstack enables GovStack G2P mode (Government-to-Person disbursement):
+    * Sends X-Registering-Institution-ID header to bulk-processor
+    * Triggers bulk_processor_account_lookup-{tenant} workflow
+      (instead of the standard bulk_processor-{tenant})
+    * Validates every beneficiary via the identity-account-mapper service
+    * De-bulks the batch by payee FSP (creates one sub-batch per destination bank)
+    * --registering-institution is auto-detected from CSV payees via identity-account-mapper
+      (override with --registering-institution if needed)
+    * Prerequisite: identity-account-mapper DB must have entries
+      (run generate-mifos-vnext-data.py --regenerate if empty)
 
-  # Submit CSV in GovStack mode (uses payer from config, batchAccountLookup workflow)
-  ./submit-batch.py --csv-file bulk-govstack.csv --govstack --program SocialWelfare
+  Without --govstack (standard mode):
+    * Triggers bulk_processor-{tenant} workflow
+    * No beneficiary validation — payer/payee taken directly from CSV
+    * Faster; suitable for testing where beneficiaries are already known
 
-  # Submit with custom tenant
-  ./submit-batch.py --csv-file bulk.csv --tenant bluebank
+NOTE: --govstack and payment_mode (CLOSEDLOOP vs MOJALOOP) are independent:
+  CLOSEDLOOP  — direct call to connector-channel, no Mojaloop switch involved
+  MOJALOOP    — routes via Mojaloop vNext switch for multi-FSP transfers
+  Both modes work with or without --govstack.
 
-  # Submit GovStack with custom institution
-  ./submit-batch.py --csv-file bulk.csv --govstack \\
-    --registering-institution greenbank --program ChildBenefit
+DECISION TABLE:
+  Use case                        | --tenant  | --govstack | CSV payment_mode
+  --------------------------------|-----------|------------|------------------
+  Simple internal test            | redbank   | NO         | CLOSEDLOOP
+  Multi-FSP via Mojaloop switch   | greenbank | NO         | MOJALOOP
+  G2P bulk disbursement (switch)  | greenbank | YES        | MOJALOOP  ← recommended
+  G2P closedloop (same PH only)   | redbank   | YES        | CLOSEDLOOP
 
-Notes:
-  - Use generate-example-csv-files.py to create CSV files
-  - GovStack mode (--govstack) triggers different BPMN workflow:
-    * Sends X-Registering-Institution-ID header
-    * Uses bulk_processor_account_lookup-{tenant} workflow
-    * Payer account from application.yml config
-    * CSV payer columns are ignored
-  - Non-GovStack mode (default):
-    * No X-Registering-Institution-ID header
-    * Uses bulk_processor-{tenant} workflow
-    * Payer account from CSV
-    * Supports closedloop or mojaloop payment_mode
+EXAMPLES:
+  # Standard closedloop — redbank payer, no identity validation
+  ./submit-batch.py -f bulk-gazelle-closedloop-4.csv --tenant redbank
+
+  # Standard Mojaloop — greenbank payer, no identity validation
+  ./submit-batch.py -f bulk-gazelle-mojaloop-4.csv --tenant greenbank
+
+  # GovStack G2P via Mojaloop switch — registering institution auto-detected from CSV
+  ./submit-batch.py -f bulk-gazelle-mojaloop-4.csv --tenant greenbank --govstack
+
+  # Same as above with debug output (shows workflow, detected institution, payment modes)
+  ./submit-batch.py -f bulk-gazelle-mojaloop-4.csv --tenant greenbank --govstack --debug
+
+  # Override auto-detection if needed
+  ./submit-batch.py -f bulk-gazelle-mojaloop-4.csv --tenant greenbank \\
+    --govstack --registering-institution greenbank
         """
     )
 
@@ -216,15 +493,18 @@ Notes:
     parser.add_argument('--config', '-c', type=Path, default=default_config,
                        help=f'Path to config.ini (default: {default_config})')
     parser.add_argument('--tenant', '-t', type=str, default='greenbank',
-                       help='Tenant ID (default: greenbank)')
+                       help='Tenant ID (default: greenbank) - will be validated against tenant_server_connections table')
     parser.add_argument('--govstack', '-g', action='store_true',
                        help='Enable GovStack mode (sends X-Registering-Institution-ID header)')
-    parser.add_argument('--registering-institution', '-i', type=str, default='greenbank',
-                       help='Registering institution ID (default: greenbank, used when --govstack is set)')
+    parser.add_argument('--registering-institution', '-i', type=str, default=None,
+                       help='Registering institution ID for GovStack mode. '
+                            'Auto-detected from CSV payees via identity-account-mapper if not specified.')
     parser.add_argument('--program', '-p', type=str,
                        help='Program ID (optional, for GovStack mode with X-Program-ID header)')
     parser.add_argument('--secret-key', '-k', type=str, default=DEFAULT_SECRET_KEY,
                        help='Secret key for signing (default: built-in key)')
+    parser.add_argument('--debug', '-d', action='store_true',
+                       help='Show workflow details (BPMN workflow name, payment modes) before submitting')
 
     args = parser.parse_args()
 
@@ -241,6 +521,67 @@ Notes:
     print(f"PAYMENT HUB BATCH TOOL - {domain}", file=sys.stderr)
     print("="*80, file=sys.stderr)
     print(f"Using CSV: {args.csv_file}", file=sys.stderr)
+
+    # Validate tenant exists
+    if not validate_tenant(args.tenant):
+        sys.exit(1)
+
+    # Resolve registering institution for GovStack mode
+    registering_institution = args.registering_institution
+    if args.govstack:
+        if registering_institution is None:
+            # Auto-detect from CSV payees via identity-account-mapper DB
+            payees = get_payee_identifiers_from_csv(args.csv_file)
+            if payees:
+                best, counts = detect_registering_institution(payees, debug=args.debug)
+                if best:
+                    total = len(payees)
+                    matched = counts[best]
+                    if len(counts) == 1:
+                        print(f"✓ Auto-detected registering institution: '{best}' "
+                              f"({matched}/{total} payees matched)", file=sys.stderr)
+                    else:
+                        others = ', '.join(
+                            f"'{k}'({v})" for k, v in counts.items() if k != best
+                        )
+                        print(f"⚠️  Multiple institutions found: '{best}'({matched}) "
+                              f"[most], {others}", file=sys.stderr)
+                        print(f"   Using '{best}'. Pass --registering-institution to override.",
+                              file=sys.stderr)
+                    registering_institution = best
+                else:
+                    print(f"\n⚠️  WARNING: Could not auto-detect registering institution.",
+                          file=sys.stderr)
+                    print(f"   Payees from CSV not found in identity-account-mapper.",
+                          file=sys.stderr)
+                    print(f"   Fix: run generate-mifos-vnext-data.py --regenerate",
+                          file=sys.stderr)
+                    print(f"   Or:  pass --registering-institution explicitly",
+                          file=sys.stderr)
+            else:
+                print(f"⚠️  No payee_identifier column found in CSV — "
+                      f"cannot auto-detect institution", file=sys.stderr)
+        else:
+            # User specified institution explicitly — run pre-flight count check
+            count = check_identity_mapper(registering_institution, debug=args.debug)
+            if count is not None:
+                if count == 0:
+                    print(f"\n⚠️  WARNING: Identity mapper has 0 entries for "
+                          f"institution '{registering_institution}'", file=sys.stderr)
+                    print(f"   --govstack mode will likely produce empty results.",
+                          file=sys.stderr)
+                    print(f"   Fix: run generate-mifos-vnext-data.py --regenerate",
+                          file=sys.stderr)
+                    print(f"   Or: resubmit without --govstack for standard mode.",
+                          file=sys.stderr)
+                else:
+                    n = count
+                    print(f"✓ Identity mapper: {n} beneficiar{'ies' if n != 1 else 'y'} "
+                          f"found for '{registering_institution}'", file=sys.stderr)
+
+    # Debug: show which workflow will be triggered before submitting
+    if args.debug:
+        print_workflow_info(args.tenant, args.govstack, args.csv_file)
 
     # Generate correlation ID
     correlation_id = str(uuid.uuid4())
@@ -262,7 +603,7 @@ Notes:
         tenant=args.tenant,
         correlation_id=correlation_id,
         govstack=args.govstack,
-        registering_institution=args.registering_institution,
+        registering_institution=registering_institution,
         program=args.program
     )
 

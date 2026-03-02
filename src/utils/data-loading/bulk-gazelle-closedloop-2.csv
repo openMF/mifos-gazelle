@@ -1,3 +1,0 @@
-id,request_id,payment_mode,payer_identifier_type,payer_identifier,payee_identifier_type,payee_identifier,amount,currency,note
-0,6b564f79-7b01-4809-b764-f074647c5607,CLOSEDLOOP,MSISDN,0413356886,MSISDN,0495822412,10,USD,Payment to James Ramirez
-1,cca8d015-6b0a-4772-b42b-ba66eaef3890,CLOSEDLOOP,MSISDN,0413356886,MSISDN,0495822412,16,USD,Payment to James Ramirez

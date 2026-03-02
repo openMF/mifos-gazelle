@@ -108,9 +108,11 @@ class LocalDevPatcher:
                 continue
                 
             comp_config = self.config[comp]
+            if 'directory' not in comp_config:
+                continue
             directory = Path(self._expand_vars(comp_config['directory']))
             deployment_file = directory / "templates" / "deployment.yaml"
-            
+
             if not deployment_file.exists():
                 continue
             
@@ -323,74 +325,109 @@ class LocalDevPatcher:
         print(f"✅ Complete setup finished: {success_count}/{len(components)} components")
         print(f"{'=' * 60}\n")
     
+    def _visual_ljust(self, s: str, width: int) -> str:
+        """Left-justify to terminal display width, treating wide emoji as 2 chars."""
+        import unicodedata
+        vis_w = 0
+        for ch in s:
+            eaw = unicodedata.east_asian_width(ch)
+            if eaw in ('W', 'F'):
+                vis_w += 2
+            elif unicodedata.category(ch) in ('Mn', 'Me', 'Cf'):
+                vis_w += 0  # combining / variation-selector chars (e.g. U+FE0F after ⚠)
+            else:
+                vis_w += 1
+        return s + ' ' * max(0, width - vis_w)
+
     def status_all(self):
-        """Show status of all components: repos and git protection"""
+        """Show compact table status of all components, grouped by patch state."""
+        import unicodedata
         components = self.get_components()
-        
-        print(f"\n{'=' * 60}")
-        print(f"Component Status")
-        print(f"{'=' * 60}\n")
-        
+        rows = []
+
         for component in components:
             if component not in self.config:
                 continue
-            
             comp_config = self.config[component]
-            print(f"📦 {component}")
-            
-            # Check repository status
+
+            # ── Checkout column ───────────────────────────────────────────────
             if comp_config.get('checkout_enabled', '').lower() == 'true':
                 checkout_to_dir = self._expand_vars(comp_config.get('checkout_to_dir', str(Path.home())))
                 reponame = comp_config.get('reponame', '')
                 repo_name = reponame.rstrip('/').split('/')[-1].replace('.git', '')
                 repo_path = Path(checkout_to_dir) / repo_name
-                
+                expected = comp_config.get('branch_or_tag', 'main')
+
                 if self._repo_exists(repo_path):
-                    current_branch = self._get_current_branch(repo_path)
-                    expected_branch = comp_config.get('branch_or_tag', 'main')
-                    
-                    if current_branch == expected_branch:
-                        print(f"  ✅ Repository: {repo_path}")
-                        print(f"     Branch: {current_branch}")
+                    current = self._get_current_branch(repo_path)
+                    if current == expected:
+                        co_col = f"✅ {current}"
                     else:
-                        print(f"  ⚠️  Repository: {repo_path}")
-                        print(f"     Current branch: {current_branch}")
-                        print(f"     Expected branch: {expected_branch}")
+                        co_col = f"⚠️  {current} (want {expected})"
                 else:
-                    print(f"  ❌ Repository not found: {repo_path}")
+                    co_col = "❌ not cloned"
             else:
-                print(f"  ⏭️  Checkout disabled")
-            
-            # Check deployment patch status
-            directory = Path(self._expand_vars(comp_config['directory']))
-            deployment_file = directory / "templates" / "deployment.yaml"
-            
-            if deployment_file.exists():
-                try:
-                    result = subprocess.run(
-                        ['git', 'ls-files', '-v', str(deployment_file.name)],
-                        cwd=deployment_file.parent,
-                        capture_output=True,
-                        text=True
-                    )
-                    
-                    if result.returncode == 0 and result.stdout:
-                        if result.stdout.startswith('S'):
-                            print(f"  🔒 Deployment patched and protected")
-                        else:
-                            backup_file = deployment_file.with_suffix('.yaml.backup')
-                            if backup_file.exists():
-                                print(f"  ⚠️  Deployment patched but not protected")
+                co_col = "— disabled"
+
+            # ── Deploy column ─────────────────────────────────────────────────
+            is_patched = False
+            if 'directory' not in comp_config:
+                dep_col = "— operator"
+            else:
+                directory = Path(self._expand_vars(comp_config['directory']))
+                deployment_file = directory / "templates" / "deployment.yaml"
+                backup_file = deployment_file.parent / "_deployment.yaml.backup"
+
+                if not deployment_file.exists():
+                    dep_col = "❌ missing"
+                else:
+                    try:
+                        result = subprocess.run(
+                            ['git', 'ls-files', '-v', str(deployment_file.name)],
+                            cwd=deployment_file.parent,
+                            capture_output=True, text=True
+                        )
+                        if result.returncode == 0 and result.stdout:
+                            if result.stdout.startswith('S'):
+                                dep_col = "🔒 patched"
+                                is_patched = True
+                            elif backup_file.exists():
+                                dep_col = "⚠️  patched (unprotected)"
+                                is_patched = True
                             else:
-                                print(f"  ℹ️  Deployment not patched")
-                except:
-                    print(f"  ℹ️  Deployment status unknown")
-            else:
-                print(f"  ❌ Deployment file not found")
-            
-            print()
-        
-        print(f"{'=' * 60}\n")
+                                dep_col = "— not patched"
+                        else:
+                            dep_col = "— not patched"
+                    except Exception:
+                        dep_col = "? unknown"
+
+            rows.append({'name': component, 'co': co_col, 'dep': dep_col, 'is_patched': is_patched})
+
+        patched_rows = [r for r in rows if r['is_patched']]
+        other_rows   = [r for r in rows if not r['is_patched']]
+        all_rows     = patched_rows + other_rows
+
+        W      = 64
+        name_w = max((len(r['name']) for r in all_rows), default=12) + 2
+        co_w   = 27  # wide enough for "✅ mifos-v2.0.0  " with emoji offset
+
+        print(f"\n{'═' * W}")
+        print(f"  Local Dev Status")
+        print(f"{'═' * W}")
+        print(f"  {'COMPONENT':<{name_w}}  {'CHECKOUT':<{co_w}}  DEPLOY")
+        print(f"  {'─' * (W - 4)}")
+
+        def print_section(label, section_rows):
+            if not section_rows:
+                return
+            fill = '─' * max(0, W - len(label) - 7)
+            print(f"\n  ── {label} {fill}")
+            for r in section_rows:
+                print(f"  {self._visual_ljust(r['name'], name_w)}  {self._visual_ljust(r['co'], co_w)}  {r['dep']}")
+
+        print_section("PATCHED  (active local dev)", patched_rows)
+        print_section("NOT PATCHED", other_rows)
+        print(f"\n{'═' * W}\n")
     
     def patch_deployment(self, component: str, dry_run: bool = False) -> bool:
         """
@@ -408,6 +445,12 @@ class LocalDevPatcher:
             return False
 
         comp_config = self.config[component]
+
+        # Operator-managed components have no Helm chart to patch
+        if 'directory' not in comp_config:
+            print(f"\n⏭️  Skipping {component} - operator-managed (no Helm chart to patch)")
+            print(f"  ℹ️  Use the CR samples in src/operators/ to configure this component")
+            return True
 
         # Get component configuration
         directory = Path(self._expand_vars(comp_config['directory']))
@@ -688,10 +731,15 @@ class LocalDevPatcher:
             return False
         
         comp_config = self.config[component]
+
+        if 'directory' not in comp_config:
+            print(f"\n⏭️  Skipping {component} - operator-managed (no Helm chart to restore)")
+            return True
+
         directory = Path(self._expand_vars(comp_config['directory']))
         deployment_file = directory / "templates" / "deployment.yaml"
         backup_file = deployment_file.parent / f"_deployment.yaml.backup"
-        
+
         if not backup_file.exists():
             print(f"❌ No backup found for {component}")
             return False
@@ -755,37 +803,37 @@ def main():
         epilog="""
 Examples:
   # Show status of all components
-  python localdev.py --status
+  ./localdev.py --status
   
   # Complete setup: checkout repos + patch deployments
-  python localdev.py --setup
+  ./localdev.py --setup
   
   # Just checkout component repositories
-  python localdev.py --checkout
+  ./localdev.py --checkout
   
   # Update existing repos (pull latest)
-  python localdev.py --update
+  ./localdev.py --update
   
   # Dry run - see what would be changed
-  python localdev.py --dry-run
+  ./localdev.py --dry-run
   
   # Patch all components (auto-protects from git commits)
-  python localdev.py
+  ./localdev.py
   
   # Setup specific component (checkout + patch)
-  python localdev.py --setup --component bulk-processor
+  ./localdev.py --setup --component bulk-processor
   
   # Checkout specific component
-  python localdev.py --checkout --component bulk-processor
+  ./localdev.py --checkout --component bulk-processor
   
   # Check which files are protected from git commits
-  python localdev.py --check-git-status
+  ./localdev.py --check-git-status
   
   # Restore all from backups (removes git protection)
-  python localdev.py --restore
+  ./localdev.py --restore
   
   # Restore specific component
-  python localdev.py --restore --component bulk-processor
+  ./localdev.py --restore --component bulk-processor
         """
     )
     
