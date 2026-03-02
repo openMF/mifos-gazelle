@@ -39,7 +39,8 @@ _log_to_file() {
   if [ -n "${GAZELLE_LOG_FILE:-}" ] && [ -n "$1" ]; then
     local clean_msg
     clean_msg="$(printf '%s' "$1" | _strip_ansi)"
-    printf '%s\n' "$clean_msg" >> "$GAZELLE_LOG_FILE"
+    # Use %b so embedded \n become real newlines in the log file
+    printf '%b\n' "$clean_msg" >> "$GAZELLE_LOG_FILE"
   fi
 }
 
@@ -71,6 +72,18 @@ function logWithLevel() {
 
   echo -e "$output"
   _log_to_file "$output"
+}
+
+function logWithVerboseCheck() {
+  local isVerbose=$1
+  local logLevel=$2
+  shift && shift
+  if [ -z "$isVerbose" ] || [ -z "$logLevel" ] || [ -z "$1" ]; then 
+    return 1
+  fi
+  if [ "$isVerbose" = true ]; then 
+    logWithLevel "$logLevel" "$*"
+  fi
 }
 
 function log_section() {
@@ -112,9 +125,9 @@ function log_error() {
 }
 
 function log_banner() {
-  local line="================================="
+  local line="=================================="
   echo -e "\n${GREEN}${line}${RESET}"
-  echo -e "${GREEN}$*${RESET}"
+  echo -e "${GREEN} $*${RESET}"
   echo -e "${GREEN}${line}${RESET}"
-  _log_to_file "\n${line}\n$*\n${line}"
+  _log_to_file "\n${line}\n $*\n${line}"
 }
