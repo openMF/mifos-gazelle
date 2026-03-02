@@ -1,0 +1,62 @@
+apiVersion: paymenthub.mifos.io/v1alpha1
+kind: MastercardCBSConnector
+metadata:
+  name: mastercard-cbs
+  namespace: mastercard-demo
+spec:
+  # Enable the connector
+  enabled: true
+
+  # Number of replicas (keep at 1 for local dev)
+  replicas: 1
+
+  # Connector image
+  image:
+    repository: eclipse-temurin
+    tag: "17"
+    pullPolicy: IfNotPresent
+
+  # Mastercard API configuration
+  mastercard:
+    apiUrl: "https://sandbox.api.mastercard.com"
+    clientSecretName: "mastercard-cbs-credentials"
+
+  # PaymentHub integration
+  paymenthub:
+    namespace: "paymenthub"
+    zeebeGateway: "zeebe-gateway.paymenthub.svc.cluster.local:26500"
+    operationsDb:
+      host: "operationsmysql.paymenthub.svc.cluster.local"
+      port: 3306
+      database: "operations"
+      secretName: "mysql-secret"
+
+  # Data loading
+  dataLoading:
+    autoLoad: true
+    demoPayeeCount: 10
+
+  # BPMN workflow
+  workflow:
+    autoDeploy: true
+
+  # LOCAL DEVELOPMENT MODE
+  # Enable this section for local development with hostPath mounting
+  localdev:
+    enabled: true
+    hostPath: "/home/tdaly/ph-ee-connector-mccbs"
+    jarPath: "/app/build/libs/ph-ee-connector-mastercard-cbs-1.0.0-SNAPSHOT.jar"
+    # When localdev is enabled:
+    # - image changes to JDK image (eclipse-temurin:17)
+    # - hostPath is mounted at /app in container
+    # - command overridden to run JAR from /app/build/libs/
+    # - allows instant code changes: edit locally -> rebuild JAR -> restart pod
+
+  # Resource limits
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "250m"
+      memory: "256Mi"

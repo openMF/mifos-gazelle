@@ -14,47 +14,52 @@ function deployPH(){
   # "sandbox-secret" \
   # "ops.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost"
 
+  log_section "Deploying Payment Hub EE"
+
   if is_app_running "$PH_NAMESPACE"; then
     if [[ "$redeploy" == "false" ]]; then
-      echo "    $PH_RELEASE_NAME is already deployed. Skipping deployment."
+      echo "    Payment Hub EE already deployed — skipping."
       return 0
-    fi 
-  fi 
-  # We are deploying or redeploying => make sure things are cleaned up first
-  printf "    Redeploying paymenthub : Deleting existing resources in namespace %s\n" "$PH_NAMESPACE"
+    fi
+  fi
+
+  log_step "Removing existing Payment Hub resources"
   deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
   manageElasticSecrets delete "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
-  run_as_user "kubectl wait --for=condition=ready pod --all -n $VNEXT_NAMESPACE --timeout=600s"
-  #wait_for_pods_ready "$VNEXT_NAMESPACE"
-  echo "==> Deploying PaymentHub EE"
+  log_ok
+
+  run_as_user "kubectl wait --for=condition=ready pod --all -n $VNEXT_NAMESPACE --timeout=600s" > /dev/null 2>&1
+
+  log_step "Creating namespace $PH_NAMESPACE"
   createNamespace "$PH_NAMESPACE"
-  #checkPHEEDependencies
+  log_ok
+
   prepare_payment_hub_chart
+
+  log_step "Creating elastic secrets"
   manageElasticSecrets delete "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
   manageElasticSecrets create "$PH_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
   manageElasticSecrets create "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
-  # old createIngressSecret "$PH_NAMESPACE" "$GAZELLE_DOMAIN" sandbox-secret
-  createIngressSecret "$PH_NAMESPACE"  \
-  "bulk-processor.$GAZELLE_DOMAIN" \
-  "sandbox-secret" \
-  "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,ph-ee-connector-channel,ph-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
+  log_ok
 
-  
-  # now deploy the helm chart 
+  createIngressSecret "$PH_NAMESPACE" \
+    "bulk-processor.$GAZELLE_DOMAIN" \
+    "sandbox-secret" \
+    "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,ph-ee-connector-channel,ph-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
+
   deployPhHelmChartFromDir "$PH_NAMESPACE" "$gazelleChartPath" "$PH_VALUES_FILE"
-  # now load the BPMS diagrams if they are not already loaded 
-  
-  # bpmns_to_deploy is the number of BPMS in the orchestration/feel directory
-  local bpmns_to_deploy=$(ls -l "$BASE_DIR/orchestration/feel"/*.bpmn | wc -l) 
-  echo "    BPMNs to deploy count is $bpmns_to_deploy"
-  if are_bpmns_loaded $bpmns_to_deploy ; then
-    echo "    BPMN diagrams are already loaded - skipping load "
+
+  local bpmns_to_deploy=$(ls -l "$BASE_DIR/orchestration/feel"/*.bpmn | wc -l)
+  logWithVerboseCheck "$debug" "$DEBUG" "BPMNs to deploy: $bpmns_to_deploy"
+  if are_bpmns_loaded $bpmns_to_deploy; then
+    echo "    BPMN diagrams already loaded — skipping."
   else
     deploy_bpmns
   fi
-  echo -e "\n${GREEN}============================"
-  echo -e "Paymenthub Deployed"
-  echo -e "============================${RESET}\n"
+
+  generate_sample_csvs
+
+  log_banner "Payment Hub EE Deployed"
 }
 
 #------------------------------------------------------------------------------
@@ -67,13 +72,13 @@ function prepare_payment_hub_chart() {
   cloneRepo "$PHBRANCH" "$PH_REPO_LINK" "$APPS_DIR" "$PHREPO_DIR"  # needed for kibana and elastic secrets only 
   cloneRepo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
   
-  # Update FQDNs in values file and manifests
-  echo "    Updating FQDNs Helm chart values and manifests to use domain $GAZELLE_DOMAIN"
+  log_step "Updating FQDNs in Helm chart values and manifests"
   update_fqdn "$PH_VALUES_FILE" "mifos.gazelle.test" "$GAZELLE_DOMAIN" 
   update_fqdn "$PH_VALUES_FILE" "mifos.gazelle.localhost" "$GAZELLE_DOMAIN" 
   update_fqdn_batch "$APPS_DIR/ph_template" "mifos.gazelle.test" "$GAZELLE_DOMAIN"
   update_fqdn_batch "$APPS_DIR/ph_template" "mifos.gazelle.localhost" "$GAZELLE_DOMAIN"
-  
+  log_ok
+
   # Run for ph-ee-engine
   phEEenginePath="$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine"
   ensure_helm_dependencies "$phEEenginePath"
@@ -102,14 +107,12 @@ function deployPhHelmChartFromDir(){
   local helm_cmd="helm install $releaseName $chartDir -n $namespace --wait --timeout $timeout"
   if [ -n "$valuesFile" ]; then
     helm_cmd="$helm_cmd -f $valuesFile"
-    echo "    Installing Helm chart with values file: $valuesFile"
-  else
-    echo "    Installing Helm chart with default values..."
   fi
 
-  # Run the install command and capture exit status
+  log_step "Helm install ($releaseName)"
+  logWithVerboseCheck "$debug" "$DEBUG" "→ $helm_cmd"
+
   if [ "$debug" = true ]; then
-    echo "🔧 Running as $k8s_user: $helm_cmd"
     su - "$k8s_user" -c "bash -c '$helm_cmd'"
     install_exit_code=$?
   else
@@ -117,15 +120,13 @@ function deployPhHelmChartFromDir(){
     install_exit_code=$?
   fi
 
-  # Verify status after install
   su - "$k8s_user" -c "helm status $releaseName -n $namespace" > /tmp/helm_status_output 2>&1
-  local status_exit_code=$?
 
   if grep -q "^STATUS: deployed" /tmp/helm_status_output; then
-    echo "    Helm release '$releaseName' deployed successfully."
+    log_ok
     return 0
   else
-    echo -e "${RED}    ❌ Helm install of release '$releaseName' has failed :${RESET}"
+    log_failed "Helm release '$releaseName' did not reach deployed status"
     exit 1
   fi
 }
@@ -140,43 +141,31 @@ deploy_bpmns() {
   local successful_uploads=0
   local BPMNS_DIR="$BASE_DIR/orchestration/feel"  # BPMNs deployed from  Gazelle but probably eventually belong in ph-ee-env-template 
   local bpms_to_deploy=$(ls -l "$BPMNS_DIR"/*.bpmn | wc -l)
-  printf "    Deploying BPMN diagrams from $BPMNS_DIR "
+  log_step "Deploying BPMN diagrams"
 
-  # Find each .bpmn file in the specified directories and iterate over them
-  for file in "$BPMNS_DIR"/*.bpmn;  do
-    # Check if the glob expanded to an actual file or just returned the pattern
+  for file in "$BPMNS_DIR"/*.bpmn; do
     if [ -f "$file" ]; then
-      # Construct and execute the curl command for each file
       local cmd="curl --insecure --location --request POST $host \
           --header 'Platform-TenantId: greenbank' \
           --form 'file=@\"$file\"' \
           -s -o /dev/null -w '%{http_code}'"
 
-      if [ "$DEBUG" = true ]; then
-          echo "Executing: $cmd"
-          http_code=$(eval "$cmd")
-          exit_code=$?
-          echo "HTTP Code: $http_code"
-          echo "Exit code: $exit_code"
-      else
-          http_code=$(eval "$cmd")
-          exit_code=$?
-      fi 
+      logWithVerboseCheck "$debug" "$DEBUG" "Uploading $(basename $file)"
+      http_code=$(eval "$cmd")
+      exit_code=$?
 
       if [ "$exit_code" -eq 0 ] && [ "$http_code" -eq 200 ]; then
           ((successful_uploads++))
       fi
     else
-      echo -e "${RED}** Warning : No BPMN files found in $BPMNS_DIR ${RESET}" 
+      log_warn "No BPMN files found in $BPMNS_DIR"
     fi
   done
 
-  # Check if the number of successful uploads meets the required threshold
   if [ "$successful_uploads" -ge "$bpms_to_deploy" ]; then
-    echo " [ok] "
+    log_ok
   else
-    echo -e "${RED}Warning: there was an issue deploying the BPMN diagrams."
-    echo -e "         run ./src/utils/deployBpmn-gazelle.sh to investigate${RESET}"
+    log_warn "Some BPMN diagrams may not have deployed. Run: ./src/utils/deployBpmn-gazelle.sh"
   fi
 }
 
@@ -187,6 +176,38 @@ deploy_bpmns() {
 #   $1 - Minimum required number of BPMNs (default: 1)
 # Returns:
 #   0 if the required number of BPMNs are loaded, 1 otherwise.
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+# Function: generate_sample_csvs
+# Description: Generates sample bulk payment CSV files for closedloop and mojaloop
+#              testing. Called at the end of deployPH so Mifos clients exist.
+#              Files are gitignored and recreated on each deploy.
+#------------------------------------------------------------------------------
+generate_sample_csvs() {
+    local csv_generator="$RUN_DIR/src/utils/data-loading/generate-example-csv-files.py"
+    local output_dir="$RUN_DIR/src/utils/data-loading"
+
+    if [ ! -f "$csv_generator" ]; then
+            logWithVerboseCheck "$debug" "$WARNING" "CSV generator not found: $csv_generator"
+        return 0
+    fi
+
+    log_step "Generating sample CSV files"
+    if [ "$debug" == "true" ]; then
+        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\""
+        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\""
+    else
+        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" > /tmp/phee-csv-gen.log 2>&1
+        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1
+    fi
+
+    if [ $? -ne 0 ]; then
+        log_warn "CSV generation failed — see /tmp/phee-csv-gen.log"
+    else
+        log_ok
+    fi
+}
+
 #------------------------------------------------------------------------------
 are_bpmns_loaded() {
     local MIN_REQUIRED=${1:-1}
@@ -209,8 +230,8 @@ are_bpmns_loaded() {
           }
         }' 2>/dev/null | jq -r '.aggregations.by_bpmn_id.buckets | length // 0')
 
-    [[ "$COUNT" =~ ^[0-9]+$ ]] || { echo "[$(date +%T)] ERROR: ES query failed" >&2; return 1; }
+    [[ "$COUNT" =~ ^[0-9]+$ ]] || { logWithVerboseCheck "$debug" "$DEBUG" "ES query failed — assuming BPMNs not loaded"; return 1; }
 
-    echo "    Unique BPMNs already deployed: $COUNT " >&2
+    logWithVerboseCheck "$debug" "$DEBUG" "Unique BPMNs already deployed: $COUNT"
     (( COUNT >= MIN_REQUIRED )) && return 0 || return 1
 }

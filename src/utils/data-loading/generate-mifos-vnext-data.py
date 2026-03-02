@@ -610,55 +610,161 @@ if __name__ == "__main__":
 
     # ----- process each tenant -----
     failed_tenants = []
+    TENANT_MAX_RETRIES = 3
+    TENANT_RETRY_DELAY = 30  # seconds between per-tenant retries
+
     for tenant_id, num_clients in TENANTS.items():
         print(f"\n=== Tenant: {tenant_id} ===", file=sys.stderr)
         HEADERS["Fineract-Platform-TenantId"] = tenant_id
         product_name = f"{tenant_id}-savings"
 
-        # product
-        product_id = create_savings_product(HEADERS, product_name)
-        if not product_id:
-            error_msg = f"ERROR: Failed to create/find product for tenant {tenant_id}"
-            print(error_msg, file=sys.stderr)
-            failed_tenants.append(tenant_id)
+        # If the tenant already has clients, re-register them and skip creation.
+        # This makes CREATE mode idempotent per-tenant, so re-running after a
+        # partial failure (e.g. greenbank not ready during initial deploy) safely
+        # picks up the missed tenant without duplicating the others.
+        existing = [c for c in get_clients_from_mifos(HEADERS, tenant_id) if c.get('mobile')]
+        if existing:
+            print(f"  {tenant_id} already has {len(existing)} client(s) - re-registering, skipping creation", file=sys.stderr)
+            for client in existing:
+                acct_id = get_savings_accounts_for_client(HEADERS, client['client_id'])
+                if not acct_id:
+                    print(f"  Skipping {client['name']} - no savings account", file=sys.stderr)
+                    continue
+                register_client_with_vnext(HEADERS, tenant_id, client['mobile'])
+                if tenant_id in IDENTITY_MAPPER_TENANTS:
+                    for payer in REGISTERING_INSTITUTIONS:
+                        register_beneficiary_with_identity_mapper(tenant_id, client['mobile'], acct_id, payer)
+                else:
+                    print(f"  Skipping identity-mapper for payer tenant {tenant_id}", file=sys.stderr)
+                created_clients.append({
+                    'tenant': tenant_id,
+                    'mobile': client['mobile'],
+                    'account_id': acct_id,
+                    'client_id': client['client_id'],
+                    'name': client['name']
+                })
+            # Consume the pre-allocated MSISDNs to keep the flat list aligned
+            for _ in range(num_clients):
+                unique_mobile_numbers.pop(0)
+            print(f"=== Finished tenant {tenant_id} (existing clients re-registered) ===\n", file=sys.stderr)
             continue
 
-        process_date = datetime.datetime.now().strftime(DATE_FORMAT)
+        # Extract this tenant's pre-allocated MSISDNs before the retry loop so
+        # the same numbers can be reused on each attempt without consuming more
+        # from the shared list.
+        tenant_msisdns = [unique_mobile_numbers.pop(0) for _ in range(num_clients)]
 
-        for i in range(1, num_clients + 1):
-            print(f"\n--- Client {i}/{num_clients} for {tenant_id} ---", file=sys.stderr)
+        tenant_ok = False
+        for attempt in range(1, TENANT_MAX_RETRIES + 1):
+            if attempt > 1:
+                print(f"  Retrying tenant {tenant_id} (attempt {attempt}/{TENANT_MAX_RETRIES}) "
+                      f"after {TENANT_RETRY_DELAY}s — Fineract seed data may still be loading...",
+                      file=sys.stderr)
+                time.sleep(TENANT_RETRY_DELAY)
+                # Another process or a previous partial attempt may have created clients
+                existing = [c for c in get_clients_from_mifos(HEADERS, tenant_id) if c.get('mobile')]
+                if existing:
+                    print(f"  {tenant_id} now has clients — switching to re-register mode", file=sys.stderr)
+                    for client in existing:
+                        acct_id = get_savings_accounts_for_client(HEADERS, client['client_id'])
+                        if not acct_id:
+                            continue
+                        register_client_with_vnext(HEADERS, tenant_id, client['mobile'])
+                        if tenant_id in IDENTITY_MAPPER_TENANTS:
+                            for payer in REGISTERING_INSTITUTIONS:
+                                register_beneficiary_with_identity_mapper(tenant_id, client['mobile'], acct_id, payer)
+                        created_clients.append({
+                            'tenant': tenant_id,
+                            'mobile': client['mobile'],
+                            'account_id': acct_id,
+                            'client_id': client['client_id'],
+                            'name': client['name']
+                        })
+                    tenant_ok = True
+                    break
 
-            # Pre-generate the mobile number for this client
-            mobile = unique_mobile_numbers.pop(0)
+            # product
+            product_id = create_savings_product(HEADERS, product_name)
+            if not product_id:
+                print(f"  ERROR: Failed to create/find product for tenant {tenant_id} (attempt {attempt})", file=sys.stderr)
+                continue  # retry
 
-            # Check if client already exists with this mobile number
-            existing_client = check_client_exists_by_mobile(HEADERS, mobile)
-            if existing_client:
-                print(f"Client with mobile {mobile} already exists (ID: {existing_client['client_id']})", file=sys.stderr)
-                client_id = existing_client['client_id']
-                name = existing_client['name']
+            process_date = datetime.datetime.now().strftime(DATE_FORMAT)
+            clients_created = 0
 
-                # Get existing savings account
-                acct_id = get_savings_accounts_for_client(HEADERS, client_id)
-                if not acct_id:
-                    print(f"No savings account found for existing client {mobile}, skipping", file=sys.stderr)
+            for i, mobile in enumerate(tenant_msisdns, 1):
+                print(f"\n--- Client {i}/{num_clients} for {tenant_id} (attempt {attempt}) ---", file=sys.stderr)
+
+                # Check if client already exists with this mobile number
+                existing_client = check_client_exists_by_mobile(HEADERS, mobile)
+                if existing_client:
+                    print(f"Client with mobile {mobile} already exists (ID: {existing_client['client_id']})", file=sys.stderr)
+                    client_id = existing_client['client_id']
+                    name = existing_client['name']
+
+                    # Get existing savings account
+                    acct_id = get_savings_accounts_for_client(HEADERS, client_id)
+                    if not acct_id:
+                        print(f"No savings account found for existing client {mobile}, skipping", file=sys.stderr)
+                        continue
+
+                    print(f"Using existing account {acct_id}", file=sys.stderr)
+
+                    # Re-register with vNext and identity-account-mapper (idempotent)
+                    register_client_with_vnext(HEADERS, tenant_id, mobile)
+
+                    if tenant_id in IDENTITY_MAPPER_TENANTS:
+                        for payer in REGISTERING_INSTITUTIONS:
+                            register_beneficiary_with_identity_mapper(tenant_id, mobile, acct_id, payer)
+                    else:
+                        print(f"Skipping identity-mapper for payer tenant {tenant_id}", file=sys.stderr)
+
+                    created_clients.append({
+                        'tenant': tenant_id,
+                        'mobile': mobile,
+                        'account_id': acct_id,
+                        'client_id': client_id,
+                        'name': name
+                    })
+
+                    clients_created += 1
+                    print(f"--- Re-registered existing client {i} ---", file=sys.stderr)
                     continue
 
-                print(f"Using existing account {acct_id}", file=sys.stderr)
+                # Create new client
+                client_id, mobile, name = create_client(HEADERS, LOCALE, tenant_id, mobile)
+                if not client_id:
+                    continue
 
-                # Re-register with vNext and identity-account-mapper (idempotent)
-                # Note: We don't have ext_id for existing accounts, but it's only used for interop registration
+                # savings account
+                acct_id, ext_id = create_savings_account(HEADERS, client_id, product_id, LOCALE)
+                if not acct_id:
+                    continue
+
+                # approve
+                if not approve_savings_account(API_BASE_URL, HEADERS, acct_id, process_date):
+                    continue
+
+                # activate
+                if not activate_savings_account(API_BASE_URL, HEADERS, acct_id, process_date):
+                    continue
+
+                # deposit
+                if not make_deposit(API_BASE_URL, HEADERS, acct_id, DEFAULT_DEPOSIT_AMOUNT,
+                                    process_date, DEFAULT_PAYMENT_TYPE_ID):
+                    continue
+
+                # interop & vNext
+                register_interop_party(HEADERS, client_id, ext_id, mobile)
                 register_client_with_vnext(HEADERS, tenant_id, mobile)
 
-                # Only register payee tenants with identity-account-mapper
-                # Register under ALL payer institutions (greenbank, redbank)
+                # identity-account-mapper (only for payee tenants)
                 if tenant_id in IDENTITY_MAPPER_TENANTS:
                     for payer in REGISTERING_INSTITUTIONS:
                         register_beneficiary_with_identity_mapper(tenant_id, mobile, acct_id, payer)
                 else:
                     print(f"Skipping identity-mapper for payer tenant {tenant_id}", file=sys.stderr)
 
-                # track client
                 created_clients.append({
                     'tenant': tenant_id,
                     'mobile': mobile,
@@ -667,54 +773,19 @@ if __name__ == "__main__":
                     'name': name
                 })
 
-                print(f"--- Re-registered existing client {i} ---", file=sys.stderr)
-                continue
+                clients_created += 1
+                print(f"--- Finished client {i} ---", file=sys.stderr)
 
-            # Create new client
-            client_id, mobile, name = create_client(HEADERS, LOCALE, tenant_id, mobile)
-            if not client_id:
-                continue
+            # end of client loop — check if this attempt succeeded
+            if clients_created == num_clients:
+                tenant_ok = True
+                break
+            print(f"  Attempt {attempt}: only {clients_created}/{num_clients} clients created for {tenant_id}", file=sys.stderr)
 
-            # savings account
-            acct_id, ext_id = create_savings_account(HEADERS, client_id, product_id, LOCALE)
-            if not acct_id:
-                continue
-
-            # approve
-            if not approve_savings_account(API_BASE_URL, HEADERS, acct_id, process_date):
-                continue
-
-            # activate
-            if not activate_savings_account(API_BASE_URL, HEADERS, acct_id, process_date):
-                continue
-
-            # deposit
-            if not make_deposit(API_BASE_URL, HEADERS, acct_id, DEFAULT_DEPOSIT_AMOUNT,
-                                process_date, DEFAULT_PAYMENT_TYPE_ID):
-                continue
-
-            # interop & vNext
-            register_interop_party(HEADERS, client_id, ext_id, mobile)
-            register_client_with_vnext(HEADERS, tenant_id, mobile)
-
-            # identity-account-mapper (only for payee tenants)
-            # Register under ALL payer institutions (greenbank, redbank)
-            if tenant_id in IDENTITY_MAPPER_TENANTS:
-                for payer in REGISTERING_INSTITUTIONS:
-                    register_beneficiary_with_identity_mapper(tenant_id, mobile, acct_id, payer)
-            else:
-                print(f"Skipping identity-mapper for payer tenant {tenant_id}", file=sys.stderr)
-
-            # track client for CSV generation
-            created_clients.append({
-                'tenant': tenant_id,
-                'mobile': mobile,
-                'account_id': acct_id,
-                'client_id': client_id,
-                'name': name
-            })
-
-            print(f"--- Finished client {i} ---", file=sys.stderr)
+        # end of retry loop
+        if not tenant_ok:
+            print(f"  ERROR: Could not fully process tenant {tenant_id} after {TENANT_MAX_RETRIES} attempts", file=sys.stderr)
+            failed_tenants.append(tenant_id)
 
         print(f"=== Finished tenant {tenant_id} ===\n", file=sys.stderr)
 

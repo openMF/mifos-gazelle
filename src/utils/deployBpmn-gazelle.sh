@@ -10,25 +10,48 @@ TENANT="greenbank"  # Default tenant TODO does this actually do anything
 
 deploy() {
     local file="$1"
-    local cmd="curl --insecure --location --request POST $HOST \
-        --header 'Platform-TenantId:$TENANT' \
-        --form 'file=@\"$file\"' \
-        -s -o /dev/null -w '%{http_code}'"
-    
+    local filename=$(basename "$file")
+
+    echo "Uploading: $filename to tenant: $TENANT"
+
+    local http_code
+    local response
+
+    # Capture both response body and HTTP code
+    response=$(curl --insecure --location --request POST "$HOST" \
+        --header "Platform-TenantId:$TENANT" \
+        --form "file=@\"$file\"" \
+        --write-out "\n%{http_code}" \
+        --silent \
+        --show-error 2>&1)
+
+    local exit_code=$?
+
+    # Extract HTTP code (last line) and response body (everything else)
+    http_code=$(echo "$response" | tail -1)
+    local response_body=$(echo "$response" | head -n -1)
+
     if [ "$DEBUG" = true ]; then
-        echo "Executing: $cmd"
-        http_code=$(eval $cmd)
-        exit_code=$?
-        echo "HTTP Code: $http_code"
-        echo "Exit code: $exit_code"
+        echo "DEBUG: HTTP Code: $http_code"
+        echo "DEBUG: Exit code: $exit_code"
+        echo "DEBUG: Response: $response_body"
+    fi
+
+    if [ "$exit_code" -ne 0 ]; then
+        echo "ERROR: curl failed with exit code $exit_code"
+        echo "ERROR: $response_body"
+        return 1
+    fi
+
+    if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
+        echo "SUCCESS: $filename uploaded to $TENANT"
+        return 0
     else
-        http_code=$(eval $cmd)
-        exit_code=$?
-        if [ "$exit_code" -eq 0 ] && [ "$http_code" -eq 200 ]; then
-            echo "File: $file - Upload successful"
-        else
-            echo "File: $file - Upload failed (HTTP Code: $http_code)"
+        echo "ERROR: Upload failed (HTTP $http_code)"
+        if [ -n "$response_body" ]; then
+            echo "ERROR: $response_body"
         fi
+        return 1
     fi
 }
 
@@ -89,17 +112,34 @@ while getopts ":c:f:t:dh" opt; do
 done
 
 # Extract domain from the config file (after -c has been processed)
-domain=$(grep GAZELLE_DOMAIN "$config_ini" | cut -d '=' -f2 | tr -d " " )
+domain=$(grep -E "^GAZELLE_DOMAIN\s*=" "$config_ini" | cut -d '=' -f2 | tr -d " " )
 
 if [ -z "$domain" ]; then
-    echo "Error: GAZELLE_DOMAIN not found in $config_ini" >&2
+    echo "ERROR: GAZELLE_DOMAIN not found in $config_ini" >&2
+    echo "ERROR: Make sure config file has: GAZELLE_DOMAIN=<your-domain>" >&2
     exit 1
 fi
 
-HOST="https://zeebeops.$domain/zeebe/upload"
-echo "Using config file: $config_ini"
-echo "Using domain: $domain"
-echo "Using Endpoint: $HOST"
+# Check if running inside Kubernetes pod (check for service account token)
+if [ -f /var/run/secrets/kubernetes.io/serviceaccount/token ]; then
+    # Running inside a pod, use internal service
+    HOST="http://ph-ee-zeebe-ops.paymenthub.svc.cluster.local/zeebe/upload"
+    echo "================================================================"
+    echo "Zeebe BPMN Deployment Tool (Kubernetes Internal)"
+    echo "================================================================"
+else
+    # Running externally, use ingress
+    HOST="https://zeebeops.$domain/zeebe/upload"
+    echo "================================================================"
+    echo "Zeebe BPMN Deployment Tool"
+    echo "================================================================"
+fi
+
+echo "Config file: $config_ini"
+echo "Domain: $domain"
+echo "Endpoint: $HOST"
+echo "Tenant: $TENANT"
+echo "================================================================"
 
 # If a single file is specified, upload only that file
 if [ -n "$SINGLE_FILE" ]; then
