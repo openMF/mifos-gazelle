@@ -1,0 +1,51 @@
+apiVersion: paymenthub.mifos.io/v1alpha1
+kind: MastercardCBSConnector
+metadata:
+  name: mastercard-cbs-demo
+  namespace: mastercard-demo
+spec:
+  # Enable the connector
+  enabled: true
+
+  # Number of replicas
+  replicas: 1
+
+  # Connector image
+  image:
+    repository: ph-ee-connector-mastercard-cbs
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  # Mastercard API configuration
+  mastercard:
+    apiUrl: "https://sandbox.api.mastercard.com"
+    partnerId: "YOUR_PARTNER_ID"
+    clientSecretName: "mastercard-cbs-credentials"
+
+  # PaymentHub integration
+  paymenthub:
+    namespace: "paymenthub"
+    zeebeGateway: "zeebe-gateway.paymenthub.svc.cluster.local:26500"
+    operationsDb:
+      host: "operationsmysql.paymenthub.svc.cluster.local"
+      port: 3306
+      database: "operations"
+      secretName: "mysql-secret"
+
+  # Data loading
+  dataLoading:
+    autoLoad: true
+    demoPayeeCount: 10
+
+  # BPMN workflow
+  workflow:
+    autoDeploy: true
+
+  # Resource limits
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "250m"
+      memory: "256Mi"

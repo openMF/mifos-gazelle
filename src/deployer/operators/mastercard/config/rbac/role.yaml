@@ -1,0 +1,34 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mastercard-cbs-operator-role
+rules:
+  # Manage MastercardCBSConnector CRs
+  - apiGroups: ["paymenthub.mifos.io"]
+    resources: ["mastercardcbsconnectors"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["paymenthub.mifos.io"]
+    resources: ["mastercardcbsconnectors/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["paymenthub.mifos.io"]
+    resources: ["mastercardcbsconnectors/finalizers"]
+    verbs: ["update"]
+
+  # Manage deployments, services, configmaps
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets", "pods"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+
+  # Manage jobs (for data loading)
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
