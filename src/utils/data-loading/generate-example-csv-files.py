@@ -180,66 +180,14 @@ def generate_csv_data(mode='CLOSEDLOOP', payer_msisdn=None, payees=None, num_row
 
     return transactions
 
-def generate_govstack_csv_data(payees=None, num_rows=None):
-    """
-    Generate CSV test data for GovStack mode (no payer columns).
-
-    Args:
-        payees: List of payee dictionaries (defaults to DEFAULT_PAYEES)
-        num_rows: Number of rows to generate (defaults to all payees * all amounts)
-
-    Returns:
-        List of transaction dictionaries
-    """
-    if payees is None:
-        payees = DEFAULT_PAYEES
-
-    transactions = []
-    txn_id = 0
-    row_count = 0
-
-    for payee in payees:
-        for amount in payee['amounts']:
-            if num_rows is not None and row_count >= num_rows:
-                break
-
-            transaction = {
-                'id': txn_id,
-                'request_id': str(uuid.uuid4()),
-                'payment_mode': 'CLOSEDLOOP',  # GovStack uses CLOSEDLOOP
-                'payee_identifier_type': 'MSISDN',
-                'payee_identifier': payee['msisdn'],
-                'amount': int(amount),
-                'currency': 'USD',
-                'note': f"Payment to {payee['name']}",
-                'account_number': payee['account']
-            }
-
-            transactions.append(transaction)
-            txn_id += 1
-            row_count += 1
-
-        if num_rows is not None and row_count >= num_rows:
-            break
-
-    return transactions
-
-def write_csv_file(csv_path, transactions, govstack_mode=False):
+def write_csv_file(csv_path, transactions):
     """Write transactions to CSV file."""
-    # Define column order based on mode
-    if govstack_mode:
-        fieldnames = [
-            'id', 'request_id', 'payment_mode',
-            'payee_identifier_type', 'payee_identifier',
-            'amount', 'currency', 'note', 'account_number'
-        ]
-    else:
-        fieldnames = [
-            'id', 'request_id', 'payment_mode',
-            'payer_identifier_type', 'payer_identifier',
-            'payee_identifier_type', 'payee_identifier',
-            'amount', 'currency', 'note'
-        ]
+    fieldnames = [
+        'id', 'request_id', 'payment_mode',
+        'payer_identifier_type', 'payer_identifier',
+        'payee_identifier_type', 'payee_identifier',
+        'amount', 'currency', 'note'
+    ]
 
     with open(csv_path, 'w', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -284,23 +232,23 @@ def generate_csv_files(output_dir=None, payer_msisdn_closedloop=None, payer_msis
     # Generate closedloop CSV with redbank payer
     closedloop_data = generate_csv_data('CLOSEDLOOP', payer_msisdn_closedloop, payees, num_rows)
     closedloop_path = output_dir / f'bulk-gazelle-closedloop{suffix}.csv'
-    write_csv_file(closedloop_path, closedloop_data, govstack_mode=False)
+    write_csv_file(closedloop_path, closedloop_data)
     files['closedloop'] = {'path': closedloop_path, 'payer': payer_msisdn_closedloop, 'tenant': 'redbank', 'rows': len(closedloop_data)}
     print(f"✓ Generated {closedloop_path} ({len(closedloop_data)} rows, payer: {payer_msisdn_closedloop}, tenant: redbank)", file=sys.stderr)
 
     # Generate mojaloop CSV with greenbank payer
     mojaloop_data = generate_csv_data('MOJALOOP', payer_msisdn_mojaloop, payees, num_rows)
     mojaloop_path = output_dir / f'bulk-gazelle-mojaloop{suffix}.csv'
-    write_csv_file(mojaloop_path, mojaloop_data, govstack_mode=False)
+    write_csv_file(mojaloop_path, mojaloop_data)
     files['mojaloop'] = {'path': mojaloop_path, 'payer': payer_msisdn_mojaloop, 'tenant': 'greenbank', 'rows': len(mojaloop_data)}
     print(f"✓ Generated {mojaloop_path} ({len(mojaloop_data)} rows, payer: {payer_msisdn_mojaloop}, tenant: greenbank)", file=sys.stderr)
 
-    # Generate GovStack CSV (no payer columns)
-    govstack_data = generate_govstack_csv_data(payees, num_rows)
-    govstack_path = output_dir / f'bulk-gazelle-govstack{suffix}.csv'
-    write_csv_file(govstack_path, govstack_data, govstack_mode=True)
-    files['govstack'] = {'path': govstack_path, 'payer': 'N/A (uses registeringInstitutionId)', 'tenant': 'greenbank/redbank', 'rows': len(govstack_data)}
-    print(f"✓ Generated {govstack_path} ({len(govstack_data)} rows, GovStack mode)", file=sys.stderr)
+    # Generate mastercard CBS CSV with greenbank payer
+    mastercard_data = generate_csv_data('MASTERCARD_CBS', payer_msisdn_mojaloop, payees, num_rows)
+    mastercard_path = output_dir / f'bulk-gazelle-mastercard{suffix}.csv'
+    write_csv_file(mastercard_path, mastercard_data)
+    files['mastercard'] = {'path': mastercard_path, 'payer': payer_msisdn_mojaloop, 'tenant': 'greenbank-mastercard', 'rows': len(mastercard_data)}
+    print(f"✓ Generated {mastercard_path} ({len(mastercard_data)} rows, payer: {payer_msisdn_mojaloop}, tenant: greenbank-mastercard)", file=sys.stderr)
 
     return files
 
@@ -340,31 +288,30 @@ Examples:
 Generated files (suffix indicates row count):
   - bulk-gazelle-closedloop-N.csv (CLOSEDLOOP mode, redbank payer)
   - bulk-gazelle-mojaloop-N.csv (MOJALOOP mode, greenbank payer)
-  - bulk-gazelle-govstack-N.csv (GovStack mode, no payer columns)
+  - bulk-gazelle-mastercard-N.csv (MASTERCARD_CBS mode, greenbank-mastercard payer)
 
 Tenant/Mode mapping:
   - CLOSEDLOOP → redbank tenant (payer), bluebank tenant (payees)
     * Uses minimal_mock_fund_transfer workflow
     * Direct transfers within same Payment Hub instance
-    * For testing: ./submit-batch.py --csv-file bulk-gazelle-closedloop-N.csv --tenant redbank
+    * For testing: ./submit-batch.py -f bulk-gazelle-closedloop-N.csv --tenant redbank
 
   - MOJALOOP → greenbank tenant (payer), bluebank tenant (payees via switch)
     * Uses PayerFundTransfer workflow with Mojaloop vNext switch
     * Cross-FSP transfers with party lookup, quotes, and switch routing
-    * For testing: ./submit-batch.py --csv-file bulk-gazelle-mojaloop-N.csv --tenant greenbank
+    * For testing: ./submit-batch.py -f bulk-gazelle-mojaloop-N.csv --tenant greenbank
+    * For GovStack G2P mode: ./submit-batch.py -f bulk-gazelle-mojaloop-N.csv --tenant greenbank --govstack --registering-institution greenbank
 
-  - GOVSTACK → Can use either redbank or greenbank as payer (specify with --registering-institution)
-    * Enables identity validation via identity-account-mapper
-    * Batch de-bulking by payee FSP (bankingInstitutionCode)
-    * For testing with redbank: ./submit-batch.py --csv-file bulk-gazelle-govstack-N.csv --tenant redbank --govstack --registering-institution redbank
-    * For testing with greenbank: ./submit-batch.py --csv-file bulk-gazelle-govstack-N.csv --tenant greenbank --govstack --registering-institution greenbank
+  - MASTERCARD_CBS → greenbank-mastercard tenant (payer), bluebank tenant (payees)
+    * Uses MastercardFundTransfer workflow with Mastercard CBS API
+    * Requires supplemental data in mastercard_cbs_supplementary_data table
+    * For testing: ./submit-batch.py -f bulk-gazelle-mastercard-N.csv --tenant greenbank-mastercard
 
 Notes:
   - Payees are always from bluebank tenant (beneficiary FSP)
   - Redbank is default payer for CLOSEDLOOP mode (direct transfers)
   - Greenbank is default payer for MOJALOOP mode (via switch)
-  - GovStack mode requires beneficiaries registered with matching registeringInstitutionId
-    (use ./register-beneficiaries.py --payer-tenant <redbank|greenbank> first)
+  - GovStack mode uses the mojaloop CSV with --govstack flag; no separate CSV needed
         """
     )
 
@@ -372,7 +319,7 @@ Notes:
                        help=f'Path to config.ini (default: {default_config})')
     parser.add_argument('--output-dir', '-o', type=Path, default=default_output,
                        help=f'Output directory for CSV files (default: {default_output})')
-    parser.add_argument('--mode', '-m', choices=['closedloop', 'mojaloop', 'govstack', 'all'],
+    parser.add_argument('--mode', '-m', choices=['closedloop', 'mojaloop', 'mastercard', 'all'],
                        default='all',
                        help='Generate specific mode only, or all (default: all)')
     parser.add_argument('--num-rows', '-n', type=int, default=None,
@@ -442,29 +389,31 @@ Notes:
     else:
         # Generate single mode
         suffix = f"-{args.num_rows}" if args.num_rows else "-4"
-        if args.mode == 'govstack':
-            data = generate_govstack_csv_data(payees, args.num_rows)
-            csv_path = args.output_dir / f'bulk-gazelle-{args.mode}{suffix}.csv'
-            write_csv_file(csv_path, data, govstack_mode=True)
-            print(f"✓ Generated {csv_path} ({len(data)} rows, GovStack mode)", file=sys.stderr)
-        elif args.mode == 'closedloop':
+        if args.mode == 'closedloop':
             data = generate_csv_data('CLOSEDLOOP', args.payer_msisdn_closedloop, payees, args.num_rows)
             csv_path = args.output_dir / f'bulk-gazelle-{args.mode}{suffix}.csv'
-            write_csv_file(csv_path, data, govstack_mode=False)
+            write_csv_file(csv_path, data)
             print(f"✓ Generated {csv_path} ({len(data)} rows, payer: {args.payer_msisdn_closedloop}, tenant: redbank)", file=sys.stderr)
         elif args.mode == 'mojaloop':
             data = generate_csv_data('MOJALOOP', args.payer_msisdn_mojaloop, payees, args.num_rows)
             csv_path = args.output_dir / f'bulk-gazelle-{args.mode}{suffix}.csv'
-            write_csv_file(csv_path, data, govstack_mode=False)
+            write_csv_file(csv_path, data)
             print(f"✓ Generated {csv_path} ({len(data)} rows, payer: {args.payer_msisdn_mojaloop}, tenant: greenbank)", file=sys.stderr)
+        elif args.mode == 'mastercard':
+            data = generate_csv_data('MASTERCARD_CBS', args.payer_msisdn_mojaloop, payees, args.num_rows)
+            csv_path = args.output_dir / f'bulk-gazelle-{args.mode}{suffix}.csv'
+            write_csv_file(csv_path, data)
+            print(f"✓ Generated {csv_path} ({len(data)} rows, payer: {args.payer_msisdn_mojaloop}, tenant: greenbank-mastercard)", file=sys.stderr)
 
     print("\n============================================================", file=sys.stderr)
     total_txns = len(payees) * len(payees[0]['amounts']) if payees else 0
     print(f"CSV files created with {total_txns} transactions:", file=sys.stderr)
-    if args.mode == 'all' or args.mode == 'closedloop':
+    if args.mode in ('all', 'closedloop'):
         print(f"  CLOSEDLOOP payer: {args.payer_msisdn_closedloop} (redbank)", file=sys.stderr)
-    if args.mode == 'all' or args.mode == 'mojaloop':
+    if args.mode in ('all', 'mojaloop'):
         print(f"  MOJALOOP payer: {args.payer_msisdn_mojaloop} (greenbank)", file=sys.stderr)
+    if args.mode in ('all', 'mastercard'):
+        print(f"  MASTERCARD_CBS payer: {args.payer_msisdn_mojaloop} (greenbank-mastercard)", file=sys.stderr)
     for payee in payees[:5]:  # Show first 5 payees
         print(f"  Payee: {payee['name']} ({payee['msisdn']}) - account {payee['account']}", file=sys.stderr)
     if len(payees) > 5:

@@ -143,15 +143,22 @@ def main():
                         help='Show only specific tenant (e.g., bluebank, greenbank)')
     parser.add_argument('--client-id', type=int,
                         help='Show only specific client ID')
+    parser.add_argument('--balance', '-b', action='store_true',
+                        help='Show condensed tenant/client/balance summary only')
     args = parser.parse_args()
 
     # Load config
     cfg = load_config(args.config)
     domain = get_gazelle_domain(cfg)
 
-    print_separator()
-    print(f"MIFOS TRANSACTION HISTORY - {domain}")
-    print_separator()
+    if args.balance:
+        print(f"MIFOS BALANCES - {domain}")
+        print(f"{'Tenant':<12} {'Client':<30} {'Mobile':<15} {'Balance':>12}")
+        print("-" * 72)
+    else:
+        print_separator()
+        print(f"MIFOS TRANSACTION HISTORY - {domain}")
+        print_separator()
 
     # Filter tenants if specified
     tenants_to_query = [args.tenant] if args.tenant else TENANTS
@@ -161,14 +168,16 @@ def main():
     total_transactions = 0
 
     for tenant in tenants_to_query:
-        print(f"\n{'='*80}")
-        print(f"TENANT: {tenant.upper()}")
-        print(f"{'='*80}")
+        if not args.balance:
+            print(f"\n{'='*80}")
+            print(f"TENANT: {tenant.upper()}")
+            print(f"{'='*80}")
 
         clients = get_clients(domain, tenant)
 
         if not clients:
-            print(f"  No clients found in {tenant}")
+            if not args.balance:
+                print(f"  No clients found in {tenant}")
             continue
 
         for client in clients:
@@ -182,12 +191,14 @@ def main():
 
             total_clients += 1
 
-            print(f"  Client: {client_name} | Mobile: {client_mobile} | ID: {client_id}")
+            if not args.balance:
+                print(f"  Client: {client_name} | Mobile: {client_mobile} | ID: {client_id}")
 
             accounts = get_client_accounts(domain, tenant, client_id)
 
             if not accounts:
-                print(f"    No accounts found")
+                if not args.balance:
+                    print(f"    No accounts found")
                 continue
 
             for account in accounts:
@@ -198,26 +209,33 @@ def main():
 
                 total_accounts += 1
 
-                print(f"    Account #{account_number} (ID: {account_id}) | Status: {account_status} | Balance: {format_currency(account_balance)}")
+                if args.balance:
+                    print(f"{tenant:<12} {client_name:<30} {client_mobile:<15} {format_currency(account_balance):>12}")
+                else:
+                    print(f"    Account #{account_number} (ID: {account_id}) | Status: {account_status} | Balance: {format_currency(account_balance)}")
 
-                transactions = get_account_transactions(domain, tenant, account_id)
+                    transactions = get_account_transactions(domain, tenant, account_id)
 
-                if not transactions:
-                    print(f"      No transactions")
-                    continue
+                    if not transactions:
+                        print(f"      No transactions")
+                        continue
 
-                # Sort transactions by date (newest first)
-                transactions.sort(key=lambda x: x.get('date', [0, 0, 0]), reverse=True)
+                    # Sort transactions by date (newest first)
+                    transactions.sort(key=lambda x: x.get('date', [0, 0, 0]), reverse=True)
 
-                print(f"      Transactions ({len(transactions)}):")
-                for txn in transactions:
-                    print_transaction(txn)
-                    total_transactions += 1
+                    print(f"      Transactions ({len(transactions)}):")
+                    for txn in transactions:
+                        print_transaction(txn)
+                        total_transactions += 1
 
     # Summary
-    print(f"\n{'='*80}")
-    print(f"SUMMARY: Tenants: {len(tenants_to_query)} | Clients: {total_clients} | Accounts: {total_accounts} | Transactions: {total_transactions}")
-    print_separator()
+    if args.balance:
+        print("-" * 72)
+        print(f"Tenants: {len(tenants_to_query)} | Clients: {total_clients} | Accounts: {total_accounts}")
+    else:
+        print(f"\n{'='*80}")
+        print(f"SUMMARY: Tenants: {len(tenants_to_query)} | Clients: {total_clients} | Accounts: {total_accounts} | Transactions: {total_transactions}")
+        print_separator()
 
 if __name__ == "__main__":
     main()

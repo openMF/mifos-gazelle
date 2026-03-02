@@ -53,6 +53,29 @@ function install_crudini() {
 }
 
 #------------------------------------------------------------------------------
+# Function : setup_logging
+# Description: If logging=true in config.ini, tees all subsequent stdout+stderr
+#              to /tmp/gazelle-YYYYMMDD-HHMM.log. Uses grep rather than crudini
+#              because crudini may not be installed yet when this is called.
+#              Must be called before welcome() to capture the full run.
+# Parameters:
+#   $1 - Path to config.ini
+#------------------------------------------------------------------------------
+function setup_logging() {
+    local config="$1"
+    local log_enabled
+    log_enabled=$(grep -E '^\s*logging\s*=' "$config" 2>/dev/null | tail -1 \
+        | awk -F'=' '{print $2}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+    if [[ "$log_enabled" == "true" ]]; then
+        GAZELLE_LOG="/tmp/gazelle-$(date +%Y%m%d-%H%M).log"
+        export GAZELLE_LOG
+        exec > >(tee -a "$GAZELLE_LOG") 2>&1
+        echo "  Log: $GAZELLE_LOG"
+        echo
+    fi
+}
+
+#------------------------------------------------------------------------------
 # Function : loadConfigFromFile
 # Description: Loads configuration parameters from the specified INI file using 'crudini'.
 # Parameters:
@@ -114,7 +137,7 @@ function loadConfigFromFile() {
 
     # Read app enablement flags and construct the 'apps' variable
     local enabled_apps_list=""
-    local valid_apps=("infra" "vnext" "phee" "mifosx")
+    local valid_apps=("infra" "vnext" "phee" "mifosx" "mastercard-demo")
 
     for app_name in "${valid_apps[@]}"; do
         local app_enabled=$(crudini --get "$config_path" "$app_name" enabled 2>/dev/null)
@@ -126,26 +149,31 @@ function loadConfigFromFile() {
     done
     apps=$(echo "$enabled_apps_list" | xargs)
 
-    # Override supported global variables from config.ini
-    declare -A override_map=(
-        [general]="GAZELLE_DOMAIN GAZELLE_VERSION"
-        [mysql]="MYSQL_SERVICE_NAME MYSQL_SERVICE_PORT LOCAL_PORT MAX_WAIT_SECONDS MYSQL_HOST"
-        [infra]="INFRA_NAMESPACE INFRA_RELEASE_NAME"
-        [vnext]="VNEXTBRANCH VNEXTREPO_DIR VNEXT_NAMESPACE VNEXT_REPO_LINK"
-        [phee]="PHBRANCH PHREPO_DIR PH_NAMESPACE PH_RELEASE_NAME PH_REPO_LINK PH_EE_ENV_TEMPLATE_REPO_LINK PH_EE_ENV_TEMPLATE_REPO_BRANCH PH_EE_ENV_TEMPLATE_REPO_DIR"
-        [mifosx]="MIFOSX_NAMESPACE MIFOSX_REPO_DIR MIFOSX_BRANCH MIFOSX_REPO_LINK"
-        [kubernetes]="helm_version k8s_version min_ram min_free_space linux_os_list ubuntu_ok_versions_list"
-    )
+    # Dynamically load all variables from config.ini sections
+    # Get all sections from config file
+    local all_sections=$(crudini --get "$config_path" 2>/dev/null)
 
-    for section in "${!override_map[@]}"; do
-        for var_name in ${override_map[$section]}; do
-            value=$(crudini --get "$config_path" "$section" "$var_name" 2>/dev/null)
-            if [[ -n "$value" ]]; then
-                eval "$var_name=\"\$value\""
-                export "$var_name"
-                #logWithLevel "$INFO" "Overridden from config [$section]: $var_name=$value"
+    for section in $all_sections; do
+        # Get all keys in this section
+        local section_keys=$(crudini --get "$config_path" "$section" 2>/dev/null || true)
+
+        # Export each key-value pair
+        while IFS= read -r var_name; do
+            if [[ -n "$var_name" ]]; then
+                # Check if variable is already set to a non-empty value (preserves special handling like k8s_user)
+                current_value="${!var_name:-}"
+                if [[ -z "$current_value" ]]; then
+                    value=$(crudini --get "$config_path" "$section" "$var_name" 2>/dev/null)
+                    if [[ -n "$value" ]]; then
+                        # Store value as-is, let bash expand variables when referenced
+                        eval "export $var_name=\"\$value\""
+                        #logWithLevel "$INFO" "Loaded from config [$section]: $var_name=$value"
+                    fi
+                #else
+                    #logWithLevel "$INFO" "Skipped (already set) [$section]: $var_name=$current_value"
+                fi
             fi
-        done
+        done <<< "$section_keys"
     done
 }
 
@@ -161,9 +189,8 @@ function welcome {
     echo -e "██    ██ ██   ██  ███    ██      ██      ██      ██      "
     echo -e " ██████  ██   ██ ███████ ███████ ███████ ███████ ███████ "
     echo -e "${RESET}"
-    echo -e "Mifos Gazelle - a Mifos Digital Public Infrastructure as a Solution (DaaS) deployment tool."
-    echo -e "                deploying Core DPGs MifosX, PaymentHub EE and vNext on Kubernetes."
-    # echo -e "Version: $GAZELLE_VERSION"
+    echo -e "Mifos Gazelle — Digital Public Infrastructure as a Solution (DaaS) deployment tool."
+    echo -e "Deploys MifosX, Payment Hub EE and Mojaloop vNext on Kubernetes."
     echo
 }
 
@@ -186,7 +213,7 @@ function showUsage {
     -f config_file_path .. Specify an alternative config.ini file path (optional)
     -m mode .............. deploy|cleanapps|cleanall (required)
     -u user .............. (non root) user that the process will use for execution (required)
-    -a apps .............. Comma-separated list of apps (vnext,phee,mifosx,infra) or 'all' (optional)
+    -a apps .............. Comma-separated list of apps (vnext,phee,mifosx,infra,mastercard-demo) or 'all' (optional)
     -e environment ....... Cluster environment (local or remote, optional, default=local)
     -d debug ............. Enable debug mode (true|false, optional, default=false)
     -r redeploy .......... Force redeployment of apps (true|false, optional, default=true)
@@ -220,43 +247,41 @@ function check_duplicates() {
 #------------------------------------------------------------------------------
 function validateInputs {
     if [[ -z "$mode" || -z "$k8s_user" ]]; then
-        echo "Error: Required options -m (mode) and -u (user) must be provided."
+        log_error "Required options -m (mode) and -u (user) must be provided."
         showUsage
         exit 1
     fi
 
     if [[ "$k8s_user" == "root" ]]; then
-        echo "Error: The specified user cannot be root. Please specify a non-root user."
+        log_error "The specified user cannot be root. Please specify a non-root user."
         showUsage
         exit 1
     fi
 
     if [[ "$mode" != "deploy" && "$mode" != "cleanapps" && "$mode" != "cleanall" ]]; then
-        echo "Error: Invalid mode '$mode'. Must be one of: deploy, cleanapps, cleanall."
+        log_error "Invalid mode '$mode'. Must be one of: deploy, cleanapps, cleanall."
         showUsage
         exit 1
     fi
 
     if [[ "$mode" == "deploy" || "$mode" == "cleanapps" ]]; then
         if [[ -z "$apps" ]]; then
-            echo "No specific apps provided with -a flag or config file. Defaulting to 'all'."
+            log_warn "No apps specified via -a or config file. Defaulting to 'all'."
             apps="all"
         fi
-        # TODO -> ALL VALID APPS should be from enabled list from config.ini  
-        local ALL_VALID_APPS="infra vnext phee mifosx all"
+        local ALL_VALID_APPS="infra vnext phee mifosx mastercard-demo all"
         local CORE_APPS="infra vnext phee mifosx"
 
         local current_apps_array
         IFS=' ' read -r -a current_apps_array <<< "$apps"
-        echo "DEBUG TODO -> current_apps_array: ${current_apps_array[*]}"
-
+        logWithVerboseCheck "$debug" "$DEBUG" "Apps array: ${current_apps_array[*]}"
 
         local found_all_keyword="false"
         local specific_apps_count=0
 
         for app_item in "${current_apps_array[@]}"; do
             if ! [[ " $ALL_VALID_APPS " =~ " $app_item " ]]; then
-                echo "Error: Invalid app specified: '$app_item'. Must be one of: ${ALL_VALID_APPS// /, }."
+                log_error "Invalid app '$app_item'. Must be one of: ${ALL_VALID_APPS// /, }."
                 showUsage
                 exit 1
             fi
@@ -269,57 +294,57 @@ function validateInputs {
 
         # Check for duplicate apps
         if ! check_duplicates current_apps_array; then
-            echo "Error: Duplicate applications specified in -a flag."
+            log_error "Duplicate applications specified in -a flag."
             showUsage
             exit 1
         fi
 
         if [[ "$found_all_keyword" == "true" ]]; then
             if [[ "$specific_apps_count" -gt 0 ]]; then
-                echo "Error: Cannot combine 'all' with specific applications. If 'all' is specified, no other apps should be listed."
+                log_error "Cannot combine 'all' with specific apps. Use either 'all' or a list, not both."
                 showUsage
                 exit 1
             fi
             apps="$CORE_APPS"
-            logWithLevel "$INFO" "Expanded 'all' keyword to: $apps"
+            logWithVerboseCheck "$debug" "$DEBUG" "Expanded 'all' to: $apps"
         fi
 
-        echo "DEBUG : Apps to process: $apps"
+        logWithVerboseCheck "$debug" "$DEBUG" "Apps to process: $apps"
         if [[ " $apps " =~ " infra " ]]; then
             if [[ "$mode" == "deploy" ]]; then
                 # for mode = deploy ensure 'infra' is first app if present
-                    apps="infra $(echo $apps | sed 's/infra//')"
-                    apps=$(echo $apps | xargs) # trim any extra spaces
+                apps="infra $(echo $apps | sed 's/infra//')"
+                apps=$(echo $apps | xargs)
             else # mode = cleanapps
                 # for mode = cleanapps ensure 'infra' is last app if present
-                    apps="$(echo $apps | sed 's/infra//') infra"
-                    apps=$(echo $apps | xargs) # trim any extra spaces
-            fi  
+                apps="$(echo $apps | sed 's/infra//') infra"
+                apps=$(echo $apps | xargs)
+            fi
         fi
-        echo "DEBUG Final apps to process order: $apps"
+        logWithVerboseCheck "$debug" "$DEBUG" "Final app order: $apps"
     fi
 
     if [[ -n "$debug" && "$debug" != "true" && "$debug" != "false" ]]; then
-        echo "Error: Invalid value for debug. Use 'true' or 'false'."
+        log_error "Invalid value for debug. Use 'true' or 'false'."
         showUsage
         exit 1
     fi
 
     if [[ -n "$redeploy" && "$redeploy" != "true" && "$redeploy" != "false" ]]; then
-        echo "Error: Invalid value for redeploy. Use 'true' or 'false'."
+        log_error "Invalid value for redeploy. Use 'true' or 'false'."
         showUsage
         exit 1
     fi
 
     if [[ -n "$environment" && "$environment" != "local" && "$environment" != "remote" ]]; then
-        echo "Error: Invalid environment '$environment'. Must be 'local' or 'remote'."
+        log_error "Invalid environment '$environment'. Must be 'local' or 'remote'."
         showUsage
         exit 1
     fi
 
     if [[ "$environment" == "local" ]]; then
         if [[ -z "$k8s_version" ]]; then
-            echo "Error: k8s_version must be specified for local environment."
+            log_error "k8s_version must be specified for local environment."
             showUsage
             exit 1
         fi
@@ -327,26 +352,25 @@ function validateInputs {
 
     if [[ "$environment" == "remote" && -n "$kubeconfig_path" ]]; then
         if [[ ! -f "$kubeconfig_path" ]]; then
-            echo "Error: kubeconfig_path '$kubeconfig_path' does not exist or is not a file."
+            log_error "kubeconfig_path '$kubeconfig_path' does not exist or is not a file."
             showUsage
             exit 1
         fi
     fi
 
     if [[ ! " $linux_os_list " =~ " Ubuntu " ]]; then
-        echo "Error: Only Ubuntu is supported in linux_os_list: $linux_os_list."
+        log_error "Only Ubuntu is supported in linux_os_list: $linux_os_list."
         showUsage
         exit 1
     fi
 
     local os_version=$(lsb_release -r -s | cut -d'.' -f1)
     if [[ ! " $ubuntu_ok_versions_list " =~ " $os_version " ]]; then
-        echo "Error: Ubuntu version '$os_version' is not supported. Supported versions: $ubuntu_ok_versions_list."
+        log_error "Ubuntu version '$os_version' is not supported. Supported versions: $ubuntu_ok_versions_list."
         showUsage
         exit 1
     fi
 
-    echo "TODO -> eliminate hardcoded defaults use only config.ini settings ????? "
     environment="${environment:-local}"
     debug="${debug:-false}"
     redeploy="${redeploy:-true}"
@@ -392,8 +416,8 @@ function getOptions() {
 # Description: Performs graceful cleanup on script exit.
 #------------------------------------------------------------------------------
 function cleanUp() {
-    echo -e "${RED}Performing graceful clean up${RESET}"
-    echo "Exiting via cleanUp function"
+    echo
+    log_warn "Caught interrupt — performing graceful cleanup."
     exit 2
 }
 
@@ -403,7 +427,6 @@ function cleanUp() {
 #------------------------------------------------------------------------------
 function trapCtrlc {
     echo
-    echo -e "${RED}Ctrl-C caught...${RESET}"
     cleanUp
 }
 
@@ -427,6 +450,18 @@ export KUBECONFIG=$kubeconfig_path
 CONFIG_FILE_PATH="$DEFAULT_CONFIG_FILE"
 
 function main {
+    # Determine config file path early (before full option parsing) so that
+    # logging can be set up before welcome() prints anything.
+    local _early_config="$DEFAULT_CONFIG_FILE"
+    local _args=("$@")
+    for ((i=0; i<${#_args[@]}; i++)); do
+        if [[ "${_args[i]}" == "-f" && $((i+1)) -lt ${#_args[@]} ]]; then
+            _early_config="${_args[$((i+1))]}"
+            break
+        fi
+    done
+    setup_logging "$_early_config"
+
     welcome
     install_crudini
 
@@ -454,11 +489,8 @@ function main {
     validateInputs
 
     if [ "$mode" == "deploy" ]; then
-        echo -e "${YELLOW}"
-        echo -e "======================================================================================================"
-        echo -e "The deployment made by this script is currently recommended for demo, test and educational purposes "
-        echo -e "======================================================================================================"
-        echo -e "${RESET}"
+        echo -e "${YELLOW}WARN${RESET}   This deployment is recommended for demo, test and educational purposes only."
+        echo
         env_setup_main "$mode"
         deployApps "$apps" "$redeploy"
     elif [ "$mode" == "cleanapps" ]; then
