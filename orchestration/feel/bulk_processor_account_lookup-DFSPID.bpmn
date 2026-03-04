@@ -246,7 +246,7 @@
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_1x68ryh" sourceRef="send-callback" targetRef="Gateway_06gzsd2" />
     <bpmn:sequenceFlow id="Flow_1phtnlz" name="Retry Count &#60; n" sourceRef="Gateway_1s0i4ln" targetRef="send-callback">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= callbackRetryCount &lt; maxStatusRetry</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= callbackRetryCount &lt; maxCallbackRetry</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:exclusiveGateway id="Gateway_0osfmdz">
       <bpmn:incoming>Flow_06lz8g7</bpmn:incoming>
@@ -391,7 +391,7 @@
       <bpmn:outgoing>Flow_1q4njje</bpmn:outgoing>
     </bpmn:parallelGateway>
     <bpmn:sequenceFlow id="Flow_0cpybki" name="Complete rate &#62; complete threshold" sourceRef="Gateway_0lr9doe" targetRef="Gateway_0tey6qs">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=retry &gt;= maxStatusRetry</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= completionRate &gt;= completionThreshold or retry &gt;= maxStatusRetry</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_1q4njje" sourceRef="Gateway_0tey6qs" targetRef="Gateway_04mll8j" />
     <bpmn:sequenceFlow id="Flow_0x5g1yx" sourceRef="Gateway_1mfoqdt" targetRef="Gateway_1d4u52o" />
@@ -407,7 +407,7 @@
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_1q28jgi" sourceRef="Gateway_1d4u52o" targetRef="Gateway_0tey6qs" />
     <bpmn:sequenceFlow id="Flow_0hnp6f8" name="Callback Retry Exhausted" sourceRef="Gateway_1s0i4ln" targetRef="Gateway_1d4u52o">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= callbackRetryCount &gt;= maxStatusRetry</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= callbackRetryCount &gt;= maxCallbackRetry</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_10j2ug7" name="Response code 2xx" sourceRef="Gateway_06gzsd2" targetRef="Gateway_1d4u52o">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=responseCode &gt;= 200 and responseCode &lt;=299</bpmn:conditionExpression>

@@ -17,11 +17,11 @@ ph-ee-engine:
     enabled: true
     image: docker.io/openmf/ph-ee-operations-web:mifos-v2.0.0
     backend:
-      PH_OPS_BACKEND_SERVER_URL: https://ops-bk.mifos.gazelle.test/api/v1
-      PH_VOU_BACKEND_SERVER_URL: https://ops-bk.mifos.gazelle.test/api/v1
-      PH_ACT_BACKEND_SERVER_URL: https://ops-bk.mifos.gazelle.test/api/v1
-      PH_OPS_BULK_CONNECTOR_URL: https://bulk-processor.mifos.gazelle.test
-      PH_OPS_SIGNATURE_URL: https://ops.mifos.gazelle.test/api/v1/util/x-signature
+      PH_OPS_BACKEND_SERVER_URL: https://ops-bk.mifos.gazelle.localhost/api/v1
+      PH_VOU_BACKEND_SERVER_URL: https://ops-bk.mifos.gazelle.localhost/api/v1
+      PH_ACT_BACKEND_SERVER_URL: https://ops-bk.mifos.gazelle.localhost/api/v1
+      PH_OPS_BULK_CONNECTOR_URL: https://bulk-processor.mifos.gazelle.localhost
+      PH_OPS_SIGNATURE_URL: https://ops.mifos.gazelle.localhost/api/v1/util/x-signature
       PH_PLATFORM_TENANT_ID: greenbank
       PH_PLATFORM_TENANT_IDS: "greenbank,bluebank,redbank"
       PH_REGISTERING_INSTITUTION_ID: 123
@@ -85,7 +85,7 @@ ph-ee-engine:
         kubernetes.io/ingress.class: nginx
         nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
         nginx.ingress.kubernetes.io/enable-cors: "true"
-        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.test"
+        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.localhost"
         nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE, PATCH"
         nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Platform-TenantId,platform-tenantid,purpose,type,x-callback-url,x-correlationid,x-correlation-id,X-Correlation-ID,x-program-id,x-registering-institution-id,x-signature,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-GPC,Pragma"
         nginx.ingress.kubernetes.io/cors-expose-headers: "Content-Length,Content-Range,X-Correlation-ID,x-correlation-id"
@@ -95,10 +95,10 @@ ph-ee-engine:
         nginx.ingress.kubernetes.io/log-format: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for" $request_uri'
       tls:
       - hosts:
-        - ops-bk.mifos.gazelle.test
+        - ops-bk.mifos.gazelle.localhost
         secretName: sandbox-secret
       hosts:
-        - host: ops-bk.mifos.gazelle.test
+        - host: ops-bk.mifos.gazelle.localhost
           paths:
           - path: "/"
             backend:
@@ -134,6 +134,10 @@ ph-ee-engine:
     zeebe:
       enabled: true
       env:
+        - name: ZEEBE_BROKER_DATA_LOGSEGMENTSIZE
+          value: "64MB"
+        - name: ZEEBE_BROKER_DATA_SNAPSHOTPERIOD
+          value: "2m"
         - name: ZEEBE_BROKER_BACKPRESSURE_ENABLED
           value: "false"
         - name: ZEEBE_BROKER_EXECUTION_METRICS_EXPORTER_ENABLED
@@ -197,18 +201,27 @@ ph-ee-engine:
       replicas: 1
       logLevel: debug
 
+      env: 
+      - name: JAVA_TOOL_OPTIONS
+        value: |
+          -Xms64m
+          -Xmx256m
+          -XX:+UseSerialGC
+          -XX:ReservedCodeCacheSize=32m
+          -XX:MaxMetaspaceSize=96m
+          -XX:+HeapDumpOnOutOfMemoryError
+    
       resources:
         requests:
           cpu: 100m
           memory: 450Mi
         limits:
-          cpu: 400m
-          memory: 450Mi  
+          memory: 600Mi  
       affinity: {}
 
       ingress:
         enabled: true
-        host: "zeebe-gateway.mifos.gazelle.test"
+        host: "zeebe-gateway.mifos.gazelle.localhost"
 
     operate:
       enabled: true
@@ -235,7 +248,7 @@ ph-ee-engine:
 
       ingress:
         enabled: true
-        host: "zeebe-operate.mifos.gazelle.test"
+        host: "zeebe-operate.mifos.gazelle.localhost"
 
     tasklist:
       enabled: false
@@ -359,7 +372,7 @@ ph-ee-engine:
       annotations:
         nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
         nginx.ingress.kubernetes.io/enable-cors: "true"
-        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.test"
+        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.localhost"
         nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE, PATCH"
         nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Platform-TenantId,platform-tenantid,purpose,type,x-callback-url,x-correlationid,x-correlation-id,X-Correlation-ID,x-program-id,x-registering-institution-id,x-signature,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-GPC,Pragma"
         nginx.ingress.kubernetes.io/cors-expose-headers: "Content-Length,Content-Range,X-Correlation-ID,x-correlation-id"
@@ -370,7 +383,7 @@ ph-ee-engine:
       tls:
         - secretName: sandbox-secret
       hosts:
-        - host: ops-bk.mifos.gazelle.test
+        - host: ops-bk.mifos.gazelle.localhost
           paths:
           - path: "/"
             backend:
@@ -444,7 +457,7 @@ ph-ee-engine:
         nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"  # End-to-end TLS
         nginx.ingress.kubernetes.io/backend-protocol-ssl-verify: "false"  # Self-signed cert in backend
         nginx.ingress.kubernetes.io/enable-cors: "true"
-        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.test"
+        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.localhost"
         nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE, PATCH"
         nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Platform-TenantId,platform-tenantid,purpose,type,x-callback-url,x-correlationid,x-correlation-id,X-Correlation-ID,x-program-id,x-registering-institution-id,x-signature,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-GPC,Pragma"
         nginx.ingress.kubernetes.io/cors-expose-headers: "Content-Length,Content-Range,X-Correlation-ID,x-correlation-id"
@@ -454,10 +467,10 @@ ph-ee-engine:
         nginx.ingress.kubernetes.io/log-format: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for" $request_uri'
       tls:
       - hosts:
-        - bulk-processor.mifos.gazelle.test
+        - bulk-processor.mifos.gazelle.localhost
         secretName: sandbox-secret
       hosts:
-      - host: bulk-processor.mifos.gazelle.test
+      - host: bulk-processor.mifos.gazelle.localhost
         paths:
         - path: /batchtransactions
           backend:
@@ -503,10 +516,10 @@ ph-ee-engine:
         nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
       tls:
       - hosts:
-        - channel.mifos.gazelle.test
+        - channel.mifos.gazelle.localhost
         secretName: sandbox-secret
       hosts:
-        - host: channel.mifos.gazelle.test          
+        - host: channel.mifos.gazelle.localhost          
           paths: 
           - path: /
             backend:
@@ -514,7 +527,7 @@ ph-ee-engine:
                 name: ph-ee-connector-channel
                 port:
                   number: 8443
-        - host: channel-gsma.mifos.gazelle.test          
+        - host: channel-gsma.mifos.gazelle.localhost          
           paths:          
           - path: /
             backend:
@@ -526,7 +539,7 @@ ph-ee-engine:
   minio:
     ingress:
       hosts:
-        - minio.mifos.gazelle.test
+        - minio.mifos.gazelle.localhost
     resources:
       requests:
         memory: 128Mi
@@ -537,7 +550,7 @@ ph-ee-engine:
       annotations: {}
       path: /
       hosts:
-        - minio-console.mifos.gazelle.test
+        - minio-console.mifos.gazelle.localhost
         
   kafka:
     enabled: true

@@ -1,0 +1,224 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: mastercardcbsconnectors.paymenthub.mifos.io
+spec:
+  group: paymenthub.mifos.io
+  names:
+    kind: MastercardCBSConnector
+    listKind: MastercardCBSConnectorList
+    plural: mastercardcbsconnectors
+    singular: mastercardcbsconnector
+    shortNames:
+      - mcbs
+      - cbs
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - enabled
+              properties:
+                # Deployment Configuration
+                enabled:
+                  type: boolean
+                  description: "Enable or disable the Mastercard CBS connector"
+                replicas:
+                  type: integer
+                  default: 1
+                  description: "Number of connector replicas"
+
+                # Image Configuration
+                image:
+                  type: object
+                  properties:
+                    repository:
+                      type: string
+                      default: "ph-ee-connector-mastercard-cbs"
+                    tag:
+                      type: string
+                      default: "1.0.0"
+                    pullPolicy:
+                      type: string
+                      default: "IfNotPresent"
+                      enum: ["Always", "IfNotPresent", "Never"]
+
+                # Mastercard API Configuration
+                mastercard:
+                  type: object
+                  required:
+                    - apiUrl
+                  properties:
+                    apiUrl:
+                      type: string
+                      description: "Mastercard CBS API URL"
+                      default: "https://sandbox.api.mastercard.com"
+                    authUrl:
+                      type: string
+                      description: "OAuth token endpoint"
+                    partnerId:
+                      type: string
+                      description: "Mastercard partner ID"
+                    clientId:
+                      type: string
+                      description: "OAuth client ID"
+                    clientSecretName:
+                      type: string
+                      description: "Kubernetes secret name containing client_secret"
+                      default: "mastercard-cbs-credentials"
+                # PaymentHub Integration
+                paymenthub:
+                  type: object
+                  required:
+                    - namespace
+                  properties:
+                    namespace:
+                      type: string
+                      description: "PaymentHub namespace"
+                      default: "paymenthub"
+                    zeebeGateway:
+                      type: string
+                      description: "Zeebe gateway service"
+                      default: "zeebe-gateway:26500"
+                    operationsDb:
+                      type: object
+                      properties:
+                        host:
+                          type: string
+                          default: "operationsmysql.paymenthub.svc.cluster.local"
+                        port:
+                          type: integer
+                          default: 3306
+                        database:
+                          type: string
+                          default: "operations"
+                        secretName:
+                          type: string
+                          description: "Secret containing DB credentials"
+                          default: "mysql-secret"
+
+                # Data Loading Configuration
+                dataLoading:
+                  type: object
+                  properties:
+                    autoLoad:
+                      type: boolean
+                      description: "Automatically load supplementary data on deployment"
+                      default: true
+                    demoPayeeCount:
+                      type: integer
+                      description: "Number of demo payees to generate"
+                      default: 10
+
+                # BPMN Workflow Configuration
+                workflow:
+                  type: object
+                  properties:
+                    autoDeploy:
+                      type: boolean
+                      description: "Automatically deploy BPMN workflow to Zeebe"
+                      default: true
+                    workflowPath:
+                      type: string
+                      description: "Path to BPMN workflow file"
+                      default: "/opt/mastercard/orchestration/bulk_connector_mastercard_cbs-DFSPID.bpmn"
+
+                # Resource Limits
+                resources:
+                  type: object
+                  properties:
+                    limits:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: "500m"
+                        memory:
+                          type: string
+                          default: "512Mi"
+                    requests:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: "250m"
+                        memory:
+                          type: string
+                          default: "256Mi"
+
+                # Local Development Configuration
+                localdev:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      description: "Enable local development mode with hostPath mounting"
+                      default: false
+                    hostPath:
+                      type: string
+                      description: "Host path to mount for local development"
+                    jarPath:
+                      type: string
+                      description: "Path to JAR file inside mounted directory"
+                      default: "/app/build/libs/ph-ee-connector-mastercard-cbs-1.0.0-SNAPSHOT.jar"
+
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: "Current phase (Pending, Initializing, Ready, Failed)"
+                  enum: ["Pending", "Initializing", "Ready", "Failed", "Disabled"]
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                connectorReady:
+                  type: boolean
+                  description: "CBS connector deployment ready"
+                workflowDeployed:
+                  type: boolean
+                  description: "BPMN workflow deployed to Zeebe"
+                dataLoaded:
+                  type: boolean
+                  description: "Supplementary data loaded to database"
+                observedGeneration:
+                  type: integer
+                  description: "Generation of the resource that was last processed"
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Enabled
+          type: boolean
+          jsonPath: .spec.enabled
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Connector
+          type: boolean
+          jsonPath: .status.connectorReady
+        - name: Workflow
+          type: boolean
+          jsonPath: .status.workflowDeployed
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

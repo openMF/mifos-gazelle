@@ -187,7 +187,11 @@ Thumbs.db
 *.swp
 sds_*
 
+# Generated bulk payment test CSV files (regenerated at deploy time by phee.sh / mastercard.sh)
+src/utils/data-loading/*.csv
+
 # AI related metadata
+.claude*
 *.openai
 *.copilot
 CLAUDE.local.md
