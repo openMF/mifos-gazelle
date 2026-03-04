@@ -8,6 +8,11 @@ BLUE='\033[0;34m'
 YELLOW='\033[0;33m'
 RESET='\033[0m'
 
+# Loop control globals - GAZ-230
+VERIFY_MAX_RETRIES=6        # 6 retries x 20s = 2 minutes
+VERIFY_SLEEP_INTERVAL=20    # seconds between retries
+VERIFY_PAYMENT=false        # set to true with -v flag
+
 # Check for jq - GAZ-230
 if ! command -v jq &> /dev/null; then
     echo -e "${RED}Error: 'jq' is not installed.${RESET}"
@@ -29,11 +34,15 @@ Usage: $0 [-f <config_file>] [-p <payer_msisdn>] [-r <payee_msisdn>] [-t <tenant
  -r Payee MSISDN (default: auto-detect first client from payee tenant) [optional]
  -t Platform-TenantId (default: greenbank) [optional]
  -d X-PayeeDFSP-ID (default: bluebank) [optional]
- -v Enable debug/verbose mode [optional]
+ -v Enable post-payment verification against Mifos X [optional]
  -h Show this help message
 
 Note: If -p or -r are not provided, the script will automatically query for the
       first available client in the respective tenant.
+Verification loop controls (can be overridden as env vars):
+      VERIFY_MAX_RETRIES=$VERIFY_MAX_RETRIES        retries before timeout
+      VERIFY_SLEEP_INTERVAL=${VERIFY_SLEEP_INTERVAL}s       between retries
+      Total timeout: $((VERIFY_MAX_RETRIES * VERIFY_SLEEP_INTERVAL))s
 EOF
 }
 
@@ -186,13 +195,11 @@ function verify_payment() {
     local expected_amount="$3"
     local type="$4" # "Payer" or "Payee" for logging
     
-    local max_retries=10
-    local sleep_time=3
     local count=0
     
-    echo -n "Verifying $type transaction..."
+    echo -e "  Verifying $type transaction (checking every ${VERIFY_SLEEP_INTERVAL}s, max $((VERIFY_MAX_RETRIES * VERIFY_SLEEP_INTERVAL))s)..."
     
-    while [ $count -lt $max_retries ]; do
+    while [ $count -lt $VERIFY_MAX_RETRIES ]; do
         # Fetch account summary and latest transactions
         local response
         response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
@@ -209,19 +216,20 @@ function verify_payment() {
         # Check if the last transaction matches our transfer amount
         # Note: We compare as floating point just in case
         if (( $(echo "$last_tx_amount == $expected_amount" | bc -l 2>/dev/null || echo "$last_tx_amount == $expected_amount" | awk '{print ($1 == $3)}') )); then
-            echo -e " ${GREEN}OK!${RESET}"
+            echo -e " ${GREEN}[OK]${RESET}"
             echo -e "   Current Balance: ${GREEN}\$$balance${RESET}"
             echo -e "   Last Transaction: ${GREEN}\$$last_tx_amount${RESET}"
             return 0
         fi
 
-        echo -n "."
-        sleep $sleep_time
         count=$((count+1))
+        echo -e "  [WAIT] Attempt $count/$VERIFY_MAX_RETRIES - transaction not yet reflected, retrying in ${VERIFY_SLEEP_INTERVAL}s..."
+        sleep $VERIFY_SLEEP_INTERVAL
+        
     done
 
     echo -e " ${RED}Timeout.${RESET}"
-    echo "   Could not verify transaction in time."
+    echo -e "  [FAIL] $type verification timed out after $((VERIFY_MAX_RETRIES * VERIFY_SLEEP_INTERVAL))s"
     return 1
 }
 
@@ -245,7 +253,7 @@ while getopts ":c:p:r:t:d:vh" opt; do
         r) payee_msisdn="$OPTARG" ;;
         t) tenant_id="$OPTARG" ;;
         d) payee_dfsp_id="$OPTARG" ;;
-        v) debug=true ;;
+        v) VERIFY_PAYMENT=true ;;
         h) usage; exit 0 ;;
         \?) echo "Invalid option: -$OPTARG" >&2; usage; exit 1 ;;
         :) echo "Option -$OPTARG requires an argument." >&2; usage; exit 1 ;;
@@ -434,29 +442,38 @@ http_code=$(echo "$response" | tail -n1)
 # Check status and print result
 if [[ "$http_code" == "200" ]]; then
     echo -e "✅ ${GREEN}Transfer successful (HTTP $http_code)${RESET}"
+    echo -e "     Response: $http_body"
     echo ""
     echo -e "${BLUE}=== Verifying Transaction Logic ===${RESET}"
 
-    # Get Account IDs
-    echo "Fetching account details..."
-    payer_acc_id=$(get_savings_account_id "$payer_msisdn" "$tenant_id")
-    payee_acc_id=$(get_savings_account_id "$payee_msisdn" "$payee_tenant")
+    if [[ "$VERIFY_PAYMENT" == "true" ]]; then
+        # Get Account IDs
+        echo "Fetching account details..."
+        payer_acc_id=$(get_savings_account_id "$payer_msisdn" "$tenant_id")
+        payee_acc_id=$(get_savings_account_id "$payee_msisdn" "$payee_tenant")
+        
 
-    if [[ -z "$payer_acc_id" ]] || [[ -z "$payee_acc_id" ]]; then
-        echo -e "${RED}Error: Could not retrieve savings account IDs for verification.${RESET}"
-        # Still considered partial success as the API call worked
-    else 
+        if [[ -z "$payer_acc_id" ]] || [[ -z "$payee_acc_id" ]]; then
+            echo -e "${RED}Error: Could not retrieve savings account IDs for verification.${RESET}"
+            exit 2
+        fi
+        
         # Verify Payer (Debit)
-        verify_payment "$payer_acc_id" "$tenant_id" "$amount" "Payer"
+        if ! verify_payment "$payer_acc_id" "$tenant_id" "$amount" "Payer"; then
+            echo -e "\n❌ ${RED}Payment validation failed for Payer. Exiting.${RESET}"
+            exit 2
+        fi
         
         # Verify Payee (Credit)
-        verify_payment "$payee_acc_id" "$payee_tenant" "$amount" "Payee"
+        if ! verify_payment "$payee_acc_id" "$payee_tenant" "$amount" "Payee"; then
+            echo -e "\n❌ ${RED}Payment validation failed for Payee. Exiting.${RESET}"
+            exit 2
+        fi
     fi
 
     echo ""
     echo -e "${GREEN}=== Payment Process Completed ===${RESET}"
     echo -e "${GREEN}✓ \$${amount} USD transferred from $payer_name to $payee_name${RESET}"
-
 else
     echo -e "❌ ${RED}Transfer failed (HTTP $http_code)${RESET}"
     echo -e "${RED}Response:${RESET} $http_body"
