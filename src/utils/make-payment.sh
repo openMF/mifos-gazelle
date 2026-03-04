@@ -35,6 +35,7 @@ Usage: $0 [-f <config_file>] [-p <payer_msisdn>] [-r <payee_msisdn>] [-t <tenant
  -t Platform-TenantId (default: greenbank) [optional]
  -d X-PayeeDFSP-ID (default: bluebank) [optional]
  -v Enable post-payment verification against Mifos X [optional]
+ -V Enable debug/verbose mode [optional]
  -h Show this help message
 
 Note: If -p or -r are not provided, the script will automatically query for the
@@ -246,7 +247,7 @@ payee_dfsp_id="bluebank"
 debug=false
 
 # Parse options
-while getopts ":c:p:r:t:d:vh" opt; do
+while getopts ":c:p:r:t:d:vVh" opt; do
     case $opt in
         c) config_ini="$OPTARG" ;;
         p) payer_msisdn="$OPTARG" ;;
@@ -254,6 +255,7 @@ while getopts ":c:p:r:t:d:vh" opt; do
         t) tenant_id="$OPTARG" ;;
         d) payee_dfsp_id="$OPTARG" ;;
         v) VERIFY_PAYMENT=true ;;
+        V) debug=true ;;
         h) usage; exit 0 ;;
         \?) echo "Invalid option: -$OPTARG" >&2; usage; exit 1 ;;
         :) echo "Option -$OPTARG requires an argument." >&2; usage; exit 1 ;;
