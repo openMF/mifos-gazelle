@@ -152,6 +152,7 @@ function generateMifosXandVNextData {
         return 1
       fi
       log_ok
+      generate_sample_csvs
       return 0
     else
       elapsed=$(( $(date +%s) - start_time ))

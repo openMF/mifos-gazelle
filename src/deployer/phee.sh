@@ -57,8 +57,6 @@ function deployPH(){
     deploy_bpmns
   fi
 
-  generate_sample_csvs
-
   log_banner "Payment Hub EE Deployed"
 }
 
@@ -157,6 +155,7 @@ deploy_bpmns() {
       if [ "$exit_code" -eq 0 ] && [ "$http_code" -eq 200 ]; then
           ((successful_uploads++))
       fi
+      sleep 1
     else
       log_warn "No BPMN files found in $BPMNS_DIR"
     fi
@@ -180,7 +179,7 @@ deploy_bpmns() {
 #------------------------------------------------------------------------------
 # Function: generate_sample_csvs
 # Description: Generates sample bulk payment CSV files for closedloop and mojaloop
-#              testing. Called at the end of deployPH so Mifos clients exist.
+#              testing. Called from generateMifosXandVNextData() after Fineract is ready.
 #              Files are gitignored and recreated on each deploy.
 #------------------------------------------------------------------------------
 generate_sample_csvs() {
@@ -193,15 +192,19 @@ generate_sample_csvs() {
     fi
 
     log_step "Generating sample CSV files"
+
+    > /tmp/phee-csv-gen.log  # always create a fresh log for this run
+
+    local csv_exit=0
     if [ "$debug" == "true" ]; then
-        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\""
-        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\""
+        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/phee-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
+        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/phee-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
     else
-        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" > /tmp/phee-csv-gen.log 2>&1
-        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1
+        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
+        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
     fi
 
-    if [ $? -ne 0 ]; then
+    if [ "$csv_exit" -ne 0 ]; then
         log_warn "CSV generation failed — see /tmp/phee-csv-gen.log"
     else
         log_ok
@@ -212,7 +215,7 @@ generate_sample_csvs() {
 are_bpmns_loaded() {
     local MIN_REQUIRED=${1:-1}
     ES_URL="http://elasticsearch.$GAZELLE_DOMAIN" 
-    INDEX="zeebe-record_process_8.2.12_2025-10-30"
+    INDEX="zeebe-record_process_*"
 
     local COUNT=$(curl -s "$ES_URL/$INDEX/_search" \
         -H 'Content-Type: application/json' \
