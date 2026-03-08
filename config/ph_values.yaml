@@ -573,6 +573,8 @@ ph-ee-engine:
       limits:
         cpu: 300m
         memory: 256Mi
+    operations_app:
+      contactpoint: "http://ph-ee-operations-app:80"
     extraEnvs:
       - name: CHANNEL_CONTACTPOINT
         value: "https://ph-ee-connector-channel:8443"
