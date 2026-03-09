@@ -179,7 +179,7 @@ deploy_bpmns() {
 #------------------------------------------------------------------------------
 # Function: generate_sample_csvs
 # Description: Generates sample bulk payment CSV files for closedloop and mojaloop
-#              testing. Called from generateMifosXandVNextData() after Fineract is ready.
+#              testing. Called from generate_mifosx_and_vnext_data() after Fineract is ready.
 #              Files are gitignored and recreated on each deploy.
 #------------------------------------------------------------------------------
 generate_sample_csvs() {

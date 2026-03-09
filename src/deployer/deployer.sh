@@ -362,8 +362,8 @@ function deployApps() {
         ;;
       "mifosx")
         deployInfrastructure "false"
-        DeployMifosXfromYaml "$MIFOSX_MANIFESTS_DIR"
-        generateMifosXandVNextData
+        deploy_mifosx_from_yaml "$MIFOSX_MANIFESTS_DIR"
+        generate_mifosx_and_vnext_data
         ;;
       "phee")
         deployInfrastructure "false"
