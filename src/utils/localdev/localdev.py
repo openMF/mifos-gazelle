@@ -5,12 +5,15 @@ Modifies deployments to use hostPath volumes and custom images for rapid iterati
 Also handles checking out GitHub repositories for components
 """
 
+import argparse
 import configparser
 import os
 import re
 import subprocess
+import traceback
+import unicodedata
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Optional, Tuple
 import sys
 
 
@@ -60,39 +63,17 @@ class LocalDevPatcher:
         Mark a file to be ignored by git (skip-worktree)
         This prevents accidentally committing local dev changes
         """
-        try:
-            # Check if we're in a git repo
-            result = subprocess.run(
-                ['git', 'rev-parse', '--git-dir'],
-                cwd=file_path.parent,
-                capture_output=True,
-                text=True
-            )
-            if result.returncode != 0:
-                return False
-            
-            # Apply skip-worktree
-            action = '--skip-worktree' if enable else '--no-skip-worktree'
-            result = subprocess.run(
-                ['git', 'update-index', action, str(file_path.name)],
-                cwd=file_path.parent,
-                capture_output=True,
-                text=True
-            )
-            
-            if result.returncode == 0:
-                status = "protected from git" if enable else "unprotected"
-                print(f"  🔒 File {status}: {file_path.name}")
-                return True
-            else:
-                print(f"  ⚠️  Warning: Could not set git skip-worktree: {result.stderr.strip()}")
-                return False
-                
-        except FileNotFoundError:
-            print(f"  ⚠️  Git not found - skipping git protection")
-            return False
-        except Exception as e:
-            print(f"  ⚠️  Git protection error: {e}")
+        action = '--skip-worktree' if enable else '--no-skip-worktree'
+        success, output = self._run_git_command(
+            ['git', 'update-index', action, str(file_path.name)],
+            file_path.parent
+        )
+        if success:
+            status = "protected from git" if enable else "unprotected"
+            print(f"  🔒 File {status}: {file_path.name}")
+            return True
+        else:
+            print(f"  ⚠️  Warning: Could not set git skip-worktree: {output}")
             return False
     
     def check_git_status(self, component: Optional[str] = None) -> None:
@@ -116,22 +97,15 @@ class LocalDevPatcher:
             if not deployment_file.exists():
                 continue
             
-            try:
-                result = subprocess.run(
-                    ['git', 'ls-files', '-v', str(deployment_file.name)],
-                    cwd=deployment_file.parent,
-                    capture_output=True,
-                    text=True
-                )
-                
-                if result.returncode == 0 and result.stdout:
-                    # 'S' prefix means skip-worktree is set
-                    status = "🔒 Protected" if result.stdout.startswith('S') else "⚠️  Unprotected"
-                    print(f"{status}: {comp}")
-                    print(f"  File: {deployment_file}")
-                    
-            except Exception as e:
-                print(f"❌ Error checking {comp}: {e}")
+            success, output = self._run_git_command(
+                ['git', 'ls-files', '-v', str(deployment_file.name)],
+                deployment_file.parent
+            )
+            if success and output:
+                # 'S' prefix means skip-worktree is set
+                status = "🔒 Protected" if output.startswith('S') else "⚠️  Unprotected"
+                print(f"{status}: {comp}")
+                print(f"  File: {deployment_file}")
         
         print(f"\n{'=' * 60}\n")
     
@@ -149,6 +123,10 @@ class LocalDevPatcher:
         except Exception as e:
             return False, str(e)
     
+    def _backup_file_path(self, deployment_file: Path) -> Path:
+        """Return the backup path for a deployment file."""
+        return deployment_file.parent / "_deployment.yaml.backup"
+
     def _get_current_branch(self, repo_path: Path) -> Optional[str]:
         """Get the current branch of a git repository"""
         success, output = self._run_git_command(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], repo_path)
@@ -156,8 +134,6 @@ class LocalDevPatcher:
     
     def _repo_exists(self, repo_path: Path) -> bool:
         """Check if a directory is a git repository"""
-        if not repo_path.exists():
-            return False
         success, _ = self._run_git_command(['git', 'rev-parse', '--git-dir'], repo_path)
         return success
     
@@ -196,7 +172,7 @@ class LocalDevPatcher:
         repo_name = reponame.rstrip('/').split('/')[-1].replace('.git', '')
         repo_path = Path(checkout_to_dir) / repo_name
         
-        print(f"\n{'Processing' if not update else 'Updating'} {component}...")
+        print(f"\n{'Updating' if update else 'Processing'} {component}...")
         print(f"  📦 Repository: {reponame}")
         print(f"  🌿 Branch/Tag: {branch_or_tag}")
         print(f"  📁 Target: {repo_path}")
@@ -327,7 +303,6 @@ class LocalDevPatcher:
     
     def _visual_ljust(self, s: str, width: int) -> str:
         """Left-justify to terminal display width, treating wide emoji as 2 chars."""
-        import unicodedata
         vis_w = 0
         for ch in s:
             eaw = unicodedata.east_asian_width(ch)
@@ -341,7 +316,6 @@ class LocalDevPatcher:
 
     def status_all(self):
         """Show compact table status of all components, grouped by patch state."""
-        import unicodedata
         components = self.get_components()
         rows = []
 
@@ -376,30 +350,26 @@ class LocalDevPatcher:
             else:
                 directory = Path(self._expand_vars(comp_config['directory']))
                 deployment_file = directory / "templates" / "deployment.yaml"
-                backup_file = deployment_file.parent / "_deployment.yaml.backup"
+                backup_file = self._backup_file_path(deployment_file)
 
                 if not deployment_file.exists():
                     dep_col = "❌ missing"
                 else:
-                    try:
-                        result = subprocess.run(
-                            ['git', 'ls-files', '-v', str(deployment_file.name)],
-                            cwd=deployment_file.parent,
-                            capture_output=True, text=True
-                        )
-                        if result.returncode == 0 and result.stdout:
-                            if result.stdout.startswith('S'):
-                                dep_col = "🔒 patched"
-                                is_patched = True
-                            elif backup_file.exists():
-                                dep_col = "⚠️  patched (unprotected)"
-                                is_patched = True
-                            else:
-                                dep_col = "— not patched"
+                    success, output = self._run_git_command(
+                        ['git', 'ls-files', '-v', str(deployment_file.name)],
+                        deployment_file.parent
+                    )
+                    if success and output:
+                        if output.startswith('S'):
+                            dep_col = "🔒 patched"
+                            is_patched = True
+                        elif backup_file.exists():
+                            dep_col = "⚠️  patched (unprotected)"
+                            is_patched = True
                         else:
                             dep_col = "— not patched"
-                    except Exception:
-                        dep_col = "? unknown"
+                    else:
+                        dep_col = "— not patched"
 
             rows.append({'name': component, 'co': co_col, 'dep': dep_col, 'is_patched': is_patched})
 
@@ -466,8 +436,8 @@ class LocalDevPatcher:
             return False
 
         deployment_file = directory / "templates" / "deployment.yaml"
-        backup_file = deployment_file.parent / f"_deployment.yaml.backup"
-        
+        backup_file = self._backup_file_path(deployment_file)
+
         if not deployment_file.exists():
             print(f"❌ Deployment file not found: {deployment_file}")
             return False
@@ -494,13 +464,9 @@ class LocalDevPatcher:
         
         # Backup original if not in dry-run mode
         if not dry_run:
-            if not backup_file.exists():
-                with open(backup_file, 'w') as f:
-                    f.write(content)
-                print(f"  💾 Backup created: {backup_file.name}")
-            else:
-                # This shouldn't happen due to earlier check, but just in case
-                print(f"  ℹ️  Using existing backup: {backup_file.name}")
+            with open(backup_file, 'w') as f:
+                f.write(content)
+            print(f"  💾 Backup created: {backup_file.name}")
         
         # Apply patches
         modified_content = self._apply_patches(content, image, jarpath, hostpath, component, app_type)
@@ -517,6 +483,20 @@ class LocalDevPatcher:
         
         return True
     
+    def _append_hostpath_volume(self, lines: list, i: int, result_lines: list, indent: int, hostpath: str) -> int:
+        """Copy existing volumes then append the local-code hostPath volume. Returns updated line index."""
+        while i < len(lines) and lines[i].strip().startswith('- name:'):
+            result_lines.append(lines[i])
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith('- name:') and not lines[i].strip().startswith('{{-') and lines[i].strip():
+                result_lines.append(lines[i])
+                i += 1
+        result_lines.append(' ' * (indent + 2) + '- name: local-code')
+        result_lines.append(' ' * (indent + 4) + 'hostPath:  # add this for local dev test')
+        result_lines.append(' ' * (indent + 6) + f'path: {hostpath} # local project path')
+        result_lines.append(' ' * (indent + 6) + "type: Directory # Ensure it's a directory")
+        return i
+
     def _apply_patches(self, content: str, image: str, jarpath: str, hostpath: str, component: str, app_type: str = 'springboot') -> str:
         """Apply the necessary patches to the deployment YAML content"""
         
@@ -586,21 +566,7 @@ class LocalDevPatcher:
                     result_lines.append(line)
                     i += 1
                     indent = len(line) - len(line.lstrip())
-                    
-                    # Copy existing volumes
-                    while i < len(lines) and lines[i].strip().startswith('- name:'):
-                        result_lines.append(lines[i])
-                        i += 1
-                        # Copy volume definition lines
-                        while i < len(lines) and not lines[i].strip().startswith('- name:') and not lines[i].strip().startswith('{{-') and lines[i].strip():
-                            result_lines.append(lines[i])
-                            i += 1
-                    
-                    # Add our volume
-                    result_lines.append(' ' * (indent + 2) + '- name: local-code')
-                    result_lines.append(' ' * (indent + 4) + 'hostPath:  # add this for local dev test')
-                    result_lines.append(' ' * (indent + 6) + f'path: {hostpath} # local project path')
-                    result_lines.append(' ' * (indent + 6) + "type: Directory # Ensure it's a directory")
+                    i = self._append_hostpath_volume(lines, i, result_lines, indent, hostpath)
                     volumes_patched = True
                     if debug:
                         print(f"    -> Added hostPath volume")
@@ -624,21 +590,7 @@ class LocalDevPatcher:
                 result_lines.append(line)
                 i += 1
                 indent = len(line) - len(line.lstrip())
-                
-                # Copy existing volumes
-                while i < len(lines) and lines[i].strip().startswith('- name:'):
-                    result_lines.append(lines[i])
-                    i += 1
-                    # Copy volume definition lines
-                    while i < len(lines) and not lines[i].strip().startswith('- name:') and not lines[i].strip().startswith('{{-') and lines[i].strip():
-                        result_lines.append(lines[i])
-                        i += 1
-                
-                # Add our volume
-                result_lines.append(' ' * (indent + 2) + '- name: local-code')
-                result_lines.append(' ' * (indent + 4) + 'hostPath:  # add this for local dev test')
-                result_lines.append(' ' * (indent + 6) + f'path: {hostpath} # local project path')
-                result_lines.append(' ' * (indent + 6) + "type: Directory # Ensure it's a directory")
+                i = self._append_hostpath_volume(lines, i, result_lines, indent, hostpath)
                 volumes_patched = True
                 if debug:
                     print(f"    -> Added hostPath volume (spec level)")
@@ -738,7 +690,7 @@ class LocalDevPatcher:
 
         directory = Path(self._expand_vars(comp_config['directory']))
         deployment_file = directory / "templates" / "deployment.yaml"
-        backup_file = deployment_file.parent / f"_deployment.yaml.backup"
+        backup_file = self._backup_file_path(deployment_file)
 
         if not backup_file.exists():
             print(f"❌ No backup found for {component}")
@@ -795,8 +747,6 @@ class LocalDevPatcher:
 
 def main():
     """Main entry point for the script"""
-    import argparse
-    
     parser = argparse.ArgumentParser(
         description='Patch Helm deployment files for local development',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -923,7 +873,6 @@ Examples:
         sys.exit(1)
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
-        import traceback
         traceback.print_exc()
         sys.exit(1)
 
