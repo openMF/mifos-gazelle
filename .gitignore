@@ -187,8 +187,9 @@ Thumbs.db
 *.swp
 sds_*
 
-# Generated bulk payment test CSV files (regenerated at deploy time by phee.sh / mastercard.sh)
+# Generated bulk payment test CSV files (regenerated at deploy time by setup-data / phee.sh)
 src/utils/data-loading/*.csv
+src/utils/batch/*.csv
 
 # AI related metadata
 .claude*

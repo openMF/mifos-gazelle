@@ -106,6 +106,8 @@ After the run.sh has finished and `kubectl get pods -A` shows all pods and conta
 
 When Mifos Gazelle 1.1.0 is fully installed with all 3 initial DPGs, it is also configured with demonstration data to allow a payment transaction to be initiated by calling PaymentHub, which then orchestrates the payment flow from the account of a customer in the MifosX Greenbank to the account of a customer in MifosX Bluebank via the vNext beta1 financial transactions switch. To initiate this transfer, use the provided make-payment.sh script: `./src/utils/make-payment.sh`
 
+To view the resulting transaction history across all Mifos tenants: `./src/utils/view-mifos-transactions.py -c config/config.ini`
+
 Once this payment is successfully processed, you can observe the following:
 
 - The BPMN workflow for PayerFundTransfer at https://zeebe-operate.mifos.gazelle.test (login is demo/demo). Go to dashboard and click on PayerFundTransfer-greenbank to see the process flow for the transaction.
@@ -235,7 +237,7 @@ You can access the results by copying them from the pod to the /tmp directory of
 As outlined above, by default Mifos Gazelle deploys MifosX with tenants "default", "greenbank", and "bluebank". The process to add additional tenants to a Mifos Gazelle deployed MifosX deployment is a 2-part process:
 
 1. Modify the example tenant configuration file `mifos-gazelle/config/mifos-tenant-config.csv`, adding your chosen tenant names
-2. Apply the example tenant configuration to add the new tenants by running (for example): `mifos-gazelle/src/utils/update-mifos-tenants.sh -f ./config/mifos-tenant-config.csv`
+2. Apply the example tenant configuration to add the new tenants by running (for example): `mifos-gazelle/src/utils/data-loading/update-mifos-tenants.sh -f ./config/mifos-tenant-config.csv`
 3. In k9s, locate and kill the fineract-server process in the MifosX namespace (use `Ctrl-k` from k9s); it will automatically be restarted by Kubernetes
 
 When fineract-server is restarted, the new tenant schemas, tables, and artifacts will be created. You can check the progress of the schema generation by looking at the fineract-server pod logs. Still using k9s, again locate the new fineract-server pod and press `l` for logs when that pod is highlighted.

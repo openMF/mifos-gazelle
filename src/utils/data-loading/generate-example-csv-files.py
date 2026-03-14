@@ -212,7 +212,7 @@ def generate_csv_files(output_dir=None, payer_msisdn_closedloop=None, payer_msis
         Dictionary of generated file paths with payer info
     """
     if output_dir is None:
-        output_dir = Path(__file__).parent
+        output_dir = Path(__file__).parent.parent / "batch"
     else:
         output_dir = Path(output_dir)
 
@@ -260,7 +260,7 @@ def main():
     script_path = Path(__file__).absolute()
     base_dir = script_path.parent.parent.parent.parent
     default_config = base_dir / "config" / "config.ini"
-    default_output = script_path.parent
+    default_output = script_path.parent.parent / "batch"
 
     parser = argparse.ArgumentParser(
         description="Generate example bulk payment CSV files",

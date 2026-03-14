@@ -282,15 +282,22 @@ function print_cleanup_end_message() {
 # Example: print_deployment_end_message
 #------------------------------------------------------------
 function print_deployment_end_message() {
+  local data_gen_failed="${1:-false}"
+
   log_banner "Mifos Gazelle Ready"
   echo
-  echo "  MifosX:        http://mifos.${GAZELLE_DOMAIN}"
+  echo "  MifosX:        https://mifos.${GAZELLE_DOMAIN}"
   echo "  vNext Admin:   http://vnextadmin.${GAZELLE_DOMAIN}"
   echo "  Ops Web:       http://ops.${GAZELLE_DOMAIN}"
   echo "  Zeebe Operate: http://zeebe-operate.${GAZELLE_DOMAIN}"
   echo
   echo "  kubectl get pods -A"
   echo
+  if [[ "$data_gen_failed" == "true" ]]; then
+    log_warn "Data generation did not complete — test payments and batch submissions will not work."
+    log_warn "Once the cluster is stable, re-run:  sudo $RUN_DIR/run.sh -a setup-data -f \"$CONFIG_FILE_PATH\""
+    echo
+  fi
 }
 
 #------------------------------------------------------------
@@ -402,6 +409,7 @@ function print_final_summary() {
 function deployApps() {
   local appsToDeploy="$1"
   local redeploy="${2:-false}"
+  local data_gen_failed=false
 
   logWithVerboseCheck "$debug" "$DEBUG" "Apps to deploy: $appsToDeploy (redeploy=$redeploy)"
 
@@ -457,5 +465,5 @@ function deployApps() {
     esac
   done
 
-  print_deployment_end_message
+  print_deployment_end_message "$data_gen_failed"
 }

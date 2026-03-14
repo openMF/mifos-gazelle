@@ -202,18 +202,19 @@ function showUsage {
     echo "
     USAGE: $0 [-f <config_file_path>] -m [mode] -u [user] -a [apps] -e [environment] -d [true/false] -r [true/false]
     Example 1 : sudo $0                                          # deploy all apps enabled in config.ini and user \$USER from config.ini
-    Example 2 : sudo $0 -m cleanapps  -d true                    # delete all apps enabled in config.init, leave environment with debug mode \$USER from config.ini
+    Example 2 : sudo $0 -m cleanapps -d true                     # delete all apps enabled in config.init,  debug mode \$USER from config.ini
     Example 3 : sudo $0 -m cleanall                              # delete all apps, all local Kubernetes artifacts, and local kubernetes server
     Example 4 : sudo $0 -a phee                                  # deploy PHEE only, user \$USER from config.ini
     Example 6 : sudo $0 -a \"mifosx,vnext\"                        # deploy MifosX and vNext only 
     Example 7 : sudo $0 -f /opt/my_config.ini                    # Use a custom config file
     Example 8 : sudo $0 -a \"phee,mifosx\" -e remote -d true       # deploy PHEE and MifosX on remote cluster with debug mode
+    Example 9 : sudo $0 -a setup-data                            # re-run data generation after a slow first boot
 
     Options:
     -f config_file_path .. Specify an alternative config.ini file path (optional)
     -m mode .............. deploy|cleanapps|cleanall (required)
     -u user .............. (non root) user that the process will use for execution (required)
-    -a apps .............. Comma-separated list of apps (vnext,phee,mifosx,infra,mastercard-demo) or 'all' (optional)
+    -a apps .............. Comma-separated list of apps (vnext,phee,mifosx,infra,mastercard-demo,setup-data) or 'all' (optional)
     -e environment ....... Cluster environment (local or remote, optional, default=local)
     -d debug ............. Enable debug mode (true|false, optional, default=false)
     -r redeploy .......... Force redeployment of apps (true|false, optional, default=true)
@@ -269,7 +270,7 @@ function validateInputs {
             log_warn "No apps specified via -a or config file. Defaulting to 'all'."
             apps="all"
         fi
-        local ALL_VALID_APPS="infra vnext phee mifosx mastercard-demo all"
+        local ALL_VALID_APPS="infra vnext phee mifosx mastercard-demo setup-data all"
         local CORE_APPS="infra vnext phee mifosx"
 
         local current_apps_array

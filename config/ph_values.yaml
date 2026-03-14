@@ -15,7 +15,7 @@ ph-ee-engine:
 
   operations_web:
     enabled: true
-    image: docker.io/openmf/ph-ee-operations-web:mifos-v2.0.0
+    image: docker.io/openmf/ph-ee-operations-web:dev
     backend:
       PH_OPS_BACKEND_SERVER_URL: https://ops-bk.mifos.gazelle.localhost/api/v1
       PH_VOU_BACKEND_SERVER_URL: https://ops-bk.mifos.gazelle.localhost/api/v1
@@ -28,7 +28,8 @@ ph-ee-engine:
 
   operations_app:
     enabled: true
-    image: docker.io/openmf/ph-ee-operations-app:mifos-v2.0.0
+    #image: docker.io/openmf/ph-ee-operations-app:mifos-v2.0.0
+    image: docker.io/openmf/ph-ee-operations-app:dev-latest
     imagePullPolicy: IfNotPresent
     resources:
       requests:
@@ -268,7 +269,7 @@ ph-ee-engine:
 
   ph_ee_connector_mojaloop:
     enabled: true
-    image: docker.io/openmf/ph-ee-connector-mojaloop-java:mifos-v2.0.0
+    image: docker.io/openmf/ph-ee-connector-mojaloop-java:dev-latest
     imagePullPolicy: IfNotPresent
     resources:
       requests:
@@ -317,10 +318,13 @@ ph-ee-engine:
             -XX:+HeapDumpOnOutOfMemoryError
 
   mockpayment:
+    enabled: true
+    image: docker.io/openmf/ph-ee-connector-mock-payment-schema:dev-latest
+    imagePullPolicy: IfNotPresent
     resources:
       requests:
         cpu: 50m
-        memory: 192Mi
+        memory: 192Miq
       limits:
         cpu: 300m
         memory: 256Mi
@@ -394,7 +398,7 @@ ph-ee-engine:
 
   ph_ee_bulk_processor:
     enabled: true
-    image: docker.io/openmf/ph-ee-bulk-processor:mifos-v2.0.0
+    image: docker.io/openmf/ph-ee-bulk-processor:dev-latest
     imagePullPolicy: IfNotPresent
     camel_disable_ssl: false  # End-to-end TLS
     tenants: "greenbank,bluebank,redbank"
@@ -481,7 +485,7 @@ ph-ee-engine:
 
   channel:
     enabled: true
-    image: openmf/ph-ee-connector-channel:mifos-v2.0.0
+    image: openmf/ph-ee-connector-channel:dev-latest
     resources:
       requests:
         cpu: 50m
@@ -565,7 +569,7 @@ ph-ee-engine:
 
   ph_ee_connector_bulk:
     enabled: true
-    image: docker.io/openmf/ph-ee-connector-bulk:mifos-v2.0.0
+    image: docker.io/openmf/ph-ee-connector-bulk:dev-latest
     resources:
       requests:
         cpu: 50m
@@ -593,7 +597,7 @@ ph-ee-engine:
   
   importer_rdbms:
     enabled: true
-    image: docker.io/openmf/ph-ee-importer-rdbms:mifos-v2.0.0
+    image: docker.io/openmf/ph-ee-importer-rdbms:dev-latest
     resources:
       requests:
         cpu: 50m
@@ -613,7 +617,7 @@ ph-ee-engine:
 
   zeebe_ops:
     enabled: true
-    image: docker.io/openmf/ph-ee-zeebe-ops:mifos-v2.0.0
+    image: docker.io/openmf/ph-ee-zeebe-ops:dev-latest
     resources:
       requests:
         cpu: 100m
@@ -643,7 +647,7 @@ ph-ee-engine:
 
   ph_ee_connector_ams_mifos:
     enabled: true
-    image: docker.io/openmf/ph-ee-connector-ams-mifos:mifos-v2.0.0
+    image: docker.io/openmf/ph-ee-connector-ams-mifos:dev-latest
     resources:
       requests:
         cpu: 100m

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-BASE_DIR="$(cd "$(dirname "$0")"/../..; pwd)"
+BASE_DIR="$(cd "$(dirname "$0")"/../../..; pwd)"
 CONFIG_DIR="$BASE_DIR/config"
 NAMESPACE="infra"
 POD_NAME="mysql-0"
