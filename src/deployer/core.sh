@@ -189,26 +189,20 @@ EOF
 #------------------------------------------------------------------------------
 # Function : manageElasticSecrets
 # Description: Creates or deletes Elasticsearch related Kubernetes secrets.
+#              On create, generates a self-signed certificate and packages it
+#              as a PKCS12 file using only openssl — no external repo required.
 # Parameters:
 #   $1 - Action: "create" or "delete"
 #   $2 - Namespace where the secrets are managed
-#   $3 - Directory containing the .p12 certificate file
 #------------------------------------------------------------------------------
 function manageElasticSecrets {
     local action="$1"
     local namespace="$2"
-    local certdir="$3" # location of the .p12 and .pem files 
     local password="XVYgwycNuEygEEEI0hQF"
 
     # Verify input parameters
-    if [ -z "$action" ] || [ -z "$namespace" ] || [ -z "$certdir" ]; then
-        log_error "Missing required parameters (action, namespace, certdir)"
-        return 1
-    fi
-
-    # Verify certdir exists and is readable
-    if [ ! -d "$certdir" ] || [ ! -r "$certdir/elastic-certificates.p12" ]; then
-        log_error "certdir $certdir does not exist or elastic-certificates.p12 is not readable"
+    if [ -z "$action" ] || [ -z "$namespace" ]; then
+        log_error "Missing required parameters (action, namespace)"
         return 1
     fi
 
@@ -218,18 +212,31 @@ function manageElasticSecrets {
     chown "$k8s_user":"$k8s_user" "$temp_dir" || { log_error "Failed to change ownership of $temp_dir"; rm -rf "$temp_dir"; return 1; }
     chmod 700 "$temp_dir" || { log_error "Failed to set permissions on $temp_dir"; rm -rf "$temp_dir"; return 1; }
 
-    # Check if k8s_user can access certdir
-    if ! su - "$k8s_user" -c "test -r '$certdir/elastic-certificates.p12'" 2>/dev/null; then
-        # Copy certificates to temp_dir
-        cp "$certdir/elastic-certificates.p12" "$temp_dir/elastic-certificates.p12" || { log_error "Failed to copy certificates"; rm -rf "$temp_dir"; return 1; }
-        chown "$k8s_user":"$k8s_user" "$temp_dir/elastic-certificates.p12" || { log_error "Failed to change ownership of copied certificates"; rm -rf "$temp_dir"; return 1; }
-        chmod 600 "$temp_dir/elastic-certificates.p12" || { log_error "Failed to set permissions on copied certificates"; rm -rf "$temp_dir"; return 1; }
-        certdir="$temp_dir"
-    fi
-
     if [ "$action" = "create" ]; then
+        # Generate a self-signed CA certificate and package as PKCS12
+        if ! openssl req -x509 -newkey rsa:2048 \
+                -keyout "$temp_dir/key.pem" \
+                -out "$temp_dir/cert.pem" \
+                -days 3650 -nodes \
+                -subj "/CN=elastic-ca" >/dev/null 2>&1; then
+            log_error "Failed to generate self-signed certificate"
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        if ! openssl pkcs12 -export \
+                -out "$temp_dir/elastic-certificates.p12" \
+                -inkey "$temp_dir/key.pem" \
+                -in "$temp_dir/cert.pem" \
+                -passout pass: >/dev/null 2>&1; then
+            log_error "Failed to create elastic-certificates.p12"
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        chown "$k8s_user":"$k8s_user" "$temp_dir/elastic-certificates.p12" "$temp_dir/key.pem" "$temp_dir/cert.pem" || { log_error "Failed to set ownership on generated cert files"; rm -rf "$temp_dir"; return 1; }
+        chmod 600 "$temp_dir/elastic-certificates.p12" "$temp_dir/key.pem" "$temp_dir/cert.pem" || { log_error "Failed to set permissions on generated cert files"; rm -rf "$temp_dir"; return 1; }
+
         # Convert certificates
-        if ! openssl pkcs12 -nodes -passin pass:'' -in "$certdir/elastic-certificates.p12" -out "$temp_dir/elastic-certificate.pem" >/dev/null 2>&1; then
+        if ! openssl pkcs12 -nodes -passin pass:'' -in "$temp_dir/elastic-certificates.p12" -out "$temp_dir/elastic-certificate.pem" >/dev/null 2>&1; then
             log_error "Failed to convert p12 to pem"
             rm -rf "$temp_dir"
             return 1
@@ -261,7 +268,7 @@ function manageElasticSecrets {
 
         # Create secrets
         local secret_output
-        secret_output=$(run_as_user "kubectl create secret generic elastic-certificates --namespace=\"$namespace\" --from-file=\"$certdir/elastic-certificates.p12\"" 2>&1)
+        secret_output=$(run_as_user "kubectl create secret generic elastic-certificates --namespace=\"$namespace\" --from-file=\"$temp_dir/elastic-certificates.p12\"" 2>&1)
         if [ $? -ne 0 ]; then
             log_error "Failed to create elastic-certificates secret: $secret_output"
             rm -rf "$temp_dir"

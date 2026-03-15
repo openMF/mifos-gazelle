@@ -25,7 +25,7 @@ function deployPH(){
 
   log_step "Removing existing Payment Hub resources"
   deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
-  manageElasticSecrets delete "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
+  manageElasticSecrets delete "$INFRA_NAMESPACE"
   log_ok
 
   run_as_user "kubectl wait --for=condition=ready pod --all -n $VNEXT_NAMESPACE --timeout=600s" > /dev/null 2>&1
@@ -37,9 +37,9 @@ function deployPH(){
   prepare_payment_hub_chart
 
   log_step "Creating elastic secrets"
-  manageElasticSecrets delete "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
-  manageElasticSecrets create "$PH_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
-  manageElasticSecrets create "$INFRA_NAMESPACE" "$APPS_DIR/$PHREPO_DIR/helm/es-secret"
+  manageElasticSecrets delete "$INFRA_NAMESPACE"
+  manageElasticSecrets create "$PH_NAMESPACE"
+  manageElasticSecrets create "$INFRA_NAMESPACE"
   log_ok
 
   createIngressSecret "$PH_NAMESPACE" \
@@ -67,7 +67,6 @@ function deployPH(){
 #------------------------------------------------------------------------------
 function prepare_payment_hub_chart() {
   # Clone the repositories
-  cloneRepo "$PHBRANCH" "$PH_REPO_LINK" "$APPS_DIR" "$PHREPO_DIR"  # needed for kibana and elastic secrets only 
   cloneRepo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
   
   log_step "Updating FQDNs in Helm chart values and manifests"
@@ -184,7 +183,7 @@ deploy_bpmns() {
 #------------------------------------------------------------------------------
 generate_sample_csvs() {
     local csv_generator="$RUN_DIR/src/utils/data-loading/generate-example-csv-files.py"
-    local output_dir="$RUN_DIR/src/utils/data-loading"
+    local output_dir="$RUN_DIR/src/utils/batch"
 
     if [ ! -f "$csv_generator" ]; then
             logWithVerboseCheck "$debug" "$WARNING" "CSV generator not found: $csv_generator"

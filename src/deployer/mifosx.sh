@@ -41,7 +41,7 @@ function DeployMifosXfromYaml() {
     log_ok
 
     log_step "Restoring MifosX database dump"
-    run_as_user "$UTILS_DIR/dump-restore-fineract-db.sh -r" > /dev/null
+    run_as_user "$DATA_LOADING_DIR/dump-restore-fineract-db.sh -r" > /dev/null
     log_ok
 
     log_step "Applying manifests"
@@ -68,18 +68,23 @@ function wait_for_fineract_api_ready {
   local tenants=("greenbank" "bluebank" "redbank")
   local base_url="https://mifos.${GAZELLE_DOMAIN}/fineract-provider/api/v1"
   local auth="Basic bWlmb3M6cGFzc3dvcmQ="   # mifos:password
-  local timeout=300
+  local timeout=${startup_timeout:-600}
   local retry_interval=10
+  local global_start
+  global_start=$(date +%s)
 
-  log_step "Waiting for Fineract tenant APIs (schema + seed data)"
+  log_step "Waiting for Fineract tenant APIs (schema + seed data, timeout=${timeout}s)"
 
   for tenant in "${tenants[@]}"; do
-    local start_time
-    start_time=$(date +%s)
-    local elapsed=0
     local ready=false
 
-    while [[ $elapsed -lt $timeout ]]; do
+    while true; do
+      local elapsed=$(( $(date +%s) - global_start ))
+      if [[ $elapsed -ge $timeout ]]; then
+        log_failed "Fineract tenant '${tenant}' not ready after ${timeout}s"
+        return 1
+      fi
+
       local clients_code
       clients_code=$(curl -sk -o /dev/null -w "%{http_code}" \
         -H "Authorization: ${auth}" \
@@ -96,7 +101,7 @@ function wait_for_fineract_api_ready {
           "${base_url}/paymenttypes" 2>/dev/null)
 
         if [[ "$paymenttypes_body" =~ ^\[ && "$paymenttypes_body" != "[]" ]]; then
-          logWithVerboseCheck "$debug" "$DEBUG" "Tenant '${tenant}' ready (${elapsed}s)"
+          logWithVerboseCheck "$debug" "$DEBUG" "Tenant '${tenant}' ready (${elapsed}s elapsed)"
           ready=true
           break
         else
@@ -107,13 +112,7 @@ function wait_for_fineract_api_ready {
       fi
 
       sleep $retry_interval
-      elapsed=$(( $(date +%s) - start_time ))
     done
-
-    if [[ "$ready" != "true" ]]; then
-      log_failed "Fineract tenant '${tenant}' not ready after ${timeout}s"
-      return 1
-    fi
   done
 
   log_ok
@@ -125,30 +124,35 @@ function wait_for_fineract_api_ready {
 # Description: Generates MifosX clients and accounts & registers associations with vNext Oracle.
 # Parameters: None
 #------------------------------------------------------------------------------
-function generateMifosXandVNextData {  
-  local timeout=300  # 5 minutes in seconds
-  local recheck_time=30  # 30 seconds
-  local start_time=$(date +%s)
+function generateMifosXandVNextData {
+  local timeout=${startup_timeout:-600}
+  local recheck_time=30
+  local start_time
+  start_time=$(date +%s)
   local elapsed=0
-  
+  local retry_cmd="sudo $RUN_DIR/run.sh -a setup-data -f \"$CONFIG_FILE_PATH\""
+
   while [[ $elapsed -lt $timeout ]]; do
     is_app_running "vnext"
     result_vnext=$?
     is_app_running "mifosx"
     result_mifosx=$?
-    
+
     if [[ $result_vnext -eq 0 ]] && [[ $result_mifosx -eq 0 ]]; then
       if ! wait_for_fineract_api_ready; then
         log_error "Fineract API not ready — aborting data generation"
+        log_warn "Re-run when the cluster is ready:  $retry_cmd"
         return 1
       fi
 
       log_step "Generating MifosX clients and registering vNext Oracle associations"
-      results=$(run_as_user "$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py -c \"$CONFIG_FILE_PATH\" ")
+      echo
+      run_as_user "python3 \"$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py\" -c \"$CONFIG_FILE_PATH\" 2>&1"
+      local data_gen_exit=$?
 
-      if [[ "$?" -ne 0 ]]; then
+      if [[ $data_gen_exit -ne 0 ]]; then
         log_failed "Data generation failed"
-        log_error "Run: $RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py -c $CONFIG_FILE_PATH"
+        log_warn "Re-run when the cluster is ready:  $retry_cmd"
         return 1
       fi
       log_ok
@@ -164,6 +168,7 @@ function generateMifosXandVNextData {
     fi
   done
 
-  log_warn "vNext or MifosX did not start within ${timeout}s — skipping data generation"
+  log_warn "vNext or MifosX did not start within ${timeout}s — data generation skipped"
+  log_warn "Re-run when the cluster is ready:  $retry_cmd"
   return 1
 }

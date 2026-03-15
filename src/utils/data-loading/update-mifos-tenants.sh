@@ -150,7 +150,7 @@ disable_liquibase() {
 
 dump_database() {
   log "Dumping final state..."
-  local dump_script="$UTILS_DIR/dump-restore-fineract-db.sh"
+  local dump_script="$(dirname "${BASH_SOURCE[0]}")/dump-restore-fineract-db.sh"
   if [[ -x "$dump_script" ]]; then
     bash "$dump_script" -d > /dev/null
   else

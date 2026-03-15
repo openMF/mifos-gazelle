@@ -11,6 +11,8 @@ BASE_DIR=$( cd $(dirname "$0") ; pwd )
 APPS_DIR="$BASE_DIR/repos"
 CONFIG_DIR="$BASE_DIR/config"
 UTILS_DIR="$BASE_DIR/src/utils"
+DATA_LOADING_DIR="$UTILS_DIR/data-loading"
+export UTILS_DIR DATA_LOADING_DIR
 INFRA_CHART_DIR="$BASE_DIR/src/deployer/helm/infra" 
 NGINX_VALUES_FILE="$CONFIG_DIR/nginx_values.yaml"
 
