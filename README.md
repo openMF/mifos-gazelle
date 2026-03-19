@@ -26,6 +26,7 @@ sudo ./run.sh -u $USER -m deploy -a all
 
 | Guide | Contents |
 |-------|----------|
+| [Java Debugging Guide](docs/DEBUGGING-PAYMENTHUB.md) | Step-by-step instructions for attaching a debugger to Payment Hub components |
 | [Deployment Guide](docs/MIFOS-GAZELLE-README.md) | Install, configure, test end-to-end payments, FAQ |
 | [Bulk Payment Tools](docs/BULK.md) | Submit/verify G2P batch payments, GovStack mode |
 | [GovStack Architecture](docs/GOVSTACK.md) | G2P bulk disbursement design and troubleshooting |
