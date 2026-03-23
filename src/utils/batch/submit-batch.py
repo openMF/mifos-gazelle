@@ -244,36 +244,39 @@ def run_submit(csv_file, config_path, tenant, govstack, registering_institution,
     if not validate_tenant(tenant):
         return None
 
-    # Resolve registering institution for GovStack mode
+    # Resolve registering institution for GovStack mode.
+    # The registering institution is the payer — the entity that enrolled the
+    # beneficiaries for this disbursement programme.
+    # - If --tenant is given, the payer IS the tenant: use it directly.
+    # - If --tenant is not given (interactive/scripted with no tenant), auto-detect
+    #   from the CSV payees as a fallback.
     if govstack and registering_institution is None:
-        payees = get_payee_identifiers_from_csv(csv_file)
-        if payees:
-            best, counts = detect_registering_institution(payees, debug=debug)
-            if best:
-                total = len(payees)
-                matched = counts[best]
-                if len(counts) == 1:
+        if tenant:
+            registering_institution = tenant
+            print(f"✓ Registering institution: '{tenant}' (payer tenant)",
+                  file=sys.stderr)
+        else:
+            payees = get_payee_identifiers_from_csv(csv_file)
+            if payees:
+                best, counts = detect_registering_institution(payees, debug=debug)
+                if best:
+                    total = len(payees)
+                    matched = counts[best]
                     print(f"✓ Auto-detected registering institution: '{best}' "
                           f"({matched}/{total} payees matched)", file=sys.stderr)
+                    registering_institution = best
                 else:
-                    others = ', '.join(
-                        f"'{k}'({v})" for k, v in counts.items() if k != best
-                    )
-                    print(f"⚠️  Multiple institutions found: '{best}'({matched}) "
-                          f"[most], {others}", file=sys.stderr)
-                    print(f"   Using '{best}'. Pass --registering-institution to override.",
+                    print(f"\n⚠️  WARNING: Could not auto-detect registering institution.",
                           file=sys.stderr)
-                registering_institution = best
+                    print(f"   Payees from CSV not found in identity-account-mapper.",
+                          file=sys.stderr)
+                    print(f"   Fix: run generate-mifos-vnext-data.py --regenerate",
+                          file=sys.stderr)
+                    print(f"   Or:  pass --registering-institution explicitly",
+                          file=sys.stderr)
             else:
-                print(f"\n⚠️  WARNING: Could not auto-detect registering institution.",
-                      file=sys.stderr)
-                print(f"   Payees from CSV not found in identity-account-mapper.",
-                      file=sys.stderr)
-                print(f"   Fix: run generate-mifos-vnext-data.py --regenerate", file=sys.stderr)
-                print(f"   Or:  pass --registering-institution explicitly", file=sys.stderr)
-        else:
-            print(f"⚠️  No payee_identifier column found in CSV — "
-                  f"cannot auto-detect institution", file=sys.stderr)
+                print(f"⚠️  No payee_identifier column found in CSV — "
+                      f"cannot auto-detect institution", file=sys.stderr)
     elif govstack and registering_institution is not None:
         count = check_identity_mapper(registering_institution, debug=debug)
         if count is not None:
