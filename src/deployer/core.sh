@@ -123,22 +123,22 @@ function createIngressSecret {
     chown "$k8s_user":"$k8s_user" "$key_dir/$primary_domain.key"
     chmod 600 "$key_dir/$primary_domain.key"
 
-    # Generate certificate with SANs
-    openssl req -x509 -new -nodes \
-        -key "$key_dir/$primary_domain.key" \
-        -sha256 -days 365 \
-        -out "$key_dir/$primary_domain.crt" \
-        -subj "/CN=$primary_domain" \
-        -extensions v3_req \
-        -config <(
-            cat <<EOF
+    # X.509 CN field is limited to 64 characters; truncate if needed.
+    # SANs handle actual hostname matching — CN is informational only.
+    local cn="${primary_domain:0:64}"
+
+    # Write OpenSSL config to a temp file (process substitution is non-seekable;
+    # openssl reads the config multiple times and fails silently with <(...))
+    local config_file
+    config_file=$(mktemp /tmp/openssl-san-XXXXXX.conf)
+    cat > "$config_file" <<EOF
 [req]
 distinguished_name=req_distinguished_name
 x509_extensions=v3_req
 prompt=no
 
 [req_distinguished_name]
-CN=$primary_domain
+CN=$cn
 
 [v3_req]
 subjectAltName=@alt_names
@@ -148,7 +148,17 @@ extendedKeyUsage=serverAuth
 [alt_names]
 ${san_config}
 EOF
-        ) >/dev/null 2>&1
+
+    # Generate certificate with SANs
+    openssl req -x509 -new -nodes \
+        -key "$key_dir/$primary_domain.key" \
+        -sha256 -days 365 \
+        -out "$key_dir/$primary_domain.crt" \
+        -subj "/CN=$cn" \
+        -extensions v3_req \
+        -config "$config_file" >/dev/null 2>&1
+
+    rm -f "$config_file"
 
     # Set proper ownership and permissions on the certificate
     chown "$k8s_user":"$k8s_user" "$key_dir/$primary_domain.crt"

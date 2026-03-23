@@ -13,7 +13,7 @@ spec:
   # Connector image
   image:
     repository: openmf/ph-ee-connector-mccbs
-    tag: "dev-443a7dd"
+    tag: "phee-359-ec98e64"
     pullPolicy: IfNotPresent
 
   # Mastercard API configuration
