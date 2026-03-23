@@ -152,9 +152,18 @@ def detect_registering_institution(payee_identifiers, debug=False):
     in_clause = "', '".join(payee_identifiers)
 
     try:
+        pw_result = subprocess.run(
+            ['kubectl', 'get', 'secret', '-n', 'paymenthub', 'operationsmysql',
+             '-o', 'jsonpath={.data.mysql-root-password}'],
+            capture_output=True, text=False, timeout=10,
+        )
+        if pw_result.returncode != 0:
+            return None, {}
+        password = base64.b64decode(pw_result.stdout).decode('utf-8').strip()
+
         query_cmd = [
-            'kubectl', 'exec', '-n', 'infra', 'mysql-0', '--',
-            'mysql', '-umifos', '-ppassword', 'identity_account_mapper',
+            'kubectl', 'exec', '-n', 'paymenthub', 'operationsmysql-0', '--',
+            'mysql', '-uroot', f'-p{password}', 'identity_account_mapper',
             '-e', (
                 f"SELECT registering_institution_id, COUNT(*) as cnt "
                 f"FROM identity_details "
@@ -305,9 +314,18 @@ def check_identity_mapper(registering_institution, debug=False):
         )
 
     try:
+        pw_result = subprocess.run(
+            ['kubectl', 'get', 'secret', '-n', 'paymenthub', 'operationsmysql',
+             '-o', 'jsonpath={.data.mysql-root-password}'],
+            capture_output=True, text=False, timeout=10,
+        )
+        if pw_result.returncode != 0:
+            return None
+        password = base64.b64decode(pw_result.stdout).decode('utf-8').strip()
+
         query_cmd = [
-            'kubectl', 'exec', '-n', 'infra', 'mysql-0', '--',
-            'mysql', '-umifos', '-ppassword', 'identity_account_mapper',
+            'kubectl', 'exec', '-n', 'paymenthub', 'operationsmysql-0', '--',
+            'mysql', '-uroot', f'-p{password}', 'identity_account_mapper',
             '-e', (
                 f"SELECT COUNT(*) FROM identity_details "
                 f"WHERE registering_institution_id = '{registering_institution}'"

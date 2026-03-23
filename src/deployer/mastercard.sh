@@ -164,8 +164,8 @@ deploy_connector() {
     local api_url="$MASTERCARD_API_URL"
 
     # Determine image settings
-    local image_repo="ph-ee-connector-mastercard-cbs"
-    local image_tag="1.0.0"
+    local sample_cr="$RUN_DIR/src/deployer/operators/mastercard/config/samples/mastercard-cbs-default.yaml"
+    local image_repo image_tag
     local localdev_section=""
 
     if [ "${MASTERCARD_LOCALDEV_ENABLED:-false}" == "true" ]; then
@@ -176,6 +176,13 @@ deploy_connector() {
     enabled: true
     hostPath: \"${MASTERCARD_CBS_HOME}\"
     jarPath: \"/app/build/libs/ph-ee-connector-mastercard-cbs-1.0.0-SNAPSHOT.jar\""
+    else
+        # Read image from sample CR as source of truth
+        image_repo=$(grep 'repository:' "$sample_cr" 2>/dev/null | head -1 | sed 's/.*repository:[[:space:]]*//' | tr -d '"')
+        image_tag=$(grep '[[:space:]]tag:' "$sample_cr" 2>/dev/null | head -1 | sed 's/.*tag:[[:space:]]*//' | tr -d '"')
+        image_repo="${image_repo:-ph-ee-connector-mastercard-cbs}"
+        image_tag="${image_tag:-1.0.0}"
+        logWithVerboseCheck "$debug" "$INFO" "Connector image: ${image_repo}:${image_tag}"
     fi
 
     local cr_file="/tmp/mastercard-cbs-cr.yaml"
