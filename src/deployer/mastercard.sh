@@ -55,10 +55,12 @@ check_prerequisites() {
         exit 1
     fi
 
-    if [ ! -d "$MASTERCARD_CBS_HOME" ]; then
+    if [ "${MASTERCARD_LOCALDEV_ENABLED:-false}" == "true" ] && [ ! -d "$MASTERCARD_CBS_HOME" ]; then
         log_error "Mastercard CBS directory not found: $MASTERCARD_CBS_HOME"
         log_error "Set MASTERCARD_CBS_HOME or ensure ~/ph-ee-connector-mccbs exists"
         exit 1
+    elif [ "${MASTERCARD_LOCALDEV_ENABLED:-false}" != "true" ] && [ ! -d "$MASTERCARD_CBS_HOME" ]; then
+        logWithVerboseCheck "$debug" "$WARNING" "MASTERCARD_CBS_HOME not found ($MASTERCARD_CBS_HOME) - BPMN workflow deploy will be skipped (Docker image deployment)"
     fi
 
     if ! run_as_user "kubectl get namespace \"$PAYMENTHUB_NAMESPACE\"" &> /dev/null; then
@@ -257,7 +259,7 @@ wait_for_deployment() {
 }
 
 deploy_bpmn_workflow() {
-    local workflow_file="$MASTERCARD_CBS_HOME/orchestration/MastercardFundTransfer-DFSPID.bpmn"
+    local workflow_file="$RUN_DIR/orchestration/feel/MastercardFundTransfer-DFSPID.bpmn"
     local deploy_script="$RUN_DIR/src/utils/deployBpmn-gazelle.sh"
 
     if [ ! -f "$workflow_file" ]; then
