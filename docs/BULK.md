@@ -27,7 +27,7 @@ Submits a single CSV to the bulk-processor.
 ./submit-batch.py   # interactive — prompts for CSV, tenant, GovStack mode, etc.
 ```
 
-Key flags: `-c config.ini`, `-f csv`, `-t tenant`, `-g` (GovStack), `--debug`, `--show-curl`
+Key flags: `-c config.ini`, `-f csv`, `-t tenant`, `-g` (GovStack), `-i registering-institution`, `-p program`, `--debug`, `--show-curl`
 
 ### `src/utils/batch/verify-batches.py`
 Submits all 4 standard scenarios and polls operations-app until complete, then prints a pass/fail summary.
@@ -91,3 +91,27 @@ See [GOVSTACK.md](GOVSTACK.md) for the full architecture.
 ## Shared library
 
 `src/utils/batch/batch_utils.py` — config loading, domain resolution, CSV parsing, identity-mapper queries. Imported by all tools above.
+
+---
+
+## FAQ
+
+### Operations-Web shows "REJECTED" or "null" status while the batch is running
+
+This is expected. Individual transfer records go through intermediate states during processing, and Operations-Web may display `REJECTED`, `null`, or other transient statuses in the transfers table. **The correct final status appears when processing completes** (typically 60–90 seconds after submission). Refresh the page after the batch finishes.
+
+`verify-batches.py` polls the operations-app API directly and ignores these intermediate states, so its pass/fail result is reliable regardless of what Operations-Web shows during processing.
+
+To check the authoritative batch result from the database:
+```bash
+kubectl exec -n paymenthub operationsmysql-0 -- env MYSQL_PWD=ethieTieCh8ahv mysql -uroot tenants \
+  -e "SELECT batch_id, total_transactions, completed, status, completed_at FROM batches ORDER BY id DESC LIMIT 5\G"
+```
+
+### Batch total shows 0 or status stays ACCEPTED/IN_PROGRESS indefinitely
+
+- **GovStack mode:** check that the identity-account-mapper has entries for your institution: `kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword identity_account_mapper -e "SELECT COUNT(*) FROM identity_details WHERE registering_institution_id = 'greenbank'"`
+- **Any mode:** check bulk-processor logs for errors: `kubectl logs -n paymenthub -l app=ph-ee-bulk-processor --tail=100`
+- **Mojaloop batches:** check for Zeebe incidents at https://zeebe-operate.mifos.gazelle.test
+
+See [GOVSTACK.md](GOVSTACK.md) for a full troubleshooting table.

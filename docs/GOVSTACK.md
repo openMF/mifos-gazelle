@@ -49,7 +49,7 @@ According to the official GovStack spec (pages 9-13), the architecture for G2P b
 │  │  - Returns bankingInstitutionCode                │  │
 │  └──────────────────────────────────────────────────┘  │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │  Bulk Processor                                   │  │
+│  │  Bulk Processor                                  │  │
 │  │  - De-bulks by receiving institution             │  │
 │  │  - Creates sub-batches per payee FSP             │  │
 │  └──────────────────────────────────────────────────┘  │
@@ -59,7 +59,7 @@ According to the official GovStack spec (pages 9-13), the architecture for G2P b
                    │ (grouped by Payee FSP)
                    ▼
 ┌────────────────────────────────────────────────────────┐
-│  PAYER FSP (Payer Bank - e.g., greenbank/redbank)     │
+│  PAYER FSP (Payer Bank - e.g., greenbank/redbank)      │
 │  - Holds government settlement account                 │
 │  - Participant in payment switch/scheme                │
 └──────────────────┬─────────────────────────────────────┘
@@ -71,8 +71,9 @@ According to the official GovStack spec (pages 9-13), the architecture for G2P b
 │  PAYMENT SWITCH / SCHEME (Switch-Agnostic)             │
 │  - Routes to destination FSPs                          │
 │  - Handles settlement                                  │
-│  - Could be: Mojaloop vNext, GSMA, National Switch,   │
+│  - Could be: Mojaloop vNext, National Switch,          │
 │    Bilateral, or Direct (closedloop)                   │
+│  - GSMA: not yet implemented in Mifos Gazelle v2.0.0   │
 └──────────────────┬─────────────────────────────────────┘
                    │
                    │ (5) Individual Credits
@@ -118,7 +119,7 @@ The `payment_mode` column in the batch CSV determines the **routing mechanism**:
 |--------------|---------|------------------|----------|
 | `CLOSEDLOOP` | Direct connector-bulk → connector-channel | NO | Internal transfers, same Payment Hub instance |
 | `MOJALOOP` | Via Mojaloop vNext switch | YES | Inter-FSP transfers via Mojaloop |
-| `GSMA` | Via GSMA mobile money connector | Depends | Mobile money providers |
+| `GSMA` | Via GSMA mobile money connector | Depends | Mobile money providers — **not yet implemented in Mifos Gazelle v2.0.0 / PHEE mifos-v2.0.0** |
 
 **Critical Understanding:**
 - `CLOSEDLOOP` is a routing method, NOT the same as "non-GovStack"
@@ -186,14 +187,18 @@ Both workflows are deployed at startup and selected at runtime:
 - GovStack: `orchestration/feel/bulk_processor_account_lookup-DFSPID.bpmn`
 
 **Configuring which workflow a tenant uses** (in `ph-ee-bulk-processor/src/main/resources/application.yaml`):
+
+GovStack mode uses a **separate key** `batch-transactions-govstack` — the standard `batch-transactions` key is not overwritten:
 ```yaml
 bpmns:
   tenants:
     - id: "greenbank"
       flows:
-        batch-transactions: "bulk_processor_account_lookup-{dfspid}"  # GovStack
-        # batch-transactions: "bulk_processor-{dfspid}"              # Standard
+        payment-transfer: "minimal_mock_fund_transfer-{dfspid}"
+        batch-transactions: "bulk_processor-{dfspid}"              # Standard (no --govstack)
+        batch-transactions-govstack: "bulk_processor_account_lookup-{dfspid}"  # GovStack (--govstack)
 ```
+Both keys are already present in the current configuration — no change is needed to enable GovStack mode for greenbank or redbank.
 
 ### Payer vs Payee: Different Sources
 
@@ -231,9 +236,9 @@ budget-account:
     - id: "greenbank"                       # matches X-Registering-Institution-ID header
       programs:
         - id: "SocialWelfare"              # matches X-Program-ID header
-          name: "Social Welfare Program"
-          identifierType: "ACCOUNT"        # ACCOUNT, MSISDN, etc.
-          identifierValue: "1"             # Fineract account number for payer
+          name: "Social Welfare"
+          identifierType: "MSISDN"         # MSISDN, ACCOUNT, etc.
+          identifierValue: "0413509790"    # Payer phone number (MSISDN) for greenbank
 ```
 
 **Header → config mapping:**
@@ -243,7 +248,7 @@ budget-account:
 | `X-Registering-Institution-ID: greenbank` | `registeringInstitutions[].id` | Selects institution |
 | `X-Program-ID: SocialWelfare` | `programs[].id` | Selects program within institution |
 
-When both headers match, `identifierValue` (e.g., `"1"`) is used as the payer account. Any payer columns in the CSV are **overwritten** with this value.
+When both headers match, `identifierValue` (e.g., `"0413509790"`) is used as the payer identifier. Any payer columns in the CSV are **overwritten** with this value.
 
 **Multiple programs example:**
 ```yaml
@@ -252,48 +257,42 @@ budget-account:
     - id: "greenbank"
       programs:
         - id: "SocialWelfare"
-          name: "Social Welfare Program"
-          identifierType: "ACCOUNT"
-          identifierValue: "1"       # Greenbank account #1
+          name: "Social Welfare"
+          identifierType: "MSISDN"
+          identifierValue: "0413509790"    # Payer phone number for SocialWelfare program
 
         - id: "ChildBenefit"
           name: "Child Benefit Program"
-          identifierType: "ACCOUNT"
-          identifierValue: "2"       # Greenbank account #2
+          identifierType: "MSISDN"
+          identifierValue: "0413509791"    # Different payer phone number
 ```
 
-### How to Find Your Payer Account Number
+### How to Find Your Payer Identifier
+
+The current configuration uses `identifierType: "MSISDN"`, so `identifierValue` is the payer's mobile number. To find or change it:
 
 **Via MifosX web client:**
-1. Open `http://mifos.mifos.gazelle.test`, select tenant `greenbank`
-2. Navigate to the government program client → Savings Accounts
-3. Note the Account No (use this as `identifierValue`)
+1. Open `https://mifos.mifos.gazelle.test`, select tenant `greenbank`
+2. Navigate to the government program client → view their mobile number
 
 **Via database:**
 ```bash
 kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword \
   -D mifostenant-greenbank \
-  -e "SELECT id, account_no, display_name FROM m_savings_account LIMIT 10;"
+  -e "SELECT id, mobile_no, display_name FROM m_client LIMIT 10;"
 ```
 
-### CSV Format in GovStack Mode
+### CSV Format
 
-When `X-Program-ID` is supplied (payer from config), payer columns are optional:
+The CSV format is the same in both standard and GovStack modes — payer columns are always required. The `Platform-TenantId` header determines the payer's FSP; `X-Program-ID` (if supplied) overwrites the payer identifier with the value from `budget-account` config.
 
 ```csv
-id,request_id,payment_mode,payee_identifier_type,payee_identifier,amount,currency,note,account_number
-0,uuid1,mojaloop,MSISDN,0495822412,250,USD,Sept welfare,1
-1,uuid2,mojaloop,MSISDN,0495822413,250,USD,Sept welfare,2
+id,request_id,payment_mode,payer_identifier_type,payer_identifier,payee_identifier_type,payee_identifier,amount,currency,note
+0,uuid1,mojaloop,MSISDN,0413509790,MSISDN,0495822412,250,USD,Sept welfare
+1,uuid2,mojaloop,MSISDN,0413509790,MSISDN,0495822413,250,USD,Sept welfare
 ```
 
-When `X-Program-ID` is NOT supplied (standard mode or GovStack without budget-account lookup), payer columns are required:
-
-```csv
-id,request_id,payment_mode,payer_identifier_type,payer_identifier,payee_identifier_type,payee_identifier,amount,currency,note,account_number
-0,uuid1,mojaloop,MSISDN,0413356886,MSISDN,0495822412,250,USD,Sept welfare,1
-```
-
-Note: In standard mode, the CSV has `payer_identifier` (phone number) but no payer DFSP column. The `Platform-TenantId` header determines the payer's FSP (e.g., `Platform-TenantId: greenbank` → payer is at greenbank).
+See `src/utils/batch/bulk-gazelle-mojaloop-4.csv` and `src/utils/batch/bulk-gazelle-closedloop-4.csv` for working examples.
 
 ---
 
@@ -392,9 +391,57 @@ variables.put(DEBULKINGDFSPID,
 
 ## Tenant Configuration
 
-### Critical: Multi-Component Tenant Configuration
+### Primary Configuration: Helm Chart Properties Files
 
-Tenant workflows must be configured in BOTH bulk-processor AND channel-connector.
+For standard (non-hostPath) deployments, tenant configuration is managed entirely through `.properties` files in the Gazelle Helm chart. These are bundled into a Kubernetes ConfigMap (`ph-ee-config`) at deploy time and injected as Spring Boot configuration into each component.
+
+**Key files:**
+
+| File | Controls |
+|------|---------|
+| `repos/ph_template/helm/gazelle/config/application-tenants.properties` | BPMN workflow mappings per tenant (bulk-processor and connector-channel) |
+| `repos/ph_template/helm/gazelle/config/application-tenantsConnection.properties` | Per-tenant MySQL database connections for operations-app |
+
+The ConfigMap template at `repos/ph_template/helm/gazelle/templates/config.yml` bundles all `config/*.properties` files automatically:
+```yaml
+data:
+{{ (.Files.Glob "config/**.properties").AsConfig | nindent 2 }}
+```
+
+**`application-tenants.properties`** — this is the primary file to edit for tenant workflow configuration:
+```properties
+# Greenbank — Payer using Mojaloop switch
+bpmns.tenants[0].id=greenbank
+bpmns.tenants[0].flows.payment-transfer=PayerFundTransfer-{dfspid}
+bpmns.tenants[0].flows.outbound-transfer-request=minimal_mock_transfer_request-{dfspid}
+bpmns.tenants[0].flows.batch-transactions=bulk_processor-{dfspid}
+bpmns.tenants[0].flows.batch-transactions-govstack=bulk_processor_account_lookup-{dfspid}
+
+# Redbank — Payer using closedloop
+bpmns.tenants[1].id=redbank
+bpmns.tenants[1].flows.payment-transfer=minimal_mock_fund_transfer-{dfspid}
+bpmns.tenants[1].flows.outbound-transfer-request=minimal_mock_transfer_request-{dfspid}
+bpmns.tenants[1].flows.batch-transactions=bulk_processor-{dfspid}
+bpmns.tenants[1].flows.batch-transactions-govstack=bulk_processor_account_lookup-{dfspid}
+
+# Bluebank — Payee FSP
+bpmns.tenants[2].id=bluebank
+bpmns.tenants[2].flows.payment-transfer=minimal_mock_fund_transfer-{dfspid}
+bpmns.tenants[2].flows.batch-transactions=bulk_processor-{dfspid}
+```
+
+To add a new tenant or change a workflow mapping, edit this file and redeploy:
+```bash
+helm upgrade phee repos/ph_template/helm/gazelle -n paymenthub -f config/ph_values.yaml
+```
+
+> **Note:** When using hostPath mounts for local development, the ConfigMap has no effect — changes must be made to the source YAML files and the JAR rebuilt. See [Applying Configuration Changes](#applying-configuration-changes-hostpath-mounts) below.
+
+---
+
+### Multi-Component Detail (hostPath / Development)
+
+When developing with hostPath mounts, the same configuration must be set in two separate source YAML files. The properties file above corresponds to these YAML equivalents:
 
 ### Bulk-Processor Configuration
 
@@ -412,12 +459,17 @@ bpmns:
     - id: "greenbank"
       flows:
         payment-transfer: "minimal_mock_fund_transfer-{dfspid}"
-        batch-transactions: "bulk_processor-{dfspid}"           # Standard
-        # batch-transactions: "bulk_processor_account_lookup-{dfspid}"  # GovStack
+        batch-transactions: "bulk_processor-{dfspid}"                          # Standard
+        batch-transactions-govstack: "bulk_processor_account_lookup-{dfspid}" # GovStack
+    - id: "greenbank-mastercard"
+      flows:
+        payment-transfer: "MastercardFundTransfer-{dfspid}"
+        batch-transactions: "bulk_processor_account_lookup-{dfspid}"
     - id: "redbank"
       flows:
         payment-transfer: "minimal_mock_fund_transfer-{dfspid}"
-        batch-transactions: "bulk_processor-{dfspid}"
+        batch-transactions: "bulk_processor-{dfspid}"                          # Standard
+        batch-transactions-govstack: "bulk_processor_account_lookup-{dfspid}" # GovStack
     - id: "bluebank"
       flows:
         batch-transactions: "bulk_processor-{dfspid}"
@@ -453,11 +505,9 @@ String tenantId = exchange.getIn().getHeader("Platform-TenantId", String.class);
 // tenantId="redbank" → "minimal_mock_fund_transfer-redbank"
 ```
 
-### Helm Template Configuration (For Reference)
+### Helm Template Configuration
 
-**File:** `repos/ph_template/helm/gazelle/config/application-tenants.properties`
-
-Used by Helm at deploy time. When using hostPath mounts (local dev), changes must be made to the source YAML files above, not this file.
+See [Primary Configuration: Helm Chart Properties Files](#primary-configuration-helm-chart-properties-files) above. For standard deployments, `repos/ph_template/helm/gazelle/config/application-tenants.properties` is the single file to edit — no JAR rebuild required.
 
 ### Applying Configuration Changes (hostPath Mounts)
 
@@ -511,8 +561,8 @@ ConfigMap updates alone do NOT work with hostPath mounts.
 ### submit-batch.py Flags
 
 ```bash
-./src/utils/data-loading/submit-batch.py \
-  -c ~/tomconfig.ini \
+./src/utils/batch/submit-batch.py \
+  [-c ~/my-config.ini]              \   # optional; defaults to config/config.ini
   -f <csv-file> \
   --tenant <greenbank|redbank|bluebank> \
   [--govstack] \
@@ -534,18 +584,16 @@ ConfigMap updates alone do NOT work with hostPath mounts.
 
 ```bash
 # Generate CSVs from current Mifos client data
-./src/utils/data-loading/generate-example-csv-files.py -c ~/tomconfig.ini
+./src/utils/data-loading/generate-example-csv-files.py
 
 # Closedloop — redbank payer, no identity validation
-./src/utils/data-loading/submit-batch.py \
-  -c ~/tomconfig.ini \
-  -f ./src/utils/data-loading/bulk-gazelle-closedloop-4.csv \
+./src/utils/batch/submit-batch.py \
+  -f ./src/utils/batch/bulk-gazelle-closedloop-4.csv \
   --tenant redbank
 
 # Mojaloop — greenbank payer, no identity validation
-./src/utils/data-loading/submit-batch.py \
-  -c ~/tomconfig.ini \
-  -f ./src/utils/data-loading/bulk-gazelle-mojaloop-4.csv \
+./src/utils/batch/submit-batch.py \
+  -f ./src/utils/batch/bulk-gazelle-mojaloop-4.csv \
   --tenant greenbank
 ```
 
@@ -565,37 +613,26 @@ kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword identity_account_mappe
    LIMIT 5"
 ```
 
-**Configure greenbank for GovStack workflow** (in `~/ph-ee-bulk-processor/src/main/resources/application.yaml`):
-```yaml
-bpmns:
-  tenants:
-    - id: "greenbank"
-      flows:
-        batch-transactions: "bulk_processor_account_lookup-{dfspid}"
-```
-Rebuild JAR and restart pod after this change.
+**No configuration change needed** — greenbank already has `batch-transactions-govstack: "bulk_processor_account_lookup-{dfspid}"` in `~/ph-ee-bulk-processor/src/main/resources/application.yaml`. The `--govstack` flag in `submit-batch.py` automatically routes to this workflow via the `X-Registering-Institution-ID` header.
 
 **Submit:**
 ```bash
 # --registering-institution is auto-detected from CSV payees
-./src/utils/data-loading/submit-batch.py \
-  -c ~/tomconfig.ini \
-  -f ./src/utils/data-loading/bulk-gazelle-mojaloop-4.csv \
+./src/utils/batch/submit-batch.py \
+  -f ./src/utils/batch/bulk-gazelle-mojaloop-4.csv \
   --tenant greenbank \
   --govstack
 
 # With budget-account payer lookup (requires budget-account config in application.yaml)
-./src/utils/data-loading/submit-batch.py \
-  -c ~/tomconfig.ini \
-  -f ./src/utils/data-loading/bulk-gazelle-mojaloop-4.csv \
+./src/utils/batch/submit-batch.py \
+  -f ./src/utils/batch/bulk-gazelle-mojaloop-4.csv \
   --tenant greenbank \
   --govstack \
   --program SocialWelfare
 
 # Debug mode — shows workflow name, payment modes, institution detection
-./src/utils/data-loading/submit-batch.py \
-  -c ~/tomconfig.ini \
-  -f ./src/utils/data-loading/bulk-gazelle-mojaloop-4.csv \
+./src/utils/batch/submit-batch.py \
+  -f ./src/utils/batch/bulk-gazelle-mojaloop-4.csv \
   --tenant greenbank \
   --govstack \
   --debug
@@ -612,19 +649,11 @@ Rebuild JAR and restart pod after this change.
 
 ### Option 3: GovStack Mode with Closedloop (Limited)
 
-```yaml
-# Configure redbank for GovStack workflow
-bpmns:
-  tenants:
-    - id: "redbank"
-      flows:
-        batch-transactions: "bulk_processor_account_lookup-{dfspid}"
-```
+No configuration change needed — redbank already has `batch-transactions-govstack` configured.
 
 ```bash
-./src/utils/data-loading/submit-batch.py \
-  -c ~/tomconfig.ini \
-  -f ./src/utils/data-loading/bulk-gazelle-closedloop-4.csv \
+./src/utils/batch/submit-batch.py \
+  -f ./src/utils/batch/bulk-gazelle-closedloop-4.csv \
   --tenant redbank \
   --govstack
 ```
@@ -713,8 +742,8 @@ kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword \
    - `--govstack` in `submit-batch.py` sends these headers
 
 3. **Three Tenant Roles:**
-   - **greenbank** = Mojaloop payer (PayerFundTransfer workflow)
-   - **redbank** = Closedloop payer (minimal_mock_fund_transfer workflow)
+   - **greenbank** = Mojaloop payer — connector-channel uses `PayerFundTransfer` (routes via vNext switch); bulk-processor uses `minimal_mock_fund_transfer` for individual transfer simulation
+   - **redbank** = Closedloop payer — both components use `minimal_mock_fund_transfer`
    - **bluebank** = Payee FSP (receives funds)
 
 4. **Payer and Payee have different sources:**
@@ -734,21 +763,17 @@ kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword \
 
 ```bash
 # Standard closedloop testing
-cd ~/mifos-gazelle/src/utils/data-loading
-./generate-example-csv-files.py -c ~/tomconfig.ini
-./submit-batch.py -c ~/tomconfig.ini -f bulk-gazelle-closedloop-4.csv --tenant redbank
+./src/utils/data-loading/generate-example-csv-files.py
+./src/utils/batch/submit-batch.py -f ./src/utils/batch/bulk-gazelle-closedloop-4.csv --tenant redbank
 
 # True GovStack G2P via Mojaloop (registering institution auto-detected)
-./submit-batch.py -c ~/tomconfig.ini -f bulk-gazelle-mojaloop-4.csv \
-  --tenant greenbank --govstack
+./src/utils/batch/submit-batch.py -f ./src/utils/batch/bulk-gazelle-mojaloop-4.csv --tenant greenbank --govstack
 
 # GovStack with explicit program/payer account config
-./submit-batch.py -c ~/tomconfig.ini -f bulk-gazelle-mojaloop-4.csv \
-  --tenant greenbank --govstack --program SocialWelfare
+./src/utils/batch/submit-batch.py -f ./src/utils/batch/bulk-gazelle-mojaloop-4.csv --tenant greenbank --govstack --program SocialWelfare
 
 # Debug: see which BPMN workflow will fire before submitting
-./submit-batch.py -c ~/tomconfig.ini -f bulk-gazelle-mojaloop-4.csv \
-  --tenant greenbank --govstack --debug
+./src/utils/batch/submit-batch.py -f ./src/utils/batch/bulk-gazelle-mojaloop-4.csv --tenant greenbank --govstack --debug
 ```
 
 ---
@@ -777,9 +802,10 @@ cd ~/mifos-gazelle/src/utils/data-loading
 
 ### Test Data / Utilities
 - CSV generator: `src/utils/data-loading/generate-example-csv-files.py`
-- Batch submitter: `src/utils/data-loading/submit-batch.py`
+- Batch submitter: `src/utils/batch/submit-batch.py`
+- Bulk CSV files: `src/utils/batch/bulk-gazelle-*.csv`
 - Data generator: `src/utils/data-loading/generate-mifos-vnext-data.py`
 
 ---
 
-**Last Updated:** February 2026
+**Last Updated:** March 2026
