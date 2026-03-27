@@ -1,530 +1,226 @@
-###  Mastercard CBS - Operator Deployment Guide
+# Mastercard CBS Connector — Operator Deployment Guide
 
-> **Related Documentation:**
-> - For local development with operator, see [LOCALDEV.md](LOCALDEV.md)
-> - For mifos-gazelle integration, see [MASTERCARD-CBS-INTEGRATION.md](MASTERCARD-CBS-INTEGRATION.md)
-> - For configuration options, see [MASTERCARD-CONFIG.md](MASTERCARD-CONFIG.md)
-
-## Architecture Overview
-
-The Mastercard CBS connector uses a **Kubernetes Operator** pattern instead of traditional Helm charts. This provides:
-
-- **Declarative Configuration**: Define desired state in Custom Resources
-- **Automatic Reconciliation**: Operator ensures actual state matches desired state
-- **Self-Healing**: Operator automatically fixes drift
-- **Future-Ready**: Easy migration to Go-based operator later
+> **Prerequisites**: Payment Hub EE must be deployed before enabling the Mastercard CBS connector.
+> For local development iteration, see [LOCALDEV.md](../LOCALDEV.md).
+> For integration details, see [MIFOS_GAZELLE_INTEGRATION.md](MIFOS_GAZELLE_INTEGRATION.md).
 
 ---
 
-## Operator Components
+## Architecture Overview
 
-### 1. Custom Resource Definition (CRD)
-
-Defines the `MastercardCBSConnector` resource type:
-
-```yaml
-apiVersion: paymenthub.mifos.io/v1alpha1
-kind: MastercardCBSConnector
-metadata:
-  name: mastercard-cbs
-  namespace: mastercard-demo
-spec:
-  enabled: true
-  mastercard:
-    apiUrl: "https://sandbox.api.mastercard.com"
-  ...
-```
-
-### 2. Operator Controller
-
-Shell-based controller that watches CRs and reconciles state:
-- Creates/updates deployments
-- Loads database schemas
-- Deploys BPMN workflows
-- Manages lifecycle
-
-### 3. RBAC
-
-Service account, roles, and bindings for operator permissions.
+The Mastercard CBS connector uses a **Kubernetes Operator** pattern:
+- A `MastercardCBSConnector` Custom Resource (CRD) declares the desired connector state
+- A shell-based controller (`controllers/reconcile.sh`) watches the CR and reconciles — creating/updating deployments, loading DB schemas, and deploying BPMN workflows
+- This lives entirely inside `src/deployer/operators/mastercard/` in the mifos-gazelle repo; the operator manages the connector image from `~/ph-ee-connector-mccbs`
 
 ---
 
 ## Quick Start
 
-### Option 1: Deploy via mifos-gazelle run.sh
+### Step 1 — Configure `config/config.ini`
 
-1. **Add to config.ini**:
 ```ini
 [mastercard-demo]
-enabled=true
-namespace=mastercard-demo
-...
+enabled = true
+MASTERCARD_NAMESPACE = mastercard-demo
+MASTERCARD_CBS_HOME = ~/ph-ee-connector-mccbs
+MASTERCARD_API_URL = https://sandbox.api.mastercard.com
+MASTERCARD_PARTNER_ID = <your-partner-id>
+MASTERCARD_CONSUMER_KEY = <your-consumer-key>
+MASTERCARD_SIGNING_KEY_ALIAS = <alias>
+MASTERCARD_SIGNING_KEY_PASSWORD = <password>
+MASTERCARD_SIGNING_KEY_PATH = /path/to/signing.p12
+
+# JWE encryption (optional)
+MASTERCARD_ENCRYPTION_ENABLED = false
 ```
 
-2. **Run deployment**:
+### Step 2 — Deploy
+
 ```bash
-cd ~/mifos-gazelle
-sudo ./run.sh -a mastercard-demo 
+# Deploy with all other apps
+sudo ./run.sh -u $USER -m deploy -a all
+
+# Or deploy Mastercard connector only (Payment Hub must already be running)
+sudo ./run.sh -u $USER -m deploy -a mastercard-demo
 ```
 
-### Option 2: Deploy Standalone
+The deploy sequence (`src/deployer/mastercard.sh`):
+1. Creates `mastercard-demo` namespace
+2. Creates K8s secrets from config.ini values (credentials, certs, copies `operationsmysql` secret)
+3. Deploys the CRD, RBAC, and operator pod from `src/deployer/operators/mastercard/`
+4. Applies the `MastercardCBSConnector` CR → operator deploys the connector
+5. Deploys BPMN workflow (`MastercardFundTransfer-DFSPID.bpmn` for greenbank/redbank/bluebank)
+6. Loads supplementary data (`src/utils/mastercard/load-mastercard-supplementary-data.sh`)
+7. Generates sample CSV (`src/utils/data-loading/bulk-gazelle-mastercard-6.csv`)
 
-1. **Deploy operator**:
-```bash
-cd ~/ph-ee-connector-mccbs/operator
-./deploy-operator.sh deploy
-```
+### Step 3 — Verify
 
-2. **Create connector instance**:
 ```bash
-kubectl apply -f config/samples/mastercard-cbs-default.yaml
-```
-
-3. **Check status**:
-```bash
+# Custom Resource status
 kubectl get mastercardcbsconnector -n mastercard-demo
-```
 
-### Option 3: Use mifos-gazelle deployer
+# Pods
+kubectl get pods -n mastercard-demo
 
-```bash
-cd ~/mifos-gazelle
-source src/deployer/mastercard.sh
-deploy_mastercard
-```
-
----
-
-## Configuration Options
-
-### config.ini Section
-
-```ini
-[mastercard-demo]
-# Enable/disable Mastercard CBS
-enabled=true
-
-# Kubernetes namespace
-namespace=mastercard-demo
-
-# Mastercard CBS home directory
-cbs_home=/home/tdaly/ph-ee-connector-mccbs
-
-# Mastercard CBS sandbox API URL
-api_url=https://sandbox.api.mastercard.com
-
-# Sandbox credentials
-# client_id=YOUR_CLIENT_ID
-# client_secret=YOUR_CLIENT_SECRET
-# partner_id=YOUR_PARTNER_ID
-
-# PaymentHub namespace
-paymenthub_namespace=paymenthub
-
-# Connector replicas
-replicas=1
-```
-
-### Custom Resource Spec
-
-Full CR specification:
-
-```yaml
-apiVersion: paymenthub.mifos.io/v1alpha1
-kind: MastercardCBSConnector
-metadata:
-  name: mastercard-cbs
-  namespace: mastercard-demo
-spec:
-  # Enable the connector
-  enabled: true
-
-  # Number of replicas
-  replicas: 1
-
-  # Connector image
-  image:
-    repository: ph-ee-connector-mastercard-cbs
-    tag: "1.0.0"
-    pullPolicy: IfNotPresent
-
-  # Mastercard API configuration
-  mastercard:
-    apiUrl: "https://sandbox.api.mastercard.com"
-    partnerId: "YOUR_PARTNER_ID"
-    clientSecretName: "mastercard-cbs-credentials"
-
-  # PaymentHub integration
-  paymenthub:
-    namespace: "paymenthub"
-    zeebeGateway: "zeebe-gateway.paymenthub.svc.cluster.local:26500"
-    operationsDb:
-      host: "operationsmysql.paymenthub.svc.cluster.local"
-      port: 3306
-      database: "operations"
-      secretName: "mysql-secret"
-
-  # Data loading
-  dataLoading:
-    autoLoad: true
-    demoPayeeCount: 10
-
-  # BPMN workflow
-  workflow:
-    autoDeploy: true
-
-  # Resource limits
-  resources:
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-    requests:
-      cpu: "250m"
-      memory: "256Mi"
-```
-
----
-
-## Operator Lifecycle
-
-### Deploy
-
-```bash
-# Deploy operator
-cd ~/ph-ee-connector-mccbs/operator
-./deploy-operator.sh deploy
-
-# Create connector instance
-kubectl apply -f config/samples/mastercard-cbs-default.yaml
-
-# Or via mifos-gazelle
-cd ~/mifos-gazelle
-source src/deployer/mastercard.sh
-deploy_mastercard
-```
-
-### Update Configuration
-
-Edit the CR and apply:
-
-```bash
-kubectl edit mastercardcbsconnector mastercard-cbs -n mastercard-demo
-
-# Or update YAML and apply
-kubectl apply -f my-updated-config.yaml
-```
-
-Operator automatically reconciles changes!
-
-### Scale
-
-```bash
-kubectl patch mastercardcbsconnector mastercard-cbs -n mastercard-demo \
-  --type='json' \
-  -p='[{"op": "replace", "path": "/spec/replicas", "value":2}]'
-```
-
-### Disable (but keep CR)
-
-```bash
-kubectl patch mastercardcbsconnector mastercard-cbs -n mastercard-demo \
-  --type='merge' \
-  -p '{"spec":{"enabled":false}}'
-```
-
-Operator will cleanup all resources but preserve CR.
-
-### Undeploy
-
-```bash
-# Delete CR (operator cleans up resources)
-kubectl delete mastercardcbsconnector mastercard-cbs -n mastercard-demo
-
-# Undeploy operator
-cd ~/ph-ee-connector-mccbs/operator
-./deploy-operator.sh undeploy
-
-# Or via mifos-gazelle
-cd ~/mifos-gazelle
-source src/deployer/mastercard.sh
-cleanup
-```
-
----
-
-## Monitoring
-
-### Check CR Status
-
-```bash
-# List all connectors
-kubectl get mastercardcbsconnector --all-namespaces
-
-# Get detailed status
-kubectl get mastercardcbsconnector mastercard-cbs -n mastercard-demo -o yaml
-
-# Watch status changes
-kubectl get mastercardcbsconnector -n mastercard-demo -w
-```
-
-**Status Fields**:
-- `phase`: Pending, Initializing, Ready, Failed, Disabled
-- `connectorReady`: CBS connector deployment ready
-- `workflowDeployed`: BPMN workflow deployed
-- `dataLoaded`: Supplementary data loaded
-
-### Check Operator Logs
-
-```bash
+# Operator logs
 kubectl logs -n mastercard-demo -l app=mastercard-cbs-operator -f
-```
 
-### Check Connector Logs
-
-```bash
+# Connector logs
 kubectl logs -n mastercard-demo -l app=ph-ee-connector-mastercard-cbs -f
 ```
 
----
-
-## Troubleshooting
-
-### Operator Not Starting
-
-**Check:**
-```bash
-kubectl get pods -n mastercard-demo
-kubectl logs -n mastercard-demo -l app=mastercard-cbs-operator --tail=50
-```
-
-**Fix:**
-- Verify RBAC permissions
-- Check operator pod events: `kubectl describe pod -n mastercard-demo -l app=mastercard-cbs-operator`
-
-### CR Stuck in Initializing
-
-**Check:**
-```bash
-kubectl get mastercardcbsconnector mastercard-cbs -n mastercard-demo -o yaml | grep -A 10 status
-```
-
-**Fix:**
-- Check operator logs for errors
-- Verify PaymentHub namespace exists
-- Verify mysql-secret exists
-
-### Connector Not Registered with Zeebe
-
-**Check:**
-```bash
-kubectl logs -n mastercard-demo -l app=ph-ee-connector-mastercard-cbs | grep "Registered worker"
-```
-
-**Expected output** (8 workers):
-```
-Registered worker: mastercard-cbs-validate-input
-Registered worker: mastercard-cbs-authenticate
-Registered worker: mastercard-cbs-match-regulatory-data
-Registered worker: mastercard-cbs-initiate-payment
-Registered worker: mastercard-cbs-check-status
-Registered worker: mastercard-cbs-update-operations
-Registered worker: mastercard-cbs-retry-handler
-Registered worker: mastercard-cbs-log-error
-```
-
-**Fix:**
-- Verify Zeebe gateway service exists in paymenthub namespace
-- Check network connectivity between namespaces
-
-### Data Not Loading
-
-**Check:**
-```bash
-kubectl get jobs -n mastercard-demo
-kubectl logs -n mastercard-demo job/mastercard-cbs-data-loader
-```
-
-**Fix:**
-- Verify database connection
-- Check if identity_account_mapper has data
-- Run data loading manually
-
----
-
-## Advanced Operations
-
-### Manual Data Loading
-
-```bash
-cd ~/mifos-gazelle/src/utils/data-loading
-./load-mastercard-supplementary-data.py -c ~/tomconfig.ini --regenerate
-```
-
-### Manual Workflow Deployment
-
-```bash
-zbctl deploy ~/ph-ee-connector-mccbs/orchestration/bulk_connector_mastercard_cbs-DFSPID.bpmn \
-  --address zeebe-gateway.paymenthub.svc.cluster.local:26500
-```
-
-### Update Sandbox Credentials
-
-Update CR:
-```bash
-kubectl patch mastercardcbsconnector mastercard-cbs -n mastercard-demo \
-  --type='merge' \
-  -p '{
-    "spec":{
-      "mastercard":{
-        "apiUrl":"https://sandbox.api.mastercard.com",
-        "partnerId":"YOUR_PARTNER_ID"
-      }
-    }
-  }'
-```
-
-Update secret:
-```bash
-kubectl create secret generic mastercard-cbs-credentials \
-  -n mastercard-demo \
-  --from-literal=client_id=YOUR_CLIENT_ID \
-  --from-literal=client_secret=YOUR_CLIENT_SECRET \
-  --from-literal=partner_id=YOUR_PARTNER_ID \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
----
-
-## Integration with run.sh
-
-### Option 1: Add to run.sh directly
-
-Edit `~/mifos-gazelle/run.sh`:
-
-```bash
-# After PaymentHub deployment
-if [ "$DEPLOY_MASTERCARD" == "true" ]; then
-    source "$DEPLOYER_DIR/mastercard.sh"
-    deploy_mastercard
-fi
-```
-
-### Option 2: Conditional deployment
-
-```bash
-# Deploy core gazelle
-cd ~/mifos-gazelle
-sudo ./run.sh
-
-# Then deploy mastercard
-sudo bash -c 'source src/deployer/mastercard.sh && deploy_mastercard'
-```
-
-### Option 3: Separate command
-
-```bash
-# Add to run.sh
-case "$1" in
-    --mastercard)
-        source src/deployer/mastercard.sh
-        deploy_mastercard
-        ;;
-    --mastercard-only)
-        source src/deployer/mastercard.sh
-        deploy_mastercard
-        ;;
-esac
-```
-
-Usage:
-```bash
-cd ~/mifos-gazelle
-sudo ./run.sh --mastercard
-```
-
----
-
-## Future Migration to Go Operator
-
-The current shell-based operator can be migrated to Go using Operator SDK:
-
-```bash
-# Initialize Go operator project
-operator-sdk init --domain=mifos.io --repo=github.com/mifos/mastercard-cbs-operator
-
-# Create API
-operator-sdk create api --group=paymenthub --version=v1alpha1 --kind=MastercardCBSConnector
-
-# Implement controller logic
-# ... (migrate reconcile.sh logic to Go)
-
-# Build and deploy
-make docker-build docker-push IMG=mastercard-cbs-operator:v1.0.0
-make deploy IMG=mastercard-cbs-operator:v1.0.0
-```
-
-CRD remains the same! Just controller implementation changes.
-
----
-
-## Benefits Over Helm
-
-| Feature | Helm | Operator |
-|---------|------|----------|
-| **Installation** | One-time install | Continuous reconciliation |
-| **Updates** | Manual helm upgrade | Automatic when CR changes |
-| **Drift Detection** | None | Automatic |
-| **Complex Logic** | Limited | Full programming language |
-| **Day-2 Operations** | Manual scripts | Built-in automation |
-| **State Management** | Client-side | Server-side (etcd) |
-| **Migration to Operator** | Full rewrite | Already there! |
+**CR Status Fields:**
+| Field | Values | Meaning |
+|-------|--------|---------|
+| `phase` | Pending, Initializing, Ready, Failed, Disabled | Overall lifecycle state |
+| `connectorReady` | true/false | Connector deployment healthy |
+| `workflowDeployed` | true/false | BPMN deployed to Zeebe |
+| `dataLoaded` | true/false | Supplementary data loaded |
 
 ---
 
 ## Directory Structure
 
 ```
-ph-ee-connector-mccbs/
-├── operator/
-│   ├── config/
-│   │   ├── crd/
-│   │   │   └── mastercard-cbs-connector.yaml    # CRD definition
-│   │   ├── rbac/
-│   │   │   ├── service_account.yaml
-│   │   │   ├── role.yaml
-│   │   │   └── role_binding.yaml
-│   │   └── samples/
-│   │       └── mastercard-cbs-default.yaml      # Sample CR
-│   ├── controllers/
-│   │   └── reconcile.sh                         # Controller logic
-│   └── deploy-operator.sh                       # Operator deployment
-
 mifos-gazelle/
 └── src/deployer/
-    └── mastercard.sh                            # Integration script
+    ├── mastercard.sh                           # Main deploy/cleanup functions
+    └── operators/mastercard/
+        ├── config/
+        │   ├── crd/mastercard-cbs-connector.yaml
+        │   ├── rbac/{service_account,role,role_binding}.yaml
+        │   └── samples/
+        │       ├── mastercard-cbs-default.yaml   # Standard CR sample
+        │       └── mastercard-cbs-localdev.yaml  # hostPath local dev CR
+        ├── controllers/reconcile.sh              # Operator reconciliation logic
+        └── deploy-operator.sh                    # Operator install/uninstall
+
+~/ph-ee-connector-mccbs/
+└── orchestration/
+    └── MastercardFundTransfer-DFSPID.bpmn        # BPMN workflow (required)
 ```
 
 ---
 
-## Summary
+## Configuration Reference
 
-**What You Get**:
-- ✅ Kubernetes-native deployment
-- ✅ Declarative configuration
-- ✅ Automatic reconciliation
-- ✅ Self-healing
-- ✅ Integrated with mifos-gazelle
-- ✅ Future-ready for Go operator
+### config.ini `[mastercard-demo]` section
 
-**Next Steps**:
-1. Add [mastercard-demo] to config.ini
-2. Run: `cd ~/mifos-gazelle && sudo ./run.sh`
-3. Deploy: `source src/deployer/mastercard.sh && deploy_mastercard`
-4. Verify: `kubectl get mastercardcbsconnector -n mastercard-demo`
+| Key | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `enabled` | Yes | `false` | Set `true` to deploy |
+| `MASTERCARD_NAMESPACE` | No | `mastercard-demo` | K8s namespace |
+| `MASTERCARD_CBS_HOME` | No | `~/ph-ee-connector-mccbs` | Path to connector source |
+| `MASTERCARD_API_URL` | No | `https://sandbox.api.mastercard.com` | Mastercard API endpoint |
+| `MASTERCARD_PARTNER_ID` | For real payments | — | From Mastercard Developers portal |
+| `MASTERCARD_CONSUMER_KEY` | For real payments | — | OAuth1 consumer key |
+| `MASTERCARD_SIGNING_KEY_ALIAS` | For real payments | — | P12 key alias |
+| `MASTERCARD_SIGNING_KEY_PASSWORD` | For real payments | — | P12 key password |
+| `MASTERCARD_SIGNING_KEY_PATH` | For Docker mode | — | Local path to signing .p12 (bundled as K8s Secret) |
+| `MASTERCARD_ENCRYPTION_ENABLED` | No | `false` | Enable JWE encryption |
+| `MASTERCARD_LOCALDEV_ENABLED` | No | `false` | Mount local source via hostPath (see [LOCALDEV.md](../LOCALDEV.md)) |
+
+> **Note on cert paths**: `MASTERCARD_SIGNING_KEY_PATH` and related paths are read from the **local machine** and stored as a K8s Secret at deploy time. This is required for Docker image deployments. In `MASTERCARD_LOCALDEV_ENABLED=true` mode, certs can be bundled in the locally-compiled JAR instead.
+
+### Custom Resource
+
+The operator creates a CR like this (written to `/tmp/mastercard-cbs-cr.yaml` during deployment):
+
+```yaml
+apiVersion: paymenthub.mifos.io/v1alpha1
+kind: MastercardCBSConnector
+metadata:
+  name: mastercard-cbs
+  namespace: mastercard-demo
+spec:
+  enabled: true
+  replicas: 1
+  image:
+    repository: ph-ee-connector-mastercard-cbs
+    tag: "1.0.0"
+  mastercard:
+    apiUrl: "https://sandbox.api.mastercard.com"
+    clientSecretName: "mastercard-cbs-credentials"
+  paymenthub:
+    namespace: "paymenthub"
+    zeebeGateway: "phee-zeebe-gateway.paymenthub.svc.cluster.local:26500"
+    operationsDb:
+      host: "operationsmysql.paymenthub.svc.cluster.local"
+      port: 3306
+      database: "operations"
+      secretName: "mysql-secret"
+  dataLoading:
+    autoLoad: true
+    demoPayeeCount: 10
+  workflow:
+    autoDeploy: false
+```
 
 ---
 
-**Document Created**: January 24, 2026
-**Operator Version**: v1alpha1 (shell-based)
-**Status**: Ready for deployment
-**Migration Path**: Go operator when needed
+## Operator Lifecycle
+
+### Update configuration
+
+Edit the CR and apply:
+```bash
+kubectl edit mastercardcbsconnector mastercard-cbs -n mastercard-demo
+# Operator automatically reconciles changes
+```
+
+### Scale
+```bash
+kubectl patch mastercardcbsconnector mastercard-cbs -n mastercard-demo \
+  --type='json' -p='[{"op":"replace","path":"/spec/replicas","value":2}]'
+```
+
+### Disable (keep CR)
+```bash
+kubectl patch mastercardcbsconnector mastercard-cbs -n mastercard-demo \
+  --type='merge' -p '{"spec":{"enabled":false}}'
+```
+
+### Remove
+```bash
+# Via run.sh
+sudo ./run.sh -u $USER -m cleanapps -a mastercard-demo
+
+# Manually
+kubectl delete mastercardcbsconnector mastercard-cbs -n mastercard-demo
+cd ~/mifos-gazelle/src/deployer/operators/mastercard
+bash deploy-operator.sh undeploy
+kubectl delete namespace mastercard-demo
+```
+
+---
+
+## Troubleshooting
+
+### Operator not starting
+```bash
+kubectl get pods -n mastercard-demo
+kubectl describe pod -n mastercard-demo -l app=mastercard-cbs-operator
+kubectl logs -n mastercard-demo -l app=mastercard-cbs-operator --tail=50
+```
+
+### CR stuck in `Initializing`
+```bash
+kubectl get mastercardcbsconnector mastercard-cbs -n mastercard-demo -o yaml | grep -A10 status
+```
+Check: PaymentHub namespace exists, `mysql-secret` was copied successfully, operator has correct RBAC.
+
+### Connector not registering workers with Zeebe
+```bash
+kubectl logs -n mastercard-demo -l app=ph-ee-connector-mastercard-cbs | grep "Registered worker"
+```
+Expected: 8 workers registered (mastercard-cbs-validate-input, mastercard-cbs-authenticate, etc.). Check Zeebe gateway connectivity between namespaces.
+
+### Supplementary data not loading
+```bash
+cat /tmp/mastercard-data-load.log
+kubectl get jobs -n mastercard-demo
+```
+
+### Cert/secret errors
+Ensure `MASTERCARD_SIGNING_KEY_PATH` points to a readable `.p12` file on the local machine before running `run.sh`. The file is read and stored as a K8s Secret (`mastercard-cbs-certs`).
