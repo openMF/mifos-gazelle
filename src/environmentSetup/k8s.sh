@@ -182,14 +182,14 @@ function install_k8s_tools {
 
     # macOS: use Homebrew; kubectl is already provided by OrbStack/Docker Desktop
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        if ! command -v brew &>/dev/null; then
+        if ! brew_available; then
             printf "\n** Error: Homebrew is required on macOS. Install from https://brew.sh **\n"
             exit 1
         fi
         local mac_tools=(helm k9s kubectx kustomize)
         for tool in "${mac_tools[@]}"; do
             if ! command -v "$tool" &>/dev/null; then
-                brew install "$tool" >/dev/null 2>&1
+                run_brew install "$tool" >/dev/null 2>&1
             fi
         done
         printf "   [ok]\n"

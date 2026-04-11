@@ -1,6 +1,28 @@
 #!/usr/bin/env bash
 # helper functions for OS and kubernetes environment setup
 
+#------------------------------------------------------------------------------
+# run_brew <args>
+# Locates the Homebrew binary at its known macOS install paths (sudo strips
+# PATH so 'command -v brew' fails) and runs it as the invoking non-root user.
+#------------------------------------------------------------------------------
+function run_brew {
+    local brew_bin=""
+    for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        if [[ -x "$candidate" ]]; then brew_bin="$candidate"; break; fi
+    done
+    if [[ -z "$brew_bin" ]]; then
+        printf "** Error: Homebrew not found at /opt/homebrew/bin or /usr/local/bin.\n"
+        printf "   Install from https://brew.sh then re-run.\n"
+        exit 1
+    fi
+    sudo -u "${SUDO_USER:-$k8s_user}" "$brew_bin" "$@"
+}
+
+function brew_available {
+    [[ -x "/opt/homebrew/bin/brew" ]] || [[ -x "/usr/local/bin/brew" ]]
+}
+
 function check_arch_ok {
     local arch=$(uname -m)
     if [[ "$arch" != "x86_64" && "$arch" != "arm64" && "$arch" != "aarch64" ]]; then

@@ -11,13 +11,13 @@ source "$RUN_DIR/src/environmentSetup/k8s.sh" || { echo "FATAL: Could not source
 function install_os_prerequisites {
     printf "\n\r==> Check & install operating system packages"
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        if ! command -v brew &>/dev/null; then
+        if ! brew_available; then
             printf "\n** Error: Homebrew is required on macOS. Install from https://brew.sh **\n"
             exit 1
         fi
         if ! command -v jq &>/dev/null; then
             logWithVerboseCheck "$debug" debug "jq is not installed. Installing via brew..."
-            brew install jq >/dev/null 2>&1
+            run_brew install jq >/dev/null 2>&1
         else
             logWithVerboseCheck "$debug" debug "jq is already installed\n"
         fi

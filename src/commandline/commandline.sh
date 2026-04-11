@@ -34,8 +34,8 @@ function resolve_invoker_user() {
 function install_crudini() {
     if ! command -v crudini &> /dev/null; then
         logWithLevel "$INFO" "crudini not found. Attempting to install..."
-        if command -v brew &> /dev/null; then
-            brew install crudini >/dev/null 2>&1
+        if brew_available; then
+            run_brew install crudini >/dev/null 2>&1
         elif command -v apt-get &> /dev/null; then
             sudo apt-get update && sudo apt-get install -y crudini
         elif command -v dnf &> /dev/null; then
