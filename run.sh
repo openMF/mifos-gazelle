@@ -1,8 +1,14 @@
 #!/bin/bash
 # run.sh -- Main entry point for Mifos Gazelle deployment scripts
 
-RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )" # the directory that this script is in 
-export RUN_DIR 
+RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )" # the directory that this script is in
+export RUN_DIR
+
+# On macOS, sudo strips PATH so Homebrew binaries are not found.
+# Prepend both known Homebrew locations so all subsequent commands work.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+fi 
 ########################################################################
 # GLOBAL VARS
 # these are not user configurables - for internal script use only
