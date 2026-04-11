@@ -35,7 +35,25 @@ function install_crudini() {
     if ! command -v crudini &> /dev/null; then
         logWithLevel "$INFO" "crudini not found. Attempting to install..."
         if brew_available; then
-            run_brew install crudini >/dev/null 2>&1
+            # crudini is a Python CLI tool (not a Homebrew formula).
+            # Modern macOS with Homebrew-managed Python blocks plain pip install;
+            # use pipx which handles the venv isolation automatically.
+            local user_home
+            user_home=$(eval echo "~${SUDO_USER:-$k8s_user}")
+            # Ensure ~/.local/bin is on PATH (pipx installs there)
+            export PATH="$user_home/.local/bin:$PATH"
+            if ! command -v pipx &>/dev/null; then
+                run_brew install pipx >/dev/null 2>&1
+            fi
+            local pipx_bin=""
+            for candidate in /opt/homebrew/bin/pipx /usr/local/bin/pipx "$user_home/.local/bin/pipx"; do
+                if [[ -x "$candidate" ]]; then pipx_bin="$candidate"; break; fi
+            done
+            if [[ -z "$pipx_bin" ]]; then
+                logWithLevel "$ERROR" "pipx not found after install. Please install crudini manually: brew install pipx && pipx install crudini"
+                exit 1
+            fi
+            sudo -u "${SUDO_USER:-$k8s_user}" "$pipx_bin" install crudini >/dev/null 2>&1
         elif command -v apt-get &> /dev/null; then
             sudo apt-get update && sudo apt-get install -y crudini
         elif command -v dnf &> /dev/null; then

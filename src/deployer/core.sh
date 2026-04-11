@@ -408,16 +408,23 @@ function ensure_helm_dependencies() {
   logWithVerboseCheck "$debug" "$DEBUG" "Ensuring helm dependencies for $chartName"
 
   if [[ -f "$chartPath/Chart.lock" && -s "$chartPath/Chart.lock" ]]; then
-    # Count entries in Chart.lock and compare with .tgz files in charts/
-    local expected=$(grep -c "name:" "$chartPath/Chart.lock")
-    local actual=$(find "$chartPath/charts" -maxdepth 1 -name '*.tgz' 2>/dev/null | wc -l)
-    
+    local expected actual
+    expected=$(grep -c "name:" "$chartPath/Chart.lock")
+    actual=$(find "$chartPath/charts" -maxdepth 1 -name '*.tgz' 2>/dev/null | wc -l | tr -d '[:space:]')
+
     if [[ $actual -ge $expected && $expected -gt 0 ]]; then
-      run_as_user "cd $chartPath && helm dep build" >> /dev/null 2>&1
-    else
-      run_as_user "cd $chartPath && helm dep update" >> /dev/null 2>&1
+      # All dependencies already present — nothing to do
+      logWithVerboseCheck "$debug" "$DEBUG" "helm dependencies for $chartName already present ($actual/$expected), skipping fetch"
+      return 0
     fi
-  else
-    run_as_user "cd $chartPath && helm dep update" >> /dev/null 2>&1
+  fi
+
+  # Dependencies missing — run helm dep update as the invoking user directly
+  # (not via run_as_user/su) so that credential helpers and PATH work correctly
+  if ! (cd "$chartPath" && helm dep update); then
+    logWithLevel "$ERROR" "helm dependency fetch failed for '$chartName'."
+    logWithLevel "$ERROR" "Try running manually as your normal user:"
+    logWithLevel "$ERROR" "  cd $chartPath && helm dep update"
+    exit 1
   fi
 }

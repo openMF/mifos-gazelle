@@ -171,7 +171,7 @@ redpanda-console:
     enabled: true
     className: nginx
     hosts:
-      - host: redpanda-console.mifos.gazelle.localhost
+      - host: redpanda-console.mifos.gazelle.test
         paths:
           - path: /
             pathType: ImplementationSpecific
@@ -208,7 +208,7 @@ mongo-express:
     enabled: true
     ingressClassName: nginx
     hosts:
-      - host: mongoexpress.mifos.gazelle.localhost
+      - host: mongoexpress.mifos.gazelle.test
         paths:
           - /
 
@@ -287,7 +287,7 @@ elasticsearch:
   ingress:
     enabled: true
     ingressClassName: nginx
-    hostname: elasticsearch.mifos.gazelle.localhost
+    hostname: elasticsearch.mifos.gazelle.test
     tls:
       - enabled: false
 
@@ -312,7 +312,7 @@ elasticsearch:
     ingress:
       enabled: true
       ingressClassName: nginx
-      hostname: kibana.mifos.gazelle.localhost
+      hostname: kibana.mifos.gazelle.test
       tls:
         enabled: false
 

@@ -188,7 +188,16 @@ function install_k8s_tools {
         fi
         local mac_tools=(helm k9s kubectx kustomize)
         for tool in "${mac_tools[@]}"; do
+            local needs_install=false
             if ! command -v "$tool" &>/dev/null; then
+                needs_install=true
+            elif ! "$tool" version &>/dev/null && ! "$tool" --version &>/dev/null; then
+                # Binary exists but fails to execute (e.g. Linux ELF on macOS) — remove and reinstall
+                printf "\n    Replacing non-native '%s' binary with Homebrew version...\n" "$tool"
+                rm -f "$(command -v "$tool")"
+                needs_install=true
+            fi
+            if [[ "$needs_install" == true ]]; then
                 run_brew install "$tool" >/dev/null 2>&1
             fi
         done

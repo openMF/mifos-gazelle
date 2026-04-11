@@ -278,83 +278,124 @@ function env_setup_local_cluster {
 }   
 
 #------------------------------------------------------------------------------
-# Function: install_mac_k8s
-# Description: Ensures a local Kubernetes cluster is running on macOS.
-#              Prefers OrbStack; falls back to Rancher Desktop / Docker Desktop.
-#              Installs OrbStack via Homebrew if nothing is found.
+# Function: _wait_for_k8s
+# Description: Polls until the cluster is accessible or timeout is reached.
+# Parameters:
+#   $1 - timeout in seconds (default 180)
 #------------------------------------------------------------------------------
-function install_mac_k8s {
-    printf "\r==> Checking macOS Kubernetes provider     "
+function _wait_for_k8s {
+    local timeout="${1:-180}"
+    local waited=0
+    while ! is_cluster_accessible && [[ $waited -lt $timeout ]]; do
+        sleep 5; (( waited += 5 ))
+        printf "\r    Waiting for Rancher Desktop Kubernetes (%ds/%ds)..." "$waited" "$timeout"
+    done
+    printf "\n"
+    is_cluster_accessible
+}
 
-    # Already running — nothing to do
+#------------------------------------------------------------------------------
+# Function: install_mac_k8s
+# Description: Ensures Rancher Desktop (k3s) is running on macOS.
+#              Rancher Desktop is the only supported provider — it uses k3s,
+#              matching the Ubuntu environment and avoiding image pull issues.
+#              Errors if another Kubernetes provider is found running.
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+# Function: _find_rdctl
+# Description: Locates the rdctl binary at known macOS install paths.
+#              Rancher Desktop puts rdctl inside the app bundle and symlinks
+#              it to ~/.rd/bin, but neither is on PATH when running via sudo.
+#------------------------------------------------------------------------------
+function _find_rdctl {
+    local user_home
+    user_home=$(eval echo "~$k8s_user")
+    for candidate in \
+        "$user_home/.rd/bin/rdctl" \
+        "/Applications/Rancher Desktop.app/Contents/Resources/resources/darwin/bin/rdctl" \
+        "/usr/local/bin/rdctl" \
+        "/opt/homebrew/bin/rdctl"; do
+        if [[ -x "$candidate" ]]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+#------------------------------------------------------------------------------
+# Function: _start_rancher_desktop
+# Description: Starts Rancher Desktop via rdctl with standard Gazelle settings.
+#------------------------------------------------------------------------------
+function _start_rancher_desktop {
+    local rdctl
+    if ! rdctl=$(_find_rdctl); then
+        printf "** Error: rdctl not found. Rancher Desktop may not have installed correctly.\n"
+        exit 1
+    fi
+    sudo -u "$k8s_user" "$rdctl" start \
+        --application.start-in-background \
+        --kubernetes.enabled \
+        --kubernetes.version "1.30.0" \
+        --container-engine.name containerd \
+        --virtual-machine.memory-in-gb 16 \
+        --virtual-machine.number-cpus 4
+}
+
+function install_mac_k8s {
+    printf "\r==> Checking macOS Kubernetes provider\n"
+
+    # If cluster is accessible, verify it is Rancher Desktop
     if is_cluster_accessible; then
-        printf "                  [ok]\n"
+        local current_context
+        current_context=$(su - "$k8s_user" -c "kubectl config current-context" 2>/dev/null)
+        if [[ "$current_context" != "rancher-desktop" ]]; then
+            printf "** Error: A Kubernetes cluster is already running but it is not Rancher Desktop.\n"
+            printf "   Current context: %s\n" "$current_context"
+            printf "   mifos-gazelle requires Rancher Desktop on macOS.\n"
+            printf "   Please stop the other provider and re-run.\n"
+            exit 1
+        fi
+        printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
         return 0
     fi
 
-    # Docker Desktop — most common on Mac, try first
-    if [[ -d "/Applications/Docker.app" ]]; then
-        printf "\n    Docker Desktop found"
-        # Only use it if already running — don't start it, fall through to OrbStack if not
-        if su - "$k8s_user" -c "docker info" >/dev/null 2>&1; then
-            printf ", checking Kubernetes...\n"
-            if su - "$k8s_user" -c "kubectl config get-contexts docker-desktop" >/dev/null 2>&1; then
-                su - "$k8s_user" -c "kubectl config use-context docker-desktop" >/dev/null 2>&1
-                if is_cluster_accessible; then
-                    printf "    Docker Desktop Kubernetes is ready         [ok]\n"
-                    return 0
-                fi
-            fi
-            printf "    Docker Desktop Kubernetes is not enabled — falling back to OrbStack.\n"
-            printf "    (To use Docker Desktop instead: Settings → Kubernetes → Enable Kubernetes → Apply)\n"
-        else
-            printf " (not running) — trying OrbStack.\n"
-        fi
-    fi
-
-    # OrbStack installed
-    if command -v orb &>/dev/null || [[ -d "/Applications/OrbStack.app" ]]; then
-        printf "\n    OrbStack found, starting Kubernetes engine...\n"
-        su - "$k8s_user" -c "orb start" >/dev/null 2>&1
-        local waited=0
-        while ! is_cluster_accessible && [[ $waited -lt 60 ]]; do
-            sleep 5; (( waited += 5 ))
-            printf "\r    Waiting for OrbStack Kubernetes (%ds)..." "$waited"
-        done
-        printf "\n"
-        if is_cluster_accessible; then
-            printf "    OrbStack Kubernetes is ready               [ok]\n"
+    # Rancher Desktop installed but not running — start it
+    if [[ -d "/Applications/Rancher Desktop.app" ]]; then
+        printf "    Rancher Desktop found, starting...\n"
+        _start_rancher_desktop
+        if _wait_for_k8s 180; then
+            printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
             return 0
         fi
-        printf "** Error: OrbStack did not become ready.\n"
-        printf "   Open OrbStack → Settings → Kubernetes and ensure it is enabled.\n"
+        printf "** Error: Rancher Desktop did not become ready within 3 minutes.\n"
+        printf "   Open Rancher Desktop and check for errors.\n"
         exit 1
     fi
 
-    # Nothing found — install OrbStack via brew
-    printf "\n    No Kubernetes provider found. Installing OrbStack via Homebrew...\n"
-    if ! command -v brew &>/dev/null; then
+    # Not installed — install via Homebrew then start
+    printf "    Rancher Desktop not found. Installing via Homebrew...\n"
+    if ! brew_available; then
         printf "** Error: Homebrew is required. Install from https://brew.sh **\n"
         exit 1
     fi
-    su - "$k8s_user" -c "brew install --cask orbstack" >/dev/null 2>&1
-    if [[ $? -ne 0 ]]; then
-        printf "** Error: OrbStack installation failed. Install manually from https://orbstack.dev **\n"
+    if ! sudo -u "$k8s_user" brew install --cask rancher; then
+        printf "** Error: Rancher Desktop installation failed.\n"
         exit 1
     fi
-    su - "$k8s_user" -c "open -a OrbStack" 2>/dev/null
-    printf "\n"
-    printf "    OrbStack installed. Please complete these one-time steps:\n"
-    printf "      1. OrbStack will open — accept any permission prompts\n"
-    printf "      2. In OrbStack Settings, ensure Kubernetes is enabled\n"
-    printf "      3. Re-run: sudo ./run.sh\n\n"
-    exit 0
+    printf "    Configuring and starting Rancher Desktop (this may take a few minutes)...\n"
+    _start_rancher_desktop
+    if ! _wait_for_k8s 180; then
+        printf "** Error: Rancher Desktop did not become ready within 3 minutes.\n"
+        exit 1
+    fi
+    printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
 }
 
 #------------------------------------------------------------------------------
 # Function: env_setup_mac_cluster
-# Description: Sets up Gazelle on a macOS host using OrbStack / Rancher Desktop /
-#              Docker Desktop as the local Kubernetes provider.
+# Description: Sets up Gazelle on a macOS host using Rancher Desktop (k3s) as
+#              the preferred Kubernetes provider, with Docker Desktop as fallback.
 # Parameters:
 #   $1 - Mode of operation: "deploy", "cleanapps", or "cleanall"
 #------------------------------------------------------------------------------
