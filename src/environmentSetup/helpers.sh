@@ -10,8 +10,14 @@ function check_arch_ok {
 }
 
 function check_resources_ok {
-    total_ram=$(free -g | awk '/^Mem:/{print $2}')
-    free_space=$(df -BG ~ | awk '{print $4}' | tail -n 1 | sed 's/G//')
+    local total_ram free_space
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        total_ram=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+        free_space=$(df -k ~ | awk 'NR==2 {printf "%d", $4/1048576}')
+    else
+        total_ram=$(free -g | awk '/^Mem:/{print $2}')
+        free_space=$(df -BG ~ | awk '{print $4}' | tail -n 1 | sed 's/G//')
+    fi
     if [[ "$total_ram" -lt "$MIN_RAM" ]]; then
         printf " ** Error: mifos-gazelle currently requires $MIN_RAM GBs to run properly \n"
         printf "    Please increase RAM available before trying to run mifos-gazelle \n"
@@ -37,6 +43,13 @@ function set_linux_os_distro {
 
 function check_os_ok {
     printf "\r==> checking operating system is tested with mifos-gazelle\n"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        local mac_version
+        mac_version=$(sw_vers -productVersion 2>/dev/null)
+        printf "    macOS %s detected\n" "$mac_version"
+        printf "    Operating system check                         [ok]\n"
+        return 0
+    fi
     set_linux_os_distro
     # Only Linux OS supported at this time
     if [[ ! $LINUX_OS == "Ubuntu" ]]; then

@@ -34,14 +34,16 @@ function resolve_invoker_user() {
 function install_crudini() {
     if ! command -v crudini &> /dev/null; then
         logWithLevel "$INFO" "crudini not found. Attempting to install..."
-        if command -v apt-get &> /dev/null; then
+        if command -v brew &> /dev/null; then
+            brew install crudini >/dev/null 2>&1
+        elif command -v apt-get &> /dev/null; then
             sudo apt-get update && sudo apt-get install -y crudini
         elif command -v dnf &> /dev/null; then
             sudo dnf install -y crudini
         elif command -v yum &> /dev/null; then
             sudo yum install -y crudini
         else
-            logWithLevel "$ERROR" "Neither apt-get, dnf, nor yum found. Please install crudini manually."
+            logWithLevel "$ERROR" "No supported package manager found (brew/apt-get/dnf/yum). Please install crudini manually."
             exit 1
         fi
         if ! command -v crudini &> /dev/null; then
@@ -337,8 +339,8 @@ function validateInputs {
         exit 1
     fi
 
-    if [[ -n "$environment" && "$environment" != "local" && "$environment" != "remote" ]]; then
-        log_error "Invalid environment '$environment'. Must be 'local' or 'remote'."
+    if [[ -n "$environment" && "$environment" != "local" && "$environment" != "remote" && "$environment" != "mac" ]]; then
+        log_error "Invalid environment '$environment'. Must be 'local', 'remote', or 'mac'."
         showUsage
         exit 1
     fi
@@ -359,26 +361,28 @@ function validateInputs {
         fi
     fi
 
-    if [[ ! " $linux_os_list " =~ " Ubuntu " ]]; then
-        log_error "Only Ubuntu is supported in linux_os_list: $linux_os_list."
-        showUsage
-        exit 1
-    fi
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        if [[ ! " $linux_os_list " =~ " Ubuntu " ]]; then
+            log_error "Only Ubuntu is supported in linux_os_list: $linux_os_list."
+            showUsage
+            exit 1
+        fi
 
-    local os_version=$(lsb_release -r -s | cut -d'.' -f1)
-    if [[ ! " $ubuntu_ok_versions_list " =~ " $os_version " ]]; then
-        log_error "Ubuntu version '$os_version' is not supported. Supported versions: $ubuntu_ok_versions_list."
-        showUsage
-        exit 1
+        local os_version=$(lsb_release -r -s | cut -d'.' -f1)
+        if [[ ! " $ubuntu_ok_versions_list " =~ " $os_version " ]]; then
+            log_error "Ubuntu version '$os_version' is not supported. Supported versions: $ubuntu_ok_versions_list."
+            showUsage
+            exit 1
+        fi
     fi
 
     environment="${environment:-local}"
     debug="${debug:-false}"
     redeploy="${redeploy:-true}"
-    if [[ "$environment" == "remote" && -z "$kubeconfig_path" ]]; then
+    if [[ ( "$environment" == "remote" || "$environment" == "mac" ) && -z "$kubeconfig_path" ]]; then
         k8s_user_home=$(eval echo "~$k8s_user")
         kubeconfig_path="$k8s_user_home/.kube/config"
-        logWithLevel "$INFO" "No kubeconfig_path specified in config.ini for remote environment. Defaulting to $kubeconfig_path"
+        logWithLevel "$INFO" "No kubeconfig_path specified in config.ini for $environment environment. Defaulting to $kubeconfig_path"
     fi
 } #validateInputs
 
@@ -500,8 +504,8 @@ function main {
         deleteApps "$apps"
     elif [ "$mode" == "cleanall" ]; then
         env_setup_main "$mode"
-        # env_setup_main will not remove remote cluster so need to run deleteApps
-        if [[ "$environment" == "remote" ]]; then
+        # env_setup_main will not remove remote/mac cluster so need to run deleteApps
+        if [[ "$environment" == "remote" || "$environment" == "mac" ]]; then
             deleteApps "$mifosx_instances" "all"
         fi
     else

@@ -9,7 +9,21 @@ source "$RUN_DIR/src/environmentSetup/k8s.sh" || { echo "FATAL: Could not source
 # Description: Installs required operating system packages if they are not already installed.
 #------------------------------------------------------------------------------
 function install_os_prerequisites {
-    printf "\n\r==> Check & install operating system packages" 
+    printf "\n\r==> Check & install operating system packages"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        if ! command -v brew &>/dev/null; then
+            printf "\n** Error: Homebrew is required on macOS. Install from https://brew.sh **\n"
+            exit 1
+        fi
+        if ! command -v jq &>/dev/null; then
+            logWithVerboseCheck "$debug" debug "jq is not installed. Installing via brew..."
+            brew install jq >/dev/null 2>&1
+        else
+            logWithVerboseCheck "$debug" debug "jq is already installed\n"
+        fi
+        printf "       [ok]\n"
+        return 0
+    fi
     if ! command -v docker &> /dev/null; then
         logWithVerboseCheck "$debug" debug "Docker is not installed. Installing Docker..."
         apt update >> /dev/null 2>&1
@@ -47,7 +61,7 @@ function install_os_prerequisites {
 # Description: Updates the local /etc/hosts file with entries for Mifos Gazelle services when using a local cluster.
 #------------------------------------------------------------------------------
 function add_hosts {
-    if [[ "$environment" == "local" ]]; then
+    if [[ "$environment" == "local" || "$environment" == "mac" ]]; then
         printf "==> Mifos-gazelle: update local hosts file  "
         
         # Use GAZELLE_DOMAIN variable, with fallback to default
@@ -122,33 +136,49 @@ function print_remote_cluster_start_message {
 # Description: Configures the shell environment for the Kubernetes user.
 #------------------------------------------------------------------------------
 function configure_k8s_user_env {
+    local shell_rc shell_profile completion_cmd complete_cmd
     start_message="# GAZELLE_START start of config added by mifos-gazelle #"
     end_message="#GAZELLE_END end of config added by mifos-gazelle #"
-    # config .bashrc for k8s_user
-    grep "start of config added by mifos-gazelle" "$k8s_user_home/.bashrc" >/dev/null 2>&1
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        shell_rc="$k8s_user_home/.zshrc"
+        shell_profile="$k8s_user_home/.zprofile"
+        completion_cmd="source <(kubectl completion zsh)"
+        complete_cmd="compdef k=kubectl"
+    else
+        shell_rc="$k8s_user_home/.bashrc"
+        shell_profile="$k8s_user_home/.bash_profile"
+        completion_cmd="source <(kubectl completion bash)"
+        complete_cmd="complete -F __start_kubectl k"
+    fi
+
+    grep "start of config added by mifos-gazelle" "$shell_rc" >/dev/null 2>&1
     if [[ $? -ne 0 ]]; then
-        printf "==> Configure users .bashrc for kubernetes " 
-        printf "%s\n" "$start_message" >> "$k8s_user_home/.bashrc"
-        echo "source <(kubectl completion bash)" >> "$k8s_user_home/.bashrc"
-        echo "alias k=kubectl " >> "$k8s_user_home/.bashrc"
-        echo "complete -F __start_kubectl k " >> "$k8s_user_home/.bashrc"
-        echo "alias ksetns=\"kubectl config set-context --current --namespace\" " >> "$k8s_user_home/.bashrc"
-        echo "alias ksetuser=\"kubectl config set-context --current --user\" " >> "$k8s_user_home/.bashrc"
-        echo "alias cdg=\"cd $k8s_user_home/mifos-gazelle\" " >> "$k8s_user_home/.bashrc"
-        echo "export PATH=\$PATH:/usr/local/bin" >> "$k8s_user_home/.bashrc"
-        echo "export KUBECONFIG=$kubeconfig_path" >> "$k8s_user_home/.bashrc"
-        printf "%s\n" "$end_message" >> "$k8s_user_home/.bashrc"
+        printf "==> Configure user shell for kubernetes "
+        printf "%s\n" "$start_message" >> "$shell_rc"
+        echo "$completion_cmd" >> "$shell_rc"
+        echo "alias k=kubectl " >> "$shell_rc"
+        echo "$complete_cmd" >> "$shell_rc"
+        echo "alias ksetns=\"kubectl config set-context --current --namespace\" " >> "$shell_rc"
+        echo "alias ksetuser=\"kubectl config set-context --current --user\" " >> "$shell_rc"
+        echo "alias cdg=\"cd $k8s_user_home/mifos-gazelle\" " >> "$shell_rc"
+        echo "export PATH=\$PATH:/usr/local/bin" >> "$shell_rc"
+        echo "export KUBECONFIG=$kubeconfig_path" >> "$shell_rc"
+        printf "%s\n" "$end_message" >> "$shell_rc"
 
-        # config .bash_profile for k8s_user
-        perl -p -i.bak -e 's/^.*KUBECONFIG.*\n?//g' "$k8s_user_home/.bash_profile"
-        perl -p -i.bak -e 's/^.*bashrc.*\n?//g' "$k8s_user_home/.bash_profile"
-        echo "source ~/.bashrc" >> "$k8s_user_home/.bash_profile"
-        echo "export KUBECONFIG=$kubeconfig_path" >> "$k8s_user_home/.bash_profile"
+        perl -p -i.bak -e 's/^.*KUBECONFIG.*\n?//g' "$shell_profile"
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            echo "export KUBECONFIG=$kubeconfig_path" >> "$shell_profile"
+        else
+            perl -p -i.bak -e 's/^.*bashrc.*\n?//g' "$shell_profile"
+            echo "source ~/.bashrc" >> "$shell_profile"
+            echo "export KUBECONFIG=$kubeconfig_path" >> "$shell_profile"
+        fi
 
-        chown "$k8s_user":"$k8s_user" "$k8s_user_home/.bashrc" "$k8s_user_home/.bash_profile"
+        chown "$k8s_user":"$k8s_user" "$shell_rc" "$shell_profile"
         printf "         [ok]\n"
     else
-        printf "\r==> user's .bashrc already configured for k8s       [skipping]\n"
+        printf "\r==> user's shell already configured for k8s       [skipping]\n"
     fi
 }
 
@@ -247,6 +277,108 @@ function env_setup_local_cluster {
     fi
 }   
 
+#------------------------------------------------------------------------------
+# Function: install_mac_k8s
+# Description: Ensures a local Kubernetes cluster is running on macOS.
+#              Prefers OrbStack; falls back to Rancher Desktop / Docker Desktop.
+#              Installs OrbStack via Homebrew if nothing is found.
+#------------------------------------------------------------------------------
+function install_mac_k8s {
+    printf "\r==> Checking macOS Kubernetes provider     "
+
+    # Already running — nothing to do
+    if is_cluster_accessible; then
+        printf "                  [ok]\n"
+        return 0
+    fi
+
+    # Docker Desktop — most common on Mac, try first
+    if [[ -d "/Applications/Docker.app" ]]; then
+        printf "\n    Docker Desktop found"
+        # Only use it if already running — don't start it, fall through to OrbStack if not
+        if su - "$k8s_user" -c "docker info" >/dev/null 2>&1; then
+            printf ", checking Kubernetes...\n"
+            if su - "$k8s_user" -c "kubectl config get-contexts docker-desktop" >/dev/null 2>&1; then
+                su - "$k8s_user" -c "kubectl config use-context docker-desktop" >/dev/null 2>&1
+                if is_cluster_accessible; then
+                    printf "    Docker Desktop Kubernetes is ready         [ok]\n"
+                    return 0
+                fi
+            fi
+            printf "    Docker Desktop Kubernetes is not enabled — falling back to OrbStack.\n"
+            printf "    (To use Docker Desktop instead: Settings → Kubernetes → Enable Kubernetes → Apply)\n"
+        else
+            printf " (not running) — trying OrbStack.\n"
+        fi
+    fi
+
+    # OrbStack installed
+    if command -v orb &>/dev/null || [[ -d "/Applications/OrbStack.app" ]]; then
+        printf "\n    OrbStack found, starting Kubernetes engine...\n"
+        su - "$k8s_user" -c "orb start" >/dev/null 2>&1
+        local waited=0
+        while ! is_cluster_accessible && [[ $waited -lt 60 ]]; do
+            sleep 5; (( waited += 5 ))
+            printf "\r    Waiting for OrbStack Kubernetes (%ds)..." "$waited"
+        done
+        printf "\n"
+        if is_cluster_accessible; then
+            printf "    OrbStack Kubernetes is ready               [ok]\n"
+            return 0
+        fi
+        printf "** Error: OrbStack did not become ready.\n"
+        printf "   Open OrbStack → Settings → Kubernetes and ensure it is enabled.\n"
+        exit 1
+    fi
+
+    # Nothing found — install OrbStack via brew
+    printf "\n    No Kubernetes provider found. Installing OrbStack via Homebrew...\n"
+    if ! command -v brew &>/dev/null; then
+        printf "** Error: Homebrew is required. Install from https://brew.sh **\n"
+        exit 1
+    fi
+    su - "$k8s_user" -c "brew install --cask orbstack" >/dev/null 2>&1
+    if [[ $? -ne 0 ]]; then
+        printf "** Error: OrbStack installation failed. Install manually from https://orbstack.dev **\n"
+        exit 1
+    fi
+    su - "$k8s_user" -c "open -a OrbStack" 2>/dev/null
+    printf "\n"
+    printf "    OrbStack installed. Please complete these one-time steps:\n"
+    printf "      1. OrbStack will open — accept any permission prompts\n"
+    printf "      2. In OrbStack Settings, ensure Kubernetes is enabled\n"
+    printf "      3. Re-run: sudo ./run.sh\n\n"
+    exit 0
+}
+
+#------------------------------------------------------------------------------
+# Function: env_setup_mac_cluster
+# Description: Sets up Gazelle on a macOS host using OrbStack / Rancher Desktop /
+#              Docker Desktop as the local Kubernetes provider.
+# Parameters:
+#   $1 - Mode of operation: "deploy", "cleanapps", or "cleanall"
+#------------------------------------------------------------------------------
+function env_setup_mac_cluster {
+    local mode="$1"
+    if [[ "$mode" == "deploy" ]]; then
+        check_resources_ok
+        install_mac_k8s
+        add_hosts
+        check_and_load_helm_repos
+        install_nginx_local_cluster
+        printf "\r==> macOS kubernetes cluster configured for %s\n" "$k8s_user"
+        print_end_message
+    elif [[ "$mode" == "cleanapps" || "$mode" == "cleanall" ]]; then
+        if ! is_cluster_accessible; then
+            printf "** Error: Kubernetes cluster is NOT accessible\n\n"
+            exit 1
+        fi
+    else
+        showUsage
+        exit 1
+    fi
+}
+
 function env_setup_main() {
     local mode="$1"
 
@@ -263,8 +395,10 @@ function env_setup_main() {
     elif [[ "$environment" == "remote" ]]; then
         print_remote_cluster_start_message
         env_setup_remote_cluster "$mode"
+    elif [[ "$environment" == "mac" ]]; then
+        env_setup_mac_cluster "$mode"
     else
-        printf "** Error: Invalid environment type specified: %s. Must be 'local' or 'remote'. **\n" "$environment"
+        printf "** Error: Invalid environment type specified: %s. Must be 'local', 'remote', or 'mac'. **\n" "$environment"
         exit 1
     fi
 } 

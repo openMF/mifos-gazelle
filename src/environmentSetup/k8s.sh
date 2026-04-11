@@ -180,8 +180,24 @@ function install_nginx_local_cluster {
 function install_k8s_tools {
     printf "\r==> Checking and installing Kubernetes tools     "
 
+    # macOS: use Homebrew; kubectl is already provided by OrbStack/Docker Desktop
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        if ! command -v brew &>/dev/null; then
+            printf "\n** Error: Homebrew is required on macOS. Install from https://brew.sh **\n"
+            exit 1
+        fi
+        local mac_tools=(helm k9s kubectx kustomize)
+        for tool in "${mac_tools[@]}"; do
+            if ! command -v "$tool" &>/dev/null; then
+                brew install "$tool" >/dev/null 2>&1
+            fi
+        done
+        printf "   [ok]\n"
+        return 0
+    fi
+
     # --- NOTE ON VERSIONING ---
-    # TODO 
+    # TODO
     # Define these versions globally (or ensure they are passed in)
     # local kubectl_version="v1.30.0"
     # local helm_version="v3.14.4"
