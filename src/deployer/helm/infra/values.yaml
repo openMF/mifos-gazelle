@@ -18,14 +18,14 @@ kafka:
 
   broker:
     replicaCount: 1
-    heapOpts: "-Xms64M -Xmx256M"
-    resources: 
+    heapOpts: "-Xms256M -Xmx512M"
+    resources:
       limits:
-        memory: "500Mi" # Using Mi for clarity and consistency
-        cpu: "500m"
-      requests: 
-        memory: "64Mi" # Using Mi for clarity and consistency
-        cpu: "100m"
+        memory: "1Gi"  # Must exceed heap + JVM overhead (metaspace, native, GC threads)
+        cpu: "1000m"
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
   
   extraConfig: |
     auto.create.topics.enable=true

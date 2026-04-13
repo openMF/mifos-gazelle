@@ -45,6 +45,17 @@ function install_k3s {
     chmod 600 "$kubeconfig_path"
 
     logWithVerboseCheck "$debug" debug "k3s kubeconfig copied to $kubeconfig_path"
+
+    # Increase inotify and file-descriptor limits so Java/Spring-Boot pods (zeebe,
+    # bulk-processor, etc.) don't hit "too many open files" / fsnotify errors.
+    # Write to sysctl.d so the settings survive reboots.
+    printf "\r==> Configuring kernel limits for k3s (inotify / file descriptors)    "
+    tee /etc/sysctl.d/99-k3s.conf > /dev/null <<'EOF'
+fs.inotify.max_user_watches=1048576
+fs.inotify.max_user_instances=8192
+fs.file-max=2097152
+EOF
+    sysctl --system > /dev/null 2>&1
     printf "[ok]\n"
 
 }

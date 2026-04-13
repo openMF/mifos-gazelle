@@ -57,34 +57,112 @@ function install_os_prerequisites {
 }
 
 #------------------------------------------------------------------------------
-# Function: add_hosts   
+# Function: ensure_python_venv
+# Description: Creates a project-local Python virtualenv at $RUN_DIR/.venv and
+#              installs the packages listed in src/utils/data-loading/requirements.txt.
+#              Uses the venv for all data-loading scripts so no system or
+#              Homebrew Python packages are modified.
+#              Idempotent: skips creation/install if already up to date.
+#------------------------------------------------------------------------------
+function ensure_python_venv {
+    local venv_dir="$RUN_DIR/.venv"
+    local requirements="$RUN_DIR/src/utils/data-loading/requirements.txt"
+
+    printf "\r==> Python virtualenv for data-loading scripts  "
+
+    # Create the venv as the k8s_user so they can run scripts without sudo
+    if [[ ! -x "$venv_dir/bin/python3" ]]; then
+        run_as_user "python3 -m venv \"$venv_dir\""
+        if [[ $? -ne 0 ]]; then
+            printf "\n** Error: failed to create Python venv at $venv_dir\n"
+            exit 1
+        fi
+    fi
+
+    # Install/upgrade requirements (pip will skip packages already at the right version)
+    run_as_user "\"$venv_dir/bin/pip\" install --quiet --upgrade pip"
+    run_as_user "\"$venv_dir/bin/pip\" install --quiet -r \"$requirements\""
+    if [[ $? -ne 0 ]]; then
+        printf "\n** Error: failed to install Python requirements\n"
+        exit 1
+    fi
+
+    printf "        [ok]\n"
+}
+
+#------------------------------------------------------------------------------
+# Function: add_hosts
 # Description: Updates the local /etc/hosts file with entries for Mifos Gazelle services when using a local cluster.
+#------------------------------------------------------------------------------
+# Marker used to bracket all Gazelle-managed /etc/hosts entries.
+# The remove_hosts function deletes everything between these two lines.
+GAZELLE_HOSTS_BEGIN="# BEGIN mifos-gazelle"
+GAZELLE_HOSTS_END="# END mifos-gazelle"
+
+#------------------------------------------------------------------------------
+# Function: remove_hosts
+# Description: Removes the mifos-gazelle block from /etc/hosts.
+#              Safe to call even if the block is not present.
+#------------------------------------------------------------------------------
+function remove_hosts {
+    perl -i -ne '
+        if (/^\Q'"$GAZELLE_HOSTS_BEGIN"'\E/) { $skip=1 }
+        print unless $skip;
+        if (/^\Q'"$GAZELLE_HOSTS_END"'\E/)   { $skip=0 }
+    ' /etc/hosts
+}
+
+#------------------------------------------------------------------------------
+# Function: add_hosts
+# Description: Writes a clearly-marked block of Gazelle service hostnames into
+#              /etc/hosts.  Any existing block is replaced so the function is
+#              idempotent and handles IP changes (e.g. after a VM restart).
+#              The block is self-contained — no other lines are touched.
 #------------------------------------------------------------------------------
 function add_hosts {
     if [[ "$environment" == "local" || "$environment" == "mac" ]]; then
         printf "==> Mifos-gazelle: update local hosts file  "
-        
-        # Use GAZELLE_DOMAIN variable, with fallback to default
-        DOMAIN="${GAZELLE_DOMAIN:-mifos.gazelle.test}"
-        
-        VNEXTHOSTS=( mongohost.$DOMAIN mongo-express.$DOMAIN \
-        vnextadmin.$DOMAIN elasticsearch.$DOMAIN kibana.$DOMAIN redpanda-console.$DOMAIN \
-        mongoexpress.$DOMAIN fspiop.$DOMAIN bluebank.$DOMAIN greenbank.$DOMAIN  )
-        
-        PHEEHOSTS=( ops.$DOMAIN ops-bk.$DOMAIN \
-        bulk-processor.$DOMAIN connector-bulk.$DOMAIN messagegateway.$DOMAIN \
-        minio-console.$DOMAIN bill-pay.$DOMAIN channel.$DOMAIN \
-        channel-gsma.$DOMAIN crm.$DOMAIN mockpayment.$DOMAIN \
-        mojaloop.$DOMAIN identity-mapper.$DOMAIN vouchers.$DOMAIN \
-        zeebeops.$DOMAIN zeebe-operate.$DOMAIN zeebe-gateway.$DOMAIN \
-        notifications.$DOMAIN )
-        
-        MIFOSXHOSTS=( mifos.$DOMAIN )
-        
-        ALLHOSTS=( "127.0.0.1" "localhost" "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" )
-        export ENDPOINTS=`echo ${ALLHOSTS[*]}`
-        perl -pi -e 's/^(127\.0\.0\.1\s+)(.*)/$1localhost/' /etc/hosts
-        perl -p -i.bak -e 's/127\.0\.0\.1.*localhost.*$/$ENV{ENDPOINTS} /' /etc/hosts
+
+        local DOMAIN="${GAZELLE_DOMAIN:-mifos.gazelle.test}"
+
+        local VNEXTHOSTS=( mongohost.$DOMAIN mongo-express.$DOMAIN \
+            vnextadmin.$DOMAIN elasticsearch.$DOMAIN kibana.$DOMAIN redpanda-console.$DOMAIN \
+            mongoexpress.$DOMAIN fspiop.$DOMAIN bluebank.$DOMAIN greenbank.$DOMAIN )
+
+        local PHEEHOSTS=( ops.$DOMAIN ops-bk.$DOMAIN \
+            bulk-processor.$DOMAIN connector-bulk.$DOMAIN messagegateway.$DOMAIN \
+            minio-console.$DOMAIN bill-pay.$DOMAIN channel.$DOMAIN \
+            channel-gsma.$DOMAIN crm.$DOMAIN mockpayment.$DOMAIN \
+            mojaloop.$DOMAIN identity-mapper.$DOMAIN vouchers.$DOMAIN \
+            zeebeops.$DOMAIN zeebe-operate.$DOMAIN zeebe-gateway.$DOMAIN \
+            notifications.$DOMAIN )
+
+        local MIFOSXHOSTS=( mifos.$DOMAIN )
+        local ALL_GAZELLE_HOSTS=( "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" )
+
+        # Determine which IP to use:
+        #   mac  — Lima VM has its own routable IP; detect it from the k8s node.
+        #   local — k3s runs on the Ubuntu host itself, so 127.0.0.1 is correct.
+        local NODE_IP="127.0.0.1"
+        if [[ "$environment" == "mac" ]]; then
+            local detected_ip
+            detected_ip=$(sudo -u "$k8s_user" kubectl get nodes \
+                -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
+                2>/dev/null)
+            [[ -n "$detected_ip" ]] && NODE_IP="$detected_ip"
+        fi
+
+        # Remove any existing Gazelle block (idempotent; handles IP changes).
+        remove_hosts
+
+        # Append a fresh, clearly-marked block.  Nothing else in /etc/hosts
+        # is read or modified.
+        {
+            printf '\n%s\n' "$GAZELLE_HOSTS_BEGIN"
+            printf '%s %s\n' "$NODE_IP" "${ALL_GAZELLE_HOSTS[*]}"
+            printf '%s\n' "$GAZELLE_HOSTS_END"
+        } >> /etc/hosts
+
     else
         printf "==> Skipping /etc/hosts modification for remote cluster \n"
     fi
@@ -241,6 +319,7 @@ function env_setup_local_cluster {
     if [[ "$mode" == "deploy" ]]; then
         check_resources_ok
         install_os_prerequisites
+        ensure_python_venv
         add_hosts
 
         if ! is_local_cluster_installed; then
@@ -270,12 +349,46 @@ function env_setup_local_cluster {
             exit 0
         fi
         delete_k8s_local_cluster
+        remove_hosts
         print_end_message_delete
     else
         showUsage
         exit 1
     fi
 }   
+
+#------------------------------------------------------------------------------
+# Function: _configure_mac_vm_limits
+# Description: Increases inotify and file-descriptor kernel limits inside the
+#              Rancher Desktop Lima VM.  Without this, Java/Spring-Boot pods that
+#              open many fsnotify watchers (bulk-processor, zeebe-broker, etc.)
+#              hit "too many open files" errors.  Settings are applied immediately
+#              and written to /etc/sysctl.d/99-gazelle.conf so they survive Lima
+#              VM restarts.  Idempotent: safe to call on every run.
+#------------------------------------------------------------------------------
+function _configure_mac_vm_limits {
+    local rdctl
+    if ! rdctl=$(_find_rdctl); then
+        printf "    Warning: rdctl not found — skipping VM kernel limit tuning\n"
+        return 0
+    fi
+
+    printf "    Configuring VM kernel limits (inotify / file descriptors)...\n"
+
+    # Apply immediately (takes effect for all running and new processes).
+    # rdctl shell passes remaining args directly to the VM shell — no -- separator.
+    sudo -u "$k8s_user" "$rdctl" shell sudo sysctl -w fs.inotify.max_user_watches=1048576  >/dev/null 2>&1 || true
+    sudo -u "$k8s_user" "$rdctl" shell sudo sysctl -w fs.inotify.max_user_instances=8192   >/dev/null 2>&1 || true
+    sudo -u "$k8s_user" "$rdctl" shell sudo sysctl -w fs.file-max=2097152                  >/dev/null 2>&1 || true
+
+    # Persist across Lima VM restarts (idempotent: only write if not already present).
+    # Use a quoted sh -c string so the embedded newlines and redirection stay intact.
+    sudo -u "$k8s_user" "$rdctl" shell sudo sh -c \
+        'grep -q max_user_watches /etc/sysctl.d/99-gazelle.conf 2>/dev/null || printf "fs.inotify.max_user_watches=1048576\nfs.inotify.max_user_instances=8192\nfs.file-max=2097152\n" > /etc/sysctl.d/99-gazelle.conf' \
+        >/dev/null 2>&1 || true
+
+    printf "    VM kernel limits configured            [ok]\n"
+}
 
 #------------------------------------------------------------------------------
 # Function: _wait_for_k8s
@@ -333,17 +446,23 @@ function _start_rancher_desktop {
         printf "** Error: rdctl not found. Rancher Desktop may not have installed correctly.\n"
         exit 1
     fi
+    # --kubernetes.options.traefik=false: Rancher Desktop ships Traefik by default
+    # but it binds ports 80/443, conflicting with the ingress-nginx the script installs.
     sudo -u "$k8s_user" "$rdctl" start \
         --application.start-in-background \
         --kubernetes.enabled \
         --kubernetes.version "1.30.0" \
         --container-engine.name containerd \
         --virtual-machine.memory-in-gb 16 \
-        --virtual-machine.number-cpus 4
+        --virtual-machine.number-cpus 4 \
+        --kubernetes.options.traefik=false
 }
 
 function install_mac_k8s {
     printf "\r==> Checking macOS Kubernetes provider\n"
+
+    # Ensure kubeconfig context is rancher-desktop if available (may be stale from prior provider)
+    su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
 
     # If cluster is accessible, verify it is Rancher Desktop
     if is_cluster_accessible; then
@@ -364,6 +483,8 @@ function install_mac_k8s {
     if [[ -d "/Applications/Rancher Desktop.app" ]]; then
         printf "    Rancher Desktop found, starting...\n"
         _start_rancher_desktop
+        # Ensure kubeconfig points at rancher-desktop (may be stale from a previous provider)
+        su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
         if _wait_for_k8s 180; then
             printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
             return 0
@@ -404,6 +525,8 @@ function env_setup_mac_cluster {
     if [[ "$mode" == "deploy" ]]; then
         check_resources_ok
         install_mac_k8s
+        _configure_mac_vm_limits
+        ensure_python_venv
         add_hosts
         check_and_load_helm_repos
         install_nginx_local_cluster
@@ -414,6 +537,7 @@ function env_setup_mac_cluster {
             printf "** Error: Kubernetes cluster is NOT accessible\n\n"
             exit 1
         fi
+        remove_hosts
     else
         showUsage
         exit 1

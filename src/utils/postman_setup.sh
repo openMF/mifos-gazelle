@@ -1,8 +1,9 @@
 #!/bin/bash
 
-RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"  # the directory that this script is in 
+RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"  # the directory that this script is in
 echo "RUN_DIR is $RUN_DIR"
 BASE_DIR="$( cd $(dirname "$RUN_DIR") ; pwd )"
+source "$BASE_DIR/utils/helpers.sh"
 echo "BASE_DIR is $BASE_DIR"
 
 function welcome {
@@ -84,7 +85,7 @@ add_or_update_hosts() {
 
     if [ -n "$existing_line" ]; then
         if $override; then
-            sed -i "/^$ip[[:space:]]/c\\$ip $hosts" /etc/hosts
+            sed_inplace "/^$ip[[:space:]]/c\\$ip $hosts" /etc/hosts
             echo "Updated existing entry for $ip with hardcoded hostnames."
         else
             echo "$ip $hosts" >> /etc/hosts

@@ -147,7 +147,7 @@ function generateMifosXandVNextData {
 
       log_step "Generating MifosX clients and registering vNext Oracle associations"
       echo
-      run_as_user "python3 \"$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py\" -c \"$CONFIG_FILE_PATH\" 2>&1"
+      run_as_user "\"$PYTHON3\" \"$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py\" -c \"$CONFIG_FILE_PATH\" 2>&1"
       local data_gen_exit=$?
 
       if [[ $data_gen_exit -ne 0 ]]; then

@@ -62,6 +62,17 @@ CONFIG_DIR="$BASE_DIR/config"
 UTILS_DIR="$BASE_DIR/src/utils"
 DATA_LOADING_DIR="$UTILS_DIR/data-loading"
 export UTILS_DIR DATA_LOADING_DIR
+
+# Python interpreter: use the project-local venv when available so data-loading
+# scripts have their dependencies (requests, etc.) without touching system Python.
+# Falls back to system python3 if the venv hasn't been created yet (e.g. first run
+# before env-setup, or when running a deploy directly against a remote cluster).
+if [[ -x "$BASE_DIR/.venv/bin/python3" ]]; then
+    PYTHON3="$BASE_DIR/.venv/bin/python3"
+else
+    PYTHON3="python3"
+fi
+export PYTHON3
 INFRA_CHART_DIR="$BASE_DIR/src/deployer/helm/infra" 
 NGINX_VALUES_FILE="$CONFIG_DIR/nginx_values.yaml"
 

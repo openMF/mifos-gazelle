@@ -333,9 +333,9 @@ generate_mastercard_csv() {
     local output_dir="$RUN_DIR/src/utils/data-loading"
     logWithVerboseCheck "$debug" "$INFO" "Generating bulk-gazelle-mastercard-6.csv"
     if [ "$debug" == "true" ]; then
-        run_as_user "python3 \"$csv_generator\" -c \"$config_file\" --mode mastercard --num-rows 6 --output-dir \"$output_dir\""
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$config_file\" --mode mastercard --num-rows 6 --output-dir \"$output_dir\""
     else
-        run_as_user "python3 \"$csv_generator\" -c \"$config_file\" --mode mastercard --num-rows 6 --output-dir \"$output_dir\"" > /tmp/mastercard-csv-gen.log 2>&1
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$config_file\" --mode mastercard --num-rows 6 --output-dir \"$output_dir\"" > /tmp/mastercard-csv-gen.log 2>&1
     fi
 
     if [ $? -ne 0 ]; then

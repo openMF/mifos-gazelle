@@ -78,12 +78,14 @@ function update_vnext_service_urls() {
     #echo "    Updating service URLs in: $target_dir"
     
     # Find all YAML files and apply replacements (idempotent - won't duplicate if run multiple times)
-    find "$target_dir" -type f \( -name "*.yaml" -o -name "*.yml" \) -exec sed -i \
-        -e 's|value: kafka:9092$|value: kafka.infra.svc.cluster.local:9092|g' \
-        -e 's|value: mongodb://root:mongoDbPas42@mongodb:27017/\s*$|value: mongodb://root:mongoDbPas42@mongodb.infra.svc.cluster.local:27017/|g' \
-        -e 's|value: redis-master$|value: redis-master.infra.svc.cluster.local|g' \
-        -e 's|value: http://infra-elasticsearch:9200$|value: http://infra-elasticsearch.infra.svc.cluster.local:9200|g' \
-        {} \; 
+    while IFS= read -r -d '' f; do
+        sed_inplace \
+            -e 's|value: kafka:9092$|value: kafka.infra.svc.cluster.local:9092|g' \
+            -e 's|value: mongodb://root:mongoDbPas42@mongodb:27017/\s*$|value: mongodb://root:mongoDbPas42@mongodb.infra.svc.cluster.local:27017/|g' \
+            -e 's|value: redis-master$|value: redis-master.infra.svc.cluster.local|g' \
+            -e 's|value: http://infra-elasticsearch:9200$|value: http://infra-elasticsearch.infra.svc.cluster.local:9200|g' \
+            "$f"
+    done < <(find "$target_dir" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0) 
     
     #echo "Service URL updates complete."
 }
@@ -143,7 +145,7 @@ function vnext_restore_demo_data {
         return 1
     fi
 
-    if ! run_as_user "kubectl exec --namespace \"$namespace\" --stdin --tty \"$mongopod\" -- mongorestore -u root -p \"$mongo_root_pw\" --gzip --archive=/tmp/mongodump.gz --authenticationDatabase admin" > /dev/null 2>&1; then
+    if ! run_as_user "kubectl exec --namespace \"$namespace\" \"$mongopod\" -- mongorestore -u root -p \"$mongo_root_pw\" --gzip --archive=/tmp/mongodump.gz --authenticationDatabase admin" > /dev/null 2>&1; then
         log_failed "mongorestore failed"
         rm -rf "${temp_dir:-}"
         return 1

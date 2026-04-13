@@ -196,11 +196,11 @@ generate_sample_csvs() {
 
     local csv_exit=0
     if [ "$debug" == "true" ]; then
-        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/phee-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
-        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/phee-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/phee-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/phee-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
     else
-        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
-        run_as_user "python3 \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
     fi
 
     if [ "$csv_exit" -ne 0 ]; then

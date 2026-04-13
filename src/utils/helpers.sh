@@ -8,6 +8,21 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 #------------------------------------------------------------------------------
+# Function : sed_inplace
+# Description: Cross-platform in-place sed. macOS (BSD) sed requires an explicit
+#              backup extension after -i; GNU sed does not. Pass sed args exactly
+#              as you would for GNU sed — the -i '' is added automatically on macOS.
+# Usage: sed_inplace -e 's/foo/bar/' file
+#------------------------------------------------------------------------------
+function sed_inplace() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
+#------------------------------------------------------------------------------
 # Function : check_sudo
 # Description: Checks if the script is run with sudo from a non-root user.
 #              Rejects direct root execution (e.g. 'sudo su -') because
