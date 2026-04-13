@@ -140,20 +140,32 @@ function add_hosts {
         local MIFOSXHOSTS=( mifos.$DOMAIN )
         local ALL_GAZELLE_HOSTS=( "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" )
 
-        # Determine which IP to use:
-        #   mac  — Lima VM has its own routable IP; detect it from the k8s node.
-        #   local — k3s runs on the Ubuntu host itself, so 127.0.0.1 is correct.
-        local NODE_IP="127.0.0.1"
-        if [[ "$environment" == "mac" ]]; then
-            local detected_ip
-            detected_ip=$(sudo -u "$k8s_user" kubectl get nodes \
-                -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-                2>/dev/null)
-            [[ -n "$detected_ip" ]] && NODE_IP="$detected_ip"
-        fi
+        # Determine which IP to use.
+        #
+        # On macOS (Rancher Desktop / Lima), the VM has two external interfaces:
+        #   eth0  — socket_vmnet shared network (e.g. 192.168.5.15) — directly
+        #           routable from the Mac to the VM. This is the correct IP.
+        #   vznat — VZ NAT for outbound internet (e.g. 192.168.68.4) — may
+        #           overlap with the physical LAN and is NOT the right address.
+        #
+        # kubectl get nodes InternalIP returns the eth0 address, which is correct.
+        # Do NOT use the ingress-nginx LoadBalancer IP — k3s svclb picks up vznat
+        # as the external IP, which routes to the wrong place on many networks.
+        #
+        # On Ubuntu (local k3s) the node IS the host, so InternalIP == 127.0.0.1.
+        local NODE_IP
+        NODE_IP=$(sudo -u "$k8s_user" kubectl get nodes \
+            -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
+            2>/dev/null)
+        NODE_IP="${NODE_IP:-127.0.0.1}"
 
         # Remove any existing Gazelle block (idempotent; handles IP changes).
         remove_hosts
+
+        # Also strip any legacy unmarked lines that contain gazelle hostnames
+        # (written by older versions of this script before the marker approach).
+        export GAZELLE_DOMAIN_SUFFIX="$DOMAIN"
+        perl -pi -e 'next if /\Q$ENV{GAZELLE_DOMAIN_SUFFIX}\E/ && !/^#/' /etc/hosts
 
         # Append a fresh, clearly-marked block.  Nothing else in /etc/hosts
         # is read or modified.
@@ -391,6 +403,85 @@ function _configure_mac_vm_limits {
 }
 
 #------------------------------------------------------------------------------
+# Function: _configure_mac_k3s_node_ip
+# Description: Configures k3s inside the Rancher Desktop Lima VM to bind to
+#              the socket_vmnet (eth0) interface rather than the vznat interface.
+#
+#              Lima has two external interfaces:
+#                eth0  (192.168.5.x) — socket_vmnet, directly routable from Mac
+#                vznat (192.168.68.x) — VZ NAT for internet; overlaps with many
+#                                       physical LAN subnets, causing routing
+#                                       ambiguity on the Mac side.
+#
+#              Without this fix, k3s svclb binds to the vznat IP which the Mac
+#              may route to a physical LAN device instead of the Lima VM.
+#
+#              Writes /etc/rancher/k3s/config.yaml inside the VM (persists on
+#              the VM disk across restarts) and restarts k3s.  Idempotent.
+#------------------------------------------------------------------------------
+function _configure_mac_k3s_node_ip {
+    local rdctl
+    if ! rdctl=$(_find_rdctl); then
+        printf "    Warning: rdctl not found — skipping k3s node-ip config\n"
+        return 0
+    fi
+
+    # Detect eth0 IP inside the Lima VM (socket_vmnet, directly reachable from Mac)
+    local eth0_ip
+    eth0_ip=$(sudo -u "$k8s_user" "$rdctl" shell ip -4 addr show eth0 2>/dev/null \
+        | awk '/inet /{print $2}' | cut -d'/' -f1)
+
+    if [[ -z "$eth0_ip" ]]; then
+        printf "    Warning: could not detect Lima VM eth0 IP — skipping k3s node-ip config\n"
+        return 0
+    fi
+
+    printf "    Configuring k3s node-ip to %s (socket_vmnet eth0)...\n" "$eth0_ip"
+
+    # Idempotent: skip if already configured with this IP
+    local current_ip
+    current_ip=$(sudo -u "$k8s_user" "$rdctl" shell \
+        sudo sh -c 'grep -E "^node-ip:" /etc/rancher/k3s/config.yaml 2>/dev/null' \
+        | awk -F'"' '{print $2}')
+    if [[ "$current_ip" == "$eth0_ip" ]]; then
+        printf "    k3s node-ip already set to %s   [ok]\n" "$eth0_ip"
+        return 0
+    fi
+
+    # Write the config file inside the Lima VM
+    sudo -u "$k8s_user" "$rdctl" shell sudo sh -c \
+        "mkdir -p /etc/rancher/k3s && printf 'node-ip: \"%s\"\nnode-external-ip: \"%s\"\n' '$eth0_ip' '$eth0_ip' > /etc/rancher/k3s/config.yaml" \
+        >/dev/null 2>&1
+
+    # Restart k3s so it picks up the new node-ip config.
+    # Try each init mechanism in turn; fall back to a full VM restart via rdctl.
+    printf "    Restarting k3s...\n"
+    local restarted=false
+    if sudo -u "$k8s_user" "$rdctl" shell sudo rc-service k3s restart >/dev/null 2>&1; then
+        # OpenRC (Alpine Linux — Rancher Desktop Lima VM)
+        restarted=true
+    elif sudo -u "$k8s_user" "$rdctl" shell sudo service k3s restart >/dev/null 2>&1; then
+        restarted=true
+    elif sudo -u "$k8s_user" "$rdctl" shell sudo dinitctl restart k3s >/dev/null 2>&1; then
+        restarted=true
+    else
+        # No init service found — restart the whole VM via rdctl (slowest but reliable)
+        printf "    No k3s service manager found — restarting Rancher Desktop VM...\n"
+        sudo -u "$k8s_user" "$rdctl" shutdown >/dev/null 2>&1 || true
+        sleep 5
+        _start_rancher_desktop
+        restarted=true
+    fi
+
+    # Wait for the cluster to recover
+    if [[ "$restarted" == true ]] && _wait_for_k8s 180; then
+        printf "    k3s node-ip configured              [ok]\n"
+    else
+        printf "    Warning: k3s did not recover within 3 minutes after restart\n"
+    fi
+}
+
+#------------------------------------------------------------------------------
 # Function: _wait_for_k8s
 # Description: Polls until the cluster is accessible or timeout is reached.
 # Parameters:
@@ -526,6 +617,7 @@ function env_setup_mac_cluster {
         check_resources_ok
         install_mac_k8s
         _configure_mac_vm_limits
+        _configure_mac_k3s_node_ip
         ensure_python_venv
         add_hosts
         check_and_load_helm_repos
@@ -533,11 +625,33 @@ function env_setup_mac_cluster {
         printf "\r==> macOS kubernetes cluster configured for %s\n" "$k8s_user"
         print_end_message
     elif [[ "$mode" == "cleanapps" || "$mode" == "cleanall" ]]; then
-        if ! is_cluster_accessible; then
-            printf "** Error: Kubernetes cluster is NOT accessible\n\n"
-            exit 1
+        if is_cluster_accessible; then
+            # Cluster is up — delete namespaces and helm releases cleanly
+            if [[ "$mode" == "cleanapps" ]]; then
+                : # app deletion handled by deleteApps called from commandline.sh
+            else
+                log_step "Removing ingress-nginx"
+                run_as_user "helm uninstall ingress-nginx -n default" >/dev/null 2>&1 || true
+                log_ok
+            fi
+        else
+            if [[ "$mode" == "cleanapps" ]]; then
+                printf "** Error: Kubernetes cluster is NOT accessible\n\n"
+                exit 1
+            else
+                printf "    Warning: Kubernetes cluster is not accessible — skipping namespace cleanup\n"
+            fi
         fi
         remove_hosts
+        if [[ "$mode" == "cleanall" ]]; then
+            # Shut down the Rancher Desktop VM cleanly regardless of cluster state
+            local rdctl
+            if rdctl=$(_find_rdctl); then
+                log_step "Shutting down Rancher Desktop"
+                sudo -u "$k8s_user" "$rdctl" shutdown >/dev/null 2>&1 || true
+                log_ok
+            fi
+        fi
     else
         showUsage
         exit 1
