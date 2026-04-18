@@ -116,7 +116,7 @@ function deployHelmChartFromDir() {
   fi
 
   # Build helm install command
-  local helm_cmd="helm install --wait --timeout 600s $release_name $chart_dir -n $namespace"
+  local helm_cmd="helm install --wait --timeout $startup_timeout $release_name $chart_dir -n $namespace"
   if [ -n "$values_file" ]; then
       helm_cmd="$helm_cmd -f $values_file"
   fi

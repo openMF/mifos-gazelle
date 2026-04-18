@@ -215,10 +215,10 @@ function env_setup_local_cluster {
 
         if ! is_local_cluster_installed; then
             install_k3s
-            check_and_load_helm_repos
-            install_nginx_local_cluster
             $UTILS_DIR/install-k9s.sh > /dev/null 2>&1
         fi
+        check_and_load_helm_repos
+        install_nginx_local_cluster
         printf "\r==> local kubernetes v%s configured  for %s \n" \
                   "$k8s_version" "$k8s_user"
         print_end_message
