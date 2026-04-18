@@ -81,7 +81,7 @@ function update_vnext_service_urls() {
     while IFS= read -r -d '' f; do
         sed_inplace \
             -e 's|value: kafka:9092$|value: kafka.infra.svc.cluster.local:9092|g' \
-            -e 's|value: mongodb://root:mongoDbPas42@mongodb:27017/\s*$|value: mongodb://root:mongoDbPas42@mongodb.infra.svc.cluster.local:27017/|g' \
+            -e 's|value: mongodb://root:mongoDbPas42@mongodb:27017/[[:space:]]*$|value: mongodb://root:mongoDbPas42@mongodb.infra.svc.cluster.local:27017/|g' \
             -e 's|value: redis-master$|value: redis-master.infra.svc.cluster.local|g' \
             -e 's|value: http://infra-elasticsearch:9200$|value: http://infra-elasticsearch.infra.svc.cluster.local:9200|g' \
             "$f"

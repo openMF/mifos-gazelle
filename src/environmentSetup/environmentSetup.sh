@@ -142,36 +142,60 @@ function add_hosts {
 
         # Determine which IP to use.
         #
-        # On macOS (Rancher Desktop / Lima), the VM has two external interfaces:
-        #   eth0  — socket_vmnet shared network (e.g. 192.168.5.15) — directly
-        #           routable from the Mac to the VM. This is the correct IP.
-        #   vznat — VZ NAT for outbound internet (e.g. 192.168.68.4) — may
-        #           overlap with the physical LAN and is NOT the right address.
+        # On macOS (Rancher Desktop / Lima): use the vznat IP (192.168.68.x).
+        #   klipper-lb (k3s's built-in LoadBalancer) uses iptables DNAT to route
+        #   ports 80 and 443 inside the VM — no process actually binds 0.0.0.0:80/443.
+        #   Lima's guestIPMustBeZero=true auto-forwarding therefore never triggers for
+        #   those ports, so 127.0.0.1 does NOT work.
+        #   The vznat interface (192.168.68.x) IS directly reachable from the Mac host
+        #   (including with corporate VPN) and iptables routes port 80/443 traffic
+        #   correctly to the nginx ingress controller.
+        #   socket_vmnet IP (192.168.5.x) is unreliable — blocked by many VPNs.
         #
-        # kubectl get nodes InternalIP returns the eth0 address, which is correct.
-        # Do NOT use the ingress-nginx LoadBalancer IP — k3s svclb picks up vznat
-        # as the external IP, which routes to the wrong place on many networks.
-        #
-        # On Ubuntu (local k3s) the node IS the host, so InternalIP == 127.0.0.1.
+        # On Ubuntu (local k3s): the node IS the host, so InternalIP == 127.0.0.1
+        #   anyway, but we read it from kubectl to be explicit.
         local NODE_IP
-        NODE_IP=$(sudo -u "$k8s_user" kubectl get nodes \
-            -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-            2>/dev/null)
-        NODE_IP="${NODE_IP:-127.0.0.1}"
+        if [[ "$environment" == "mac" ]]; then
+            # Get the vznat IP dynamically from the Lima VM.
+            local rdctl
+            rdctl=$(_find_rdctl 2>/dev/null || true)
+            if [[ -n "$rdctl" ]]; then
+                NODE_IP=$(sudo -u "$k8s_user" "$rdctl" shell -- \
+                    ip addr show vznat 2>/dev/null \
+                    | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 2>/dev/null || true)
+            fi
+            NODE_IP="${NODE_IP:-192.168.68.4}"  # fallback to default vznat address
+        else
+            NODE_IP=$(sudo -u "$k8s_user" kubectl get nodes \
+                -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
+                2>/dev/null)
+            NODE_IP="${NODE_IP:-127.0.0.1}"
+        fi
 
         # Remove any existing Gazelle block (idempotent; handles IP changes).
         remove_hosts
 
         # Also strip any legacy unmarked lines that contain gazelle hostnames
         # (written by older versions of this script before the marker approach).
+        # We remove only the gazelle tokens from each line; if other hostnames
+        # (e.g. localhost) are on the same line they are preserved.  Lines that
+        # become just an IP address after stripping are removed entirely.
         export GAZELLE_DOMAIN_SUFFIX="$DOMAIN"
-        perl -pi -e 'next if /\Q$ENV{GAZELLE_DOMAIN_SUFFIX}\E/ && !/^#/' /etc/hosts
+        perl -pi -e '
+            if (/\Q$ENV{GAZELLE_DOMAIN_SUFFIX}\E/ && !/^#/) {
+                s/\s+\S*\Q$ENV{GAZELLE_DOMAIN_SUFFIX}\E\S*//g;
+                $_ = "" if /^\s*[\d.:a-fA-F]+\s*[\r\n]*$/;
+            }
+        ' /etc/hosts
 
         # Append a fresh, clearly-marked block.  Nothing else in /etc/hosts
-        # is read or modified.
+        # is read or modified.  One hostname per line avoids the ~1024-char
+        # per-line limit on macOS which silently drops entries beyond that point.
         {
             printf '\n%s\n' "$GAZELLE_HOSTS_BEGIN"
-            printf '%s %s\n' "$NODE_IP" "${ALL_GAZELLE_HOSTS[*]}"
+            for _host in "${ALL_GAZELLE_HOSTS[@]}"; do
+                printf '%s %s\n' "$NODE_IP" "$_host"
+            done
             printf '%s\n' "$GAZELLE_HOSTS_END"
         } >> /etc/hosts
 
@@ -484,18 +508,73 @@ function _configure_mac_k3s_node_ip {
 #------------------------------------------------------------------------------
 # Function: _wait_for_k8s
 # Description: Polls until the cluster is accessible or timeout is reached.
+#              Also retries 'kubectl config use-context rancher-desktop' on each
+#              iteration because Rancher Desktop writes its kubeconfig entry
+#              asynchronously after starting — the context may not exist when
+#              the loop begins.
 # Parameters:
-#   $1 - timeout in seconds (default 180)
+#   $1 - timeout in seconds (default 240)
 #------------------------------------------------------------------------------
 function _wait_for_k8s {
-    local timeout="${1:-180}"
+    local timeout="${1:-240}"
     local waited=0
     while ! is_cluster_accessible && [[ $waited -lt $timeout ]]; do
+        su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
         sleep 5; (( waited += 5 ))
         printf "\r    Waiting for Rancher Desktop Kubernetes (%ds/%ds)..." "$waited" "$timeout"
     done
     printf "\n"
     is_cluster_accessible
+}
+
+#------------------------------------------------------------------------------
+# Function: _recover_mac_k8s
+# Description: Attempts automatic recovery when the Rancher Desktop VM is
+#              running but the k3s cluster is not reachable.
+#
+#              Tier 1 (fast ~15s): removes any stale /etc/rancher/k3s/config.yaml
+#              written by previous gazelle runs (a leftover causes a duplicate
+#              --node-ip that crashes the kubelet) and restarts k3s in place.
+#
+#              Tier 2 (slower ~2min): if k3s is still unreachable, performs a
+#              full rdctl shutdown + start to reset the VM cleanly.
+#
+# Returns: 0 if cluster becomes accessible, 1 if recovery failed.
+#------------------------------------------------------------------------------
+function _recover_mac_k8s {
+    local rdctl
+    if ! rdctl=$(_find_rdctl); then
+        printf "    Warning: rdctl not found — cannot attempt auto-recovery\n"
+        return 1
+    fi
+
+    # ---- Tier 1: clean stale config artifact + in-place k3s restart ----
+    printf "    Auto-recovery tier 1: restarting k3s inside the VM...\n"
+    sudo -u "$k8s_user" "$rdctl" shell sudo rm -f /etc/rancher/k3s/config.yaml >/dev/null 2>&1 || true
+    sudo -u "$k8s_user" "$rdctl" shell sudo rc-service k3s restart >/dev/null 2>&1 || \
+        sudo -u "$k8s_user" "$rdctl" shell sudo service k3s restart >/dev/null 2>&1 || true
+
+    su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
+    if _wait_for_k8s 60; then
+        printf "    Auto-recovery tier 1 succeeded              [ok]\n"
+        return 0
+    fi
+
+    # ---- Tier 2: full VM restart via rdctl ----
+    printf "    Auto-recovery tier 2: restarting Rancher Desktop VM...\n"
+    sudo -u "$k8s_user" "$rdctl" shutdown >/dev/null 2>&1 || true
+    sleep 5
+    _start_rancher_desktop
+    su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
+    if _wait_for_k8s 240; then
+        printf "    Auto-recovery tier 2 succeeded              [ok]\n"
+        return 0
+    fi
+
+    printf "** Auto-recovery failed. Try:\n"
+    printf "   1. Open Rancher Desktop and check for error messages.\n"
+    printf "   2. If the problem persists, reset Rancher Desktop from its Troubleshooting menu.\n"
+    return 1
 }
 
 #------------------------------------------------------------------------------
@@ -570,17 +649,35 @@ function install_mac_k8s {
         return 0
     fi
 
-    # Rancher Desktop installed but not running — start it
+    # VM may already be running in a broken state (e.g. kubelet crashed due to a
+    # stale config artifact from a previous run).  Try auto-recovery before
+    # attempting a full start, so we don't waste time shutting down a live VM.
+    local rdctl
+    if rdctl=$(_find_rdctl); then
+        local vm_state
+        vm_state=$(sudo -u "$k8s_user" "$rdctl" api /v1/backend_state 2>/dev/null \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('vmState',''))" 2>/dev/null || true)
+        if [[ "$vm_state" == "STARTED" ]]; then
+            printf "    VM is running but cluster is unreachable — attempting auto-recovery...\n"
+            if _recover_mac_k8s; then
+                printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
+                return 0
+            fi
+            # Recovery failed — fall through to a clean start below
+        fi
+    fi
+
+    # Rancher Desktop installed but not running (or recovery failed) — start it
     if [[ -d "/Applications/Rancher Desktop.app" ]]; then
         printf "    Rancher Desktop found, starting...\n"
         _start_rancher_desktop
         # Ensure kubeconfig points at rancher-desktop (may be stale from a previous provider)
         su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
-        if _wait_for_k8s 180; then
+        if _wait_for_k8s 240; then
             printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
             return 0
         fi
-        printf "** Error: Rancher Desktop did not become ready within 3 minutes.\n"
+        printf "** Error: Rancher Desktop did not become ready.\n"
         printf "   Open Rancher Desktop and check for errors.\n"
         exit 1
     fi
@@ -597,8 +694,8 @@ function install_mac_k8s {
     fi
     printf "    Configuring and starting Rancher Desktop (this may take a few minutes)...\n"
     _start_rancher_desktop
-    if ! _wait_for_k8s 180; then
-        printf "** Error: Rancher Desktop did not become ready within 3 minutes.\n"
+    if ! _wait_for_k8s 240; then
+        printf "** Error: Rancher Desktop did not become ready.\n"
         exit 1
     fi
     printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
@@ -617,7 +714,10 @@ function env_setup_mac_cluster {
         check_resources_ok
         install_mac_k8s
         _configure_mac_vm_limits
-        _configure_mac_k3s_node_ip
+        # NOTE: _configure_mac_k3s_node_ip is intentionally NOT called here.
+        # Rancher Desktop already sets --node-ip via /etc/conf.d/k3s ADDITIONAL_ARGS.
+        # Writing node-ip again to /etc/rancher/k3s/config.yaml produces a duplicate
+        # "192.168.x.x,192.168.x.x" value that causes the kubelet to crash.
         ensure_python_venv
         add_hosts
         check_and_load_helm_repos
@@ -644,9 +744,11 @@ function env_setup_mac_cluster {
         fi
         remove_hosts
         if [[ "$mode" == "cleanall" ]]; then
-            # Shut down the Rancher Desktop VM cleanly regardless of cluster state
+            # Remove the k3s config.yaml written by previous gazelle runs so that a
+            # subsequent deploy starts with a clean slate (no stale node-ip override).
             local rdctl
             if rdctl=$(_find_rdctl); then
+                sudo -u "$k8s_user" "$rdctl" shell sudo rm -f /etc/rancher/k3s/config.yaml >/dev/null 2>&1 || true
                 log_step "Shutting down Rancher Desktop"
                 sudo -u "$k8s_user" "$rdctl" shutdown >/dev/null 2>&1 || true
                 log_ok

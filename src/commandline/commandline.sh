@@ -521,11 +521,15 @@ function main {
         env_setup_main "$mode"
         deleteApps "$apps"
     elif [ "$mode" == "cleanall" ]; then
-        env_setup_main "$mode"
-        # env_setup_main will not remove remote/mac cluster so need to run deleteApps
-        if [[ "$environment" == "remote" || "$environment" == "mac" ]]; then
-            deleteApps "$mifosx_instances" "all"
+        # For mac/remote: delete app namespaces BEFORE env_setup_main shuts the
+        # cluster down.  env_setup_mac_cluster's cleanall path calls rdctl shutdown
+        # at the end, making kubectl unreachable for any subsequent deleteApps call.
+        if [[ "$environment" == "mac" || "$environment" == "remote" ]]; then
+            if is_cluster_accessible; then
+                deleteApps "$apps"
+            fi
         fi
+        env_setup_main "$mode"
     else
         showUsage
         exit 1
