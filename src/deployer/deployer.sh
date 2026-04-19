@@ -428,15 +428,19 @@ function deployApps() {
         stop_timer
         ;;
       "mifosx")
-        # if [[ "$redeploy" == "true" ]]; then 
-        #   #echo "Removing current mifosx and redeploying"
-        #   deleteApps "mifosx"
-          
-        # fi 
-        deployInfrastructure "false"  # deploy infra if not already there even if redeploy=true
+        deployInfrastructure "false"
         start_timer "MifosX"
-        DeployMifosXfromYaml "$MIFOSX_MANIFESTS_DIR" 
-        generateMifosXandVNextData
+        DeployMifosXfromYaml "$MIFOSX_MANIFESTS_DIR"
+        if ! generateMifosXandVNextData; then
+          data_gen_failed=true
+        fi
+        stop_timer
+        ;;
+      "setup-data")
+        start_timer "setup-data"
+        if ! generateMifosXandVNextData; then
+          data_gen_failed=true
+        fi
         stop_timer
         ;;
       "phee")
