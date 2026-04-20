@@ -223,7 +223,7 @@ ${localdev_section}
       cpu: "500m"
       memory: "512Mi"
     requests:
-      cpu: "250m"
+      cpu: "50m"
       memory: "256Mi"
 EOF
     chmod 644 "$cr_file"
@@ -415,10 +415,6 @@ deploy_mastercard() {
     log_ok
 
     wait_for_deployment
-
-    log_step "Deploying BPMN workflow"
-    deploy_bpmn_workflow
-    log_ok
 
     log_step "Loading supplementary data"
     load_supplementary_data
