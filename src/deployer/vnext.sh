@@ -33,7 +33,7 @@ function deployvNext() {
   log_ok
 
   log_step "Updating FQDNs in manifests"
-  update_fqdn_batch "$APPS_DIR/vnext/packages/installer/manifests" "local" "$GAZELLE_DOMAIN"
+  apply_domain_to_dir "$APPS_DIR/vnext/packages/installer/manifests" "$GAZELLE_DOMAIN" "local"
   find "$APPS_DIR/$VNEXTREPO_DIR/packages/installer/manifests" -type f -name "*.yaml" | while read -r file; do
       perl -pi -e 's/ingressClassName:\s*nginx-ext/ingressClassName: nginx/' "$file"
   done

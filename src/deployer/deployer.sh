@@ -186,8 +186,7 @@ function deployInfrastructure() {
   log_ok
 
   log_step "Updating FQDNs"
-  update_fqdn "$INFRA_CHART_DIR/values.yaml" "mifos.gazelle.test" "$GAZELLE_DOMAIN"
-  update_fqdn "$INFRA_CHART_DIR/values.yaml" "mifos.gazelle.localhost" "$GAZELLE_DOMAIN"
+  apply_domain_to_file "$INFRA_CHART_DIR/values.yaml" "$GAZELLE_DOMAIN"
   log_ok
 
   ensure_helm_dependencies "$INFRA_CHART_DIR"
@@ -404,5 +403,6 @@ function deployApps() {
     esac
   done
 
+  save_applied_domain
   print_deployment_end_message "$data_gen_failed"
 }
