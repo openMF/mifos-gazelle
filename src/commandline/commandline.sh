@@ -97,6 +97,8 @@ function loadConfigFromFile() {
     if [[ -n "$config_gazelle_domain" ]]; then GAZELLE_DOMAIN="$config_gazelle_domain"; fi
     local config_gazelle_version=$(crudini --get "$config_path" general GAZELLE_VERSION 2>/dev/null)
     if [[ -n "$config_gazelle_version" ]]; then GAZELLE_VERSION="$config_gazelle_version"; fi
+    local config_startup_timeout=$(crudini --get "$config_path" general startup_timeout 2>/dev/null)
+    if [[ -n "$config_startup_timeout" ]]; then startup_timeout="$config_startup_timeout"; fi
 
     # Read [kubernetes] section
     local config_environment=$(crudini --get "$config_path" kubernetes environment 2>/dev/null)
@@ -465,9 +467,30 @@ function main {
 
     welcome
     install_crudini
+    if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
+        echo "ERROR: Invalid command syntax. All options must start with a hyphen (e.g., -m)."
+        showUsage
+        exit 1
+    fi
 
     declare -A cmd_args_map
     getOptions cmd_args_map "$@"
+
+    for key in "${!cmd_args_map[@]}"; do
+        if [[ "${cmd_args_map[$key]}" =~ ^- ]]; then
+            echo "ERROR: Argument for flag '-${key:0:1}' cannot start with a hyphen (found '${cmd_args_map[$key]}')."
+            echo "It looks like you missed a value or provided flags out of order."
+            showUsage
+            exit 1
+        fi
+    done
+    shift $((OPTIND - 1))
+    if [[ $# -gt 0 ]]; then
+        echo "ERROR: Unexpected or malformed argument(s) detected: $@"
+        echo "Every option must have a flag (e.g., use -m instead of just m)."
+        showUsage
+        exit 1
+    fi
 
     if [[ -n "${cmd_args_map["config_file_path"]}" ]]; then
         CONFIG_FILE_PATH="${cmd_args_map["config_file_path"]}"
