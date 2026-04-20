@@ -220,7 +220,7 @@ def submit_batch_request(domain, csv_file_path, signature, tenant='greenbank',
 
 
 def run_submit(csv_file, config_path, tenant, govstack, registering_institution,
-               program, secret_key, debug, show_curl):
+               program, secret_key, debug, show_curl, skip_data_check=False):
     """
     Full submission pipeline. Returns response dict or None.
     Extracted so verify-batches.py can call it directly.
@@ -233,13 +233,16 @@ def run_submit(csv_file, config_path, tenant, govstack, registering_institution,
     print("="*80, file=sys.stderr)
     print(f"Using CSV: {csv_file}", file=sys.stderr)
 
-    data_ok, data_issues, data_hint = check_data_loaded(domain, config_path=config_path, debug=debug)
-    if not data_ok:
-        print(f"\nError: MifosX data is not loaded:", file=sys.stderr)
-        for issue in data_issues:
-            print(f"  • {issue}", file=sys.stderr)
-        print(f"{data_hint}", file=sys.stderr)
-        sys.exit(1)
+    if skip_data_check:
+        print("⚠️  Skipping Fineract data check (--skip-data-check)", file=sys.stderr)
+    else:
+        data_ok, data_issues, data_hint = check_data_loaded(domain, config_path=config_path, debug=debug)
+        if not data_ok:
+            print(f"\nError: MifosX data is not loaded:", file=sys.stderr)
+            for issue in data_issues:
+                print(f"  • {issue}", file=sys.stderr)
+            print(f"{data_hint}", file=sys.stderr)
+            sys.exit(1)
 
     if not validate_tenant(tenant):
         return None
@@ -508,6 +511,8 @@ EXAMPLES:
                         help='Print equivalent curl commands to stderr')
     parser.add_argument('--interactive', '-I', action='store_true',
                         help='Interactive mode — prompt for any missing options')
+    parser.add_argument('--skip-data-check', action='store_true',
+                        help='Skip Fineract client check (use for GovStack clusters without Mifos/Fineract)')
 
     args = parser.parse_args()
 
@@ -538,6 +543,7 @@ EXAMPLES:
         secret_key=args.secret_key,
         debug=args.debug,
         show_curl=args.show_curl,
+        skip_data_check=args.skip_data_check,
     )
 
     if result:
