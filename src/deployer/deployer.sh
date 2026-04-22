@@ -69,7 +69,7 @@ function deleteResourcesInNamespaceMatchingPattern() {
     
     # Filter the output for namespaces matching the pattern, stripping the "namespace/" prefix
     # grep returns 1 if no matches, but we want to continue, hence || true
-    matching_namespaces=$(echo "$all_namespaces_output" | grep -E "$pattern" | sed 's/^namespace\///' || true)
+    matching_namespaces=$(echo "$all_namespaces_output" | grep -E "^namespace/${pattern}$" | sed 's/^namespace\///' || true)
 
     if [ -z "$matching_namespaces" ]; then
         # printf "      namespaces %s not found    [skipping] \n"  $pattern
