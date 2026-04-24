@@ -187,6 +187,7 @@ spec:
       containers:
       - name: operator
         image: bitnami/kubectl:latest
+        imagePullPolicy: IfNotPresent
         command:
           - /bin/bash
           - /scripts/reconcile.sh
@@ -233,7 +234,7 @@ verify_deployment() {
     }
 
     echo "Checking operator pod..."
-    kubectl wait --for=condition=ready --timeout=60s pod -l app=mastercard-cbs-operator -n mastercard-demo || {
+    kubectl wait --for=condition=ready --timeout=120s pod -l app=mastercard-cbs-operator -n mastercard-demo || {
         echo "✗ Operator pod not ready"
         kubectl logs -l app=mastercard-cbs-operator -n mastercard-demo --tail=50
         return 1
