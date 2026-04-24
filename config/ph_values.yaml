@@ -86,14 +86,15 @@ ph-ee-engine:
         kubernetes.io/ingress.class: nginx
         nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
         nginx.ingress.kubernetes.io/enable-cors: "true"
-        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.localhost"
+        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.localhost,https://cross-border.mifos.gazelle.localhost"
         nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE, PATCH"
-        nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Platform-TenantId,platform-tenantid,purpose,type,x-callback-url,x-correlationid,x-correlation-id,X-Correlation-ID,x-program-id,x-registering-institution-id,x-signature,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-GPC,Pragma"
+        nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Platform-TenantId,platform-tenantid,purpose,type,x-callback-url,x-correlationid,x-correlation-id,X-Correlation-ID,x-program-id,x-registering-institution-id,x-signature,privateKey,privatekey,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-GPC,Pragma"
         nginx.ingress.kubernetes.io/cors-expose-headers: "Content-Length,Content-Range,X-Correlation-ID,x-correlation-id"
         nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
         nginx.ingress.kubernetes.io/cors-max-age: "86400"
         nginx.ingress.kubernetes.io/enable-access-log: "true"
         nginx.ingress.kubernetes.io/log-format: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for" $request_uri'
+        cert-manager.io/cluster-issuer: "letsencrypt-http"
       tls:
       - hosts:
         - ops-bk.mifos.gazelle.localhost
@@ -106,7 +107,7 @@ ph-ee-engine:
               service:
                 name: ph-ee-operations-app
                 port:
-                  number: 80  
+                  number: 80
 
   operations:
     mysql:
@@ -376,14 +377,15 @@ ph-ee-engine:
       annotations:
         nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
         nginx.ingress.kubernetes.io/enable-cors: "true"
-        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.localhost"
+        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.localhost,https://cross-border.mifos.gazelle.localhost"
         nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE, PATCH"
-        nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Platform-TenantId,platform-tenantid,purpose,type,x-callback-url,x-correlationid,x-correlation-id,X-Correlation-ID,x-program-id,x-registering-institution-id,x-signature,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-GPC,Pragma"
+        nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Platform-TenantId,platform-tenantid,purpose,type,x-callback-url,x-correlationid,x-correlation-id,X-Correlation-ID,x-program-id,x-registering-institution-id,x-signature,privateKey,privatekey,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-GPC,Pragma"
         nginx.ingress.kubernetes.io/cors-expose-headers: "Content-Length,Content-Range,X-Correlation-ID,x-correlation-id"
         nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
         nginx.ingress.kubernetes.io/cors-max-age: "86400"
         nginx.ingress.kubernetes.io/enable-access-log: "true"
         nginx.ingress.kubernetes.io/log-format: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for" $request_uri'
+        cert-manager.io/cluster-issuer: "letsencrypt-http"
       tls:
         - secretName: sandbox-secret
       hosts:
@@ -394,7 +396,7 @@ ph-ee-engine:
               service:
                 name: ph-ee-operations-app
                 port:
-                  number: 80  
+                  number: 80
 
   ph_ee_bulk_processor:
     enabled: true
@@ -461,14 +463,15 @@ ph-ee-engine:
         nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"  # End-to-end TLS
         nginx.ingress.kubernetes.io/backend-protocol-ssl-verify: "false"  # Self-signed cert in backend
         nginx.ingress.kubernetes.io/enable-cors: "true"
-        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.localhost"
+        nginx.ingress.kubernetes.io/cors-allow-origin: "https://ops.mifos.gazelle.localhost,https://cross-border.mifos.gazelle.localhost"
         nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE, PATCH"
-        nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Platform-TenantId,platform-tenantid,purpose,type,x-callback-url,x-correlationid,x-correlation-id,X-Correlation-ID,x-program-id,x-registering-institution-id,x-signature,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-GPC,Pragma"
+        nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Platform-TenantId,platform-tenantid,purpose,Purpose,type,filename,x-callback-url,x-callbackurl,X-CallbackURL,x-correlationid,x-correlation-id,X-Correlation-ID,x-program-id,x-registering-institution-id,x-signature,privateKey,privatekey,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-GPC,Pragma"
         nginx.ingress.kubernetes.io/cors-expose-headers: "Content-Length,Content-Range,X-Correlation-ID,x-correlation-id"
         nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
         nginx.ingress.kubernetes.io/cors-max-age: "86400"
         nginx.ingress.kubernetes.io/enable-access-log: "true"
         nginx.ingress.kubernetes.io/log-format: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for" $request_uri'
+        cert-manager.io/cluster-issuer: "letsencrypt-http"
       tls:
       - hosts:
         - bulk-processor.mifos.gazelle.localhost
@@ -523,8 +526,8 @@ ph-ee-engine:
         - channel.mifos.gazelle.localhost
         secretName: sandbox-secret
       hosts:
-        - host: channel.mifos.gazelle.localhost          
-          paths: 
+        - host: channel.mifos.gazelle.localhost
+          paths:
           - path: /
             backend:
               service:
@@ -598,13 +601,12 @@ ph-ee-engine:
   importer_rdbms:
     enabled: true
     image: docker.io/openmf/ph-ee-importer-rdbms:dev-latest
-    resources:
-      requests:
-        cpu: 50m
-        memory: 192Mi
-      limits:
-        cpu: 300m
-        memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
     extraEnvs:
       - name: JAVA_TOOL_OPTIONS
         value: |
