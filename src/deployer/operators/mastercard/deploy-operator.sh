@@ -234,9 +234,14 @@ verify_deployment() {
     }
 
     echo "Checking operator pod..."
-    kubectl wait --for=condition=ready --timeout=120s pod -l app=mastercard-cbs-operator -n mastercard-demo || {
+    kubectl rollout status deployment/mastercard-cbs-operator -n mastercard-demo --timeout=120s || {
         echo "✗ Operator pod not ready"
-        kubectl logs -l app=mastercard-cbs-operator -n mastercard-demo --tail=50
+        echo "--- Pod status ---"
+        kubectl get pods -l app=mastercard-cbs-operator -n mastercard-demo
+        echo "--- Pod events ---"
+        kubectl describe pods -l app=mastercard-cbs-operator -n mastercard-demo | grep -A20 "Events:"
+        echo "--- Pod logs ---"
+        kubectl logs -l app=mastercard-cbs-operator -n mastercard-demo --tail=30 2>/dev/null || true
         return 1
     }
 
