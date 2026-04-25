@@ -1,0 +1,185 @@
+<?xml version='1.0' encoding='utf-8'?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:ns1="http://camunda.org/schema/modeler/1.0" xmlns:ns4="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:ns5="http://www.omg.org/spec/DD/20100524/DC" xmlns:ns6="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="Definitions_MastercardTransfer" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.0.0" ns1:executionPlatform="Camunda Cloud" ns1:executionPlatformVersion="8.0.0">
+  <bpmn:process id="MastercardFundTransfer-DFSPID" name="Mastercard CBS Fund Transfer" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_InitTransfer" name="Transfer&#10;Initiation">
+      <bpmn:outgoing>Flow_start_to_lookup</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    
+    <bpmn:serviceTask id="Task_LookupSupplementalData" name="Lookup Supplemental Data">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="mastercard-lookup-supplemental-data-DFSPID" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_start_to_lookup</bpmn:incoming>
+      <bpmn:outgoing>Flow_lookup_to_gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    
+    <bpmn:exclusiveGateway id="Gateway_DataFound" name="Data Found?" default="Flow_data_not_found">
+      <bpmn:incoming>Flow_lookup_to_gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_data_found</bpmn:outgoing>
+      <bpmn:outgoing>Flow_data_not_found</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    
+    <bpmn:serviceTask id="Task_MergeData" name="Merge Transfer and Supplemental Data">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="mastercard-merge-data-DFSPID" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_data_found</bpmn:incoming>
+      <bpmn:outgoing>Flow_merge_to_initiate</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    
+    <bpmn:serviceTask id="Task_InitiateCBSPayment" name="Initiate Mastercard CBS Payment">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="mastercard-initiate-payment-DFSPID" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_merge_to_initiate</bpmn:incoming>
+      <bpmn:outgoing>Flow_initiate_to_gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    
+    <bpmn:exclusiveGateway id="Gateway_PaymentSuccess" name="Payment&#10;Submitted?" default="Flow_payment_failed">
+      <bpmn:incoming>Flow_initiate_to_gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_payment_success</bpmn:outgoing>
+      <bpmn:outgoing>Flow_payment_failed</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    
+    <bpmn:serviceTask id="Task_UpdateOperationsSuccess" name="Update Operations DB (Success)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="mastercard-update-operations-DFSPID" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_payment_success</bpmn:incoming>
+      <bpmn:outgoing>Flow_success_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    
+    <bpmn:serviceTask id="Task_UpdateOperationsFailure" name="Update Operations DB (Failure)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="mastercard-update-operations-DFSPID" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_payment_failed</bpmn:incoming>
+      <bpmn:incoming>Flow_data_not_found</bpmn:incoming>
+      <bpmn:outgoing>Flow_failure_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    
+    <bpmn:endEvent id="EndEvent_Success" name="Transfer&#10;Completed">
+      <bpmn:incoming>Flow_success_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    
+    <bpmn:endEvent id="EndEvent_Failure" name="Transfer&#10;Failed">
+      <bpmn:incoming>Flow_failure_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    
+    <bpmn:sequenceFlow id="Flow_start_to_lookup" sourceRef="StartEvent_InitTransfer" targetRef="Task_LookupSupplementalData" />
+    <bpmn:sequenceFlow id="Flow_lookup_to_gateway" sourceRef="Task_LookupSupplementalData" targetRef="Gateway_DataFound" />
+    <bpmn:sequenceFlow id="Flow_data_found" name="Yes" sourceRef="Gateway_DataFound" targetRef="Task_MergeData">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=supplementalDataFound = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_data_not_found" name="No" sourceRef="Gateway_DataFound" targetRef="Task_UpdateOperationsFailure" />
+    <bpmn:sequenceFlow id="Flow_merge_to_initiate" sourceRef="Task_MergeData" targetRef="Task_InitiateCBSPayment" />
+    <bpmn:sequenceFlow id="Flow_initiate_to_gateway" sourceRef="Task_InitiateCBSPayment" targetRef="Gateway_PaymentSuccess" />
+    <bpmn:sequenceFlow id="Flow_payment_success" name="Yes" sourceRef="Gateway_PaymentSuccess" targetRef="Task_UpdateOperationsSuccess">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=paymentSuccess = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_payment_failed" name="No" sourceRef="Gateway_PaymentSuccess" targetRef="Task_UpdateOperationsFailure" />
+    <bpmn:sequenceFlow id="Flow_success_to_end" sourceRef="Task_UpdateOperationsSuccess" targetRef="EndEvent_Success" />
+    <bpmn:sequenceFlow id="Flow_failure_to_end" sourceRef="Task_UpdateOperationsFailure" targetRef="EndEvent_Failure" />
+  </bpmn:process>
+
+  
+  <ns4:BPMNDiagram id="BPMNDiagram_1">
+    <ns4:BPMNPlane id="BPMNPlane_1" bpmnElement="MastercardFundTransfer-DFSPID">
+      <ns4:BPMNShape id="StartEvent_InitTransfer_di" bpmnElement="StartEvent_InitTransfer">
+        <ns5:Bounds x="152" y="102" width="36" height="36" />
+      </ns4:BPMNShape>
+      <ns4:BPMNShape id="Task_LookupSupplementalData_di" bpmnElement="Task_LookupSupplementalData">
+        <ns5:Bounds x="240" y="80" width="100" height="80" />
+      </ns4:BPMNShape>
+      <ns4:BPMNShape id="Gateway_DataFound_di" bpmnElement="Gateway_DataFound" isMarkerVisible="true">
+        <ns5:Bounds x="395" y="95" width="50" height="50" />
+      </ns4:BPMNShape>
+      <ns4:BPMNShape id="Task_MergeData_di" bpmnElement="Task_MergeData">
+        <ns5:Bounds x="500" y="80" width="100" height="80" />
+      </ns4:BPMNShape>
+      <ns4:BPMNShape id="Task_InitiateCBSPayment_di" bpmnElement="Task_InitiateCBSPayment">
+        <ns5:Bounds x="660" y="80" width="100" height="80" />
+      </ns4:BPMNShape>
+      <ns4:BPMNShape id="Gateway_PaymentSuccess_di" bpmnElement="Gateway_PaymentSuccess" isMarkerVisible="true">
+        <ns5:Bounds x="815" y="95" width="50" height="50" />
+      </ns4:BPMNShape>
+      <ns4:BPMNShape id="Task_UpdateOperationsSuccess_di" bpmnElement="Task_UpdateOperationsSuccess">
+        <ns5:Bounds x="920" y="80" width="100" height="80" />
+      </ns4:BPMNShape>
+      <ns4:BPMNShape id="Task_UpdateOperationsFailure_di" bpmnElement="Task_UpdateOperationsFailure">
+        <ns5:Bounds x="920" y="200" width="100" height="80" />
+      </ns4:BPMNShape>
+      <ns4:BPMNShape id="EndEvent_Success_di" bpmnElement="EndEvent_Success">
+        <ns5:Bounds x="1082" y="102" width="36" height="36" />
+      </ns4:BPMNShape>
+      <ns4:BPMNShape id="EndEvent_Failure_di" bpmnElement="EndEvent_Failure">
+        <ns5:Bounds x="1082" y="222" width="36" height="36" />
+      </ns4:BPMNShape>
+      
+      <ns4:BPMNEdge id="Flow_start_to_lookup_di" bpmnElement="Flow_start_to_lookup">
+        <ns6:waypoint x="188" y="120" />
+        <ns6:waypoint x="240" y="120" />
+      </ns4:BPMNEdge>
+      <ns4:BPMNEdge id="Flow_lookup_to_gateway_di" bpmnElement="Flow_lookup_to_gateway">
+        <ns6:waypoint x="340" y="120" />
+        <ns6:waypoint x="395" y="120" />
+      </ns4:BPMNEdge>
+      <ns4:BPMNEdge id="Flow_data_found_di" bpmnElement="Flow_data_found">
+        <ns6:waypoint x="445" y="120" />
+        <ns6:waypoint x="500" y="120" />
+        <ns4:BPMNLabel>
+          <ns5:Bounds x="460" y="102" width="25" height="14" />
+        </ns4:BPMNLabel>
+      </ns4:BPMNEdge>
+      <ns4:BPMNEdge id="Flow_data_not_found_di" bpmnElement="Flow_data_not_found">
+        <ns6:waypoint x="420" y="145" />
+        <ns6:waypoint x="420" y="240" />
+        <ns6:waypoint x="920" y="240" />
+        <ns4:BPMNLabel>
+          <ns5:Bounds x="428" y="190" width="15" height="14" />
+        </ns4:BPMNLabel>
+      </ns4:BPMNEdge>
+      <ns4:BPMNEdge id="Flow_merge_to_initiate_di" bpmnElement="Flow_merge_to_initiate">
+        <ns6:waypoint x="600" y="120" />
+        <ns6:waypoint x="660" y="120" />
+      </ns4:BPMNEdge>
+      <ns4:BPMNEdge id="Flow_initiate_to_gateway_di" bpmnElement="Flow_initiate_to_gateway">
+        <ns6:waypoint x="760" y="120" />
+        <ns6:waypoint x="815" y="120" />
+      </ns4:BPMNEdge>
+      <ns4:BPMNEdge id="Flow_payment_success_di" bpmnElement="Flow_payment_success">
+        <ns6:waypoint x="865" y="120" />
+        <ns6:waypoint x="920" y="120" />
+        <ns4:BPMNLabel>
+          <ns5:Bounds x="880" y="102" width="25" height="14" />
+        </ns4:BPMNLabel>
+      </ns4:BPMNEdge>
+      <ns4:BPMNEdge id="Flow_payment_failed_di" bpmnElement="Flow_payment_failed">
+        <ns6:waypoint x="840" y="145" />
+        <ns6:waypoint x="840" y="240" />
+        <ns6:waypoint x="920" y="240" />
+        <ns4:BPMNLabel>
+          <ns5:Bounds x="848" y="190" width="15" height="14" />
+        </ns4:BPMNLabel>
+      </ns4:BPMNEdge>
+      <ns4:BPMNEdge id="Flow_success_to_end_di" bpmnElement="Flow_success_to_end">
+        <ns6:waypoint x="1020" y="120" />
+        <ns6:waypoint x="1082" y="120" />
+      </ns4:BPMNEdge>
+      <ns4:BPMNEdge id="Flow_failure_to_end_di" bpmnElement="Flow_failure_to_end">
+        <ns6:waypoint x="1020" y="240" />
+        <ns6:waypoint x="1082" y="240" />
+      </ns4:BPMNEdge>
+    </ns4:BPMNPlane>
+  </ns4:BPMNDiagram>
+</bpmn:definitions>

@@ -1,3 +1,6 @@
+# Deployment state (local only)
+config/.last_applied_domain
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
