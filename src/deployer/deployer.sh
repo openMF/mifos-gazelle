@@ -240,31 +240,120 @@ function applyKubeManifests() {
 }
 
 #------------------------------------------------------------
-# Description : Placeholder for vNext application testing logic.
-# Usage : test_vnext
-# Example: test_vnext
+# Description : Returns 0 when an HTTP endpoint responds with one of the
+#               allowed status codes. Uses curl -k because Gazelle uses
+#               self-signed ingress certificates by default.
+# Usage : smoke_http_ok <url> <timeout> <codes_csv> [curl args...]
 #------------------------------------------------------------
-function test_vnext() {
-  echo "TODO" #TODO Write function to test apps
+function smoke_http_ok() {
+  local url="$1"
+  local timeout="${2:-20}"
+  local allowed_codes_csv="${3:-200}"
+  shift 3 || true
+
+  local http_code
+  http_code=$(curl -ksS -o /dev/null -w "%{http_code}" --max-time "$timeout" "$@" "$url" 2>/dev/null)
+  local curl_exit=$?
+
+  if [[ $curl_exit -ne 0 ]]; then
+    return 1
+  fi
+
+  local old_ifs="$IFS"
+  IFS=','
+  read -r -a allowed_codes <<< "$allowed_codes_csv"
+  IFS="$old_ifs"
+
+  local code
+  for code in "${allowed_codes[@]}"; do
+    if [[ "$http_code" == "$code" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 #------------------------------------------------------------
-# Description : Placeholder for Phee application testing logic.
-# Usage : test_phee
-# Example: test_phee
+# Description : Shared wrapper for smoke-test output. In strict mode failures
+#               are returned to the caller; otherwise they are only warned.
+# Usage : finish_smoke_test <name> <status> <strict_mode>
 #------------------------------------------------------------
-function test_phee() {
-  echo "TODO"
+function finish_smoke_test() {
+  local name="$1"
+  local status="$2"
+  local strict_mode="${3:-false}"
+
+  if [[ "$status" -eq 0 ]]; then
+    log_ok
+    return 0
+  fi
+
+  if [[ "$strict_mode" == "true" ]]; then
+    log_failed
+    return 1
+  fi
+
+  log_warn "$name smoke test failed (non-blocking)"
+  return 0
 }
 
 #------------------------------------------------------------
-# Description : Placeholder for MifosX application testing logic.
-# Usage : test_mifosx <instance_name>
-# Example: test_mifosx default
+# Description : Smoke test for MifosX. Verifies namespace readiness, the web
+#               app ingress, and tenant-aware Fineract API reachability.
+# Usage : test_mifosx [strict_mode]
+# Example: test_mifosx true
 #------------------------------------------------------------
 function test_mifosx() {
-  local instance_name=$1
-  # TODO: Implement testing logic
+  local strict_mode="${1:-false}"
+  local status=0
+  local auth="Basic bWlmb3M6cGFzc3dvcmQ="
+
+  log_step "Smoke test: MifosX"
+
+  if ! is_app_running "$MIFOSX_NAMESPACE"; then
+    status=1
+  elif ! smoke_http_ok "https://mifos.${GAZELLE_DOMAIN}" 20 "200,301,302,303,307,308"; then
+    status=1
+  elif ! smoke_http_ok \
+      "https://mifos.${GAZELLE_DOMAIN}/fineract-provider/api/v1/clients?limit=1" \
+      20 "200" \
+      -H "Authorization: ${auth}" \
+      -H "Fineract-Platform-TenantId: greenbank"; then
+    status=1
+  fi
+
+  finish_smoke_test "MifosX" "$status" "$strict_mode"
+}
+
+#------------------------------------------------------------
+# Description : Runs smoke tests for a space-separated list of apps.
+# Usage : run_smoke_tests "mifosx" [strict_mode]
+# Example: run_smoke_tests "all" true
+#------------------------------------------------------------
+function run_smoke_tests() {
+  local apps_to_test="$1"
+  local strict_mode="${2:-false}"
+  local overall_status=0
+
+  if [[ -z "$apps_to_test" || "$apps_to_test" == "all" ]]; then
+    apps_to_test="mifosx"
+  fi
+
+  log_section "Running smoke tests"
+
+  for app in $apps_to_test; do
+    case "$app" in
+      "mifosx")
+        test_mifosx "$strict_mode" || overall_status=1
+        ;;
+      *)
+        log_warn "Unknown smoke-test target '$app' skipped"
+        ;;
+    esac
+  done
+
+  return "$overall_status"
 }
 
 #------------------------------------------------------------
