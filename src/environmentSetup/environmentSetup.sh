@@ -67,20 +67,10 @@ function add_hosts {
         
         MIFOSXHOSTS=( mifos.$DOMAIN )
         
-        ALLHOSTS=( "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" )
-
-        # Remove any previous Gazelle-managed block to keep updates idempotent.
-        if grep -q '^# GAZELLE_START$' /etc/hosts || grep -q '^# GAZELLE_END$' /etc/hosts; then
-            sed -i '/^# GAZELLE_START$/,/^# GAZELLE_END$/d' /etc/hosts
-        fi
-
-        {
-            printf '%s\n' '# GAZELLE_START'
-            for hostname in "${ALLHOSTS[@]}"; do
-                printf '127.0.0.1 %s\n' "$hostname"
-            done
-            printf '%s\n' '# GAZELLE_END'
-        } >> /etc/hosts
+        ALLHOSTS=( "127.0.0.1" "localhost" "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" )
+        export ENDPOINTS=`echo ${ALLHOSTS[*]}`
+        perl -pi -e 's/^(127\.0\.0\.1\s+)(.*)/$1localhost/' /etc/hosts
+        perl -p -i.bak -e 's/127\.0\.0\.1.*localhost.*$/$ENV{ENDPOINTS} /' /etc/hosts
     else
         printf "==> Skipping /etc/hosts modification for remote cluster \n"
     fi
