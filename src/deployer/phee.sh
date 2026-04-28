@@ -28,8 +28,6 @@ function deployPH(){
   manageElasticSecrets delete "$INFRA_NAMESPACE"
   log_ok
 
-  run_as_user "kubectl wait --for=condition=ready pod --all -n $VNEXT_NAMESPACE --timeout=600s" > /dev/null 2>&1
-
   log_step "Creating namespace $PH_NAMESPACE"
   createNamespace "$PH_NAMESPACE"
   log_ok

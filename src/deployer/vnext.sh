@@ -53,6 +53,7 @@ function deployvNext() {
     fi
   done
 
+  wait_for_pods_ready "$VNEXT_NAMESPACE"
   log_banner "vNext Deployed"
 }
 
@@ -143,7 +144,7 @@ function vnext_restore_demo_data {
         return 1
     fi
 
-    if ! run_as_user "kubectl exec --namespace \"$namespace\" --stdin --tty \"$mongopod\" -- mongorestore -u root -p \"$mongo_root_pw\" --gzip --archive=/tmp/mongodump.gz --authenticationDatabase admin" > /dev/null 2>&1; then
+    if ! run_as_user "kubectl exec --namespace \"$namespace\" \"$mongopod\" -- mongorestore -u root -p \"$mongo_root_pw\" --gzip --archive=/tmp/mongodump.gz --authenticationDatabase admin" > /dev/null 2>&1; then
         log_failed "mongorestore failed"
         rm -rf "${temp_dir:-}"
         return 1

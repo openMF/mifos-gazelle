@@ -193,7 +193,7 @@ ph-ee-engine:
           image: busybox:1.37.0
           imagePullPolicy: IfNotPresent
           command: ['/bin/sh', '-c']
-          args: ['wget -O /exporters/ph-ee-kafka-exporter.jar "https://mifos.jfrog.io/artifactory/phee-gradle-local/org/mifos/phee/phee-exporter/exporter-1.1.1-SNAPSHOT.jar"; ls -al /exporters/']
+          args: ['wget -O /exporters/ph-ee-kafka-exporter.jar "https://mifos.jfrog.io/artifactory/phee-gradle-local/org/mifos/phee/phee-exporter/exporter-1.1.1-SNAPSHOT.jar" && ls -al /exporters/']
           volumeMounts:
             - name: exporters
               mountPath: /exporters/
