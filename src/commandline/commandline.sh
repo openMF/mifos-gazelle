@@ -202,7 +202,7 @@ function welcome {
 #------------------------------------------------------------------------------
 function showUsage {
     echo "
-    USAGE: $0 [-f <config_file_path>] -m [mode] -u [user] -a [apps] -e [environment] -d [true/false] -r [true/false]
+    USAGE: $0 [-f <config_file_path>] -m [mode] -u [user] -a [apps] -e [environment] -p [profile] -d [true/false] -r [true/false]
     Example 1 : sudo $0                                          # deploy all apps enabled in config.ini and user \$USER from config.ini
     Example 2 : sudo $0 -m cleanapps -d true                     # delete all apps enabled in config.init,  debug mode \$USER from config.ini
     Example 3 : sudo $0 -m cleanall                              # delete all apps, all local Kubernetes artifacts, and local kubernetes server
@@ -211,6 +211,7 @@ function showUsage {
     Example 7 : sudo $0 -f /opt/my_config.ini                    # Use a custom config file
     Example 8 : sudo $0 -a \"phee,mifosx\" -e remote -d true       # deploy PHEE and MifosX on remote cluster with debug mode
     Example 9 : sudo $0 -a setup-data                            # re-run data generation after a slow first boot
+    Example 10: sudo $0 -m deploy -a all -p micro                # deploy with micro JVM/heap profile (Pi)
 
     Options:
     -f config_file_path .. Specify an alternative config.ini file path (optional)
@@ -218,6 +219,7 @@ function showUsage {
     -u user .............. (non root) user that the process will use for execution (required)
     -a apps .............. Comma-separated list of apps (vnext,phee,mifosx,infra,mastercard-demo,setup-data) or 'all' (optional)
     -e environment ....... Cluster environment (local or remote, optional, default=local)
+    -p profile ........... JVM/memory profile (micro|std|perf, optional, default=std)
     -d debug ............. Enable debug mode (true|false, optional, default=false)
     -r redeploy .......... Force redeployment of apps (true|false, optional, default=true)
     -h|H ................. Display this message
@@ -396,7 +398,7 @@ function getOptions() {
     shift
 
     OPTIND=1
-    while getopts "m:k:d:a:v:u:r:f:e:hH" OPTION ; do
+    while getopts "m:k:d:a:v:u:r:f:e:p:hH" OPTION ; do
         case "${OPTION}" in
             f) options_map["config_file_path"]="${OPTARG}" ;;
             m) options_map["mode"]="${OPTARG}" ;;
@@ -405,6 +407,7 @@ function getOptions() {
             u) options_map["k8s_user"]="${OPTARG}" ;;
             r) options_map["redeploy"]="${OPTARG}" ;;
             e) options_map["environment"]="${OPTARG}" ;;
+            p) options_map["profile"]="${OPTARG}" ;;
             h|H) showUsage;
                  exit 0 ;;
             *) echo "Unknown option: -${OPTION}"
@@ -444,6 +447,8 @@ environment=""
 debug="false"
 redeploy="true"
 kubeconfig_path=""
+jvm_profile="std"
+INFRA_VALUES_FILE=""
 #helm_version=""
 # min_ram=6
 # min_free_space=30
@@ -451,6 +456,35 @@ kubeconfig_path=""
 #ubuntu_ok_versions_list=""
 export KUBECONFIG=$kubeconfig_path
 CONFIG_FILE_PATH="$DEFAULT_CONFIG_FILE"
+
+render_profile_values() {
+    local profile="$1"
+    local renderer="$RUN_DIR/src/utils/profiles/render_values.py"
+    local out_dir="/tmp"
+
+    if [[ ! -f "$renderer" ]]; then
+        log_warn "Profile renderer not found: $renderer (skipping JVM profile rendering)"
+        return 0
+    fi
+
+    if [[ -f "$RUN_DIR/config/ph_values.yaml" ]]; then
+        local ph_out="$out_dir/gazelle-ph_values.$profile.yaml"
+        python3 "$renderer" --profile "$profile" --kind ph --in "$RUN_DIR/config/ph_values.yaml" --out "$ph_out" || {
+            log_warn "Failed to render PH values for profile '$profile' — using base config/ph_values.yaml"
+            return 0
+        }
+        PH_VALUES_FILE="$ph_out"
+    fi
+
+    if [[ -f "$RUN_DIR/src/deployer/helm/infra/values.yaml" ]]; then
+        local infra_out="$out_dir/gazelle-infra_values.$profile.yaml"
+        python3 "$renderer" --profile "$profile" --kind infra --in "$RUN_DIR/src/deployer/helm/infra/values.yaml" --out "$infra_out" || {
+            log_warn "Failed to render infra values for profile '$profile' — using chart defaults"
+            return 0
+        }
+        INFRA_VALUES_FILE="$infra_out"
+    fi
+}
 
 function main {
     # Determine config file path early (before full option parsing) so that
@@ -509,8 +543,17 @@ function main {
     if [[ -n "${cmd_args_map["debug"]}" ]]; then debug="${cmd_args_map["debug"]}"; fi
     if [[ -n "${cmd_args_map["redeploy"]}" ]]; then redeploy="${cmd_args_map["redeploy"]}"; fi
     if [[ -n "${cmd_args_map["environment"]}" ]]; then environment="${cmd_args_map["environment"]}"; fi
+    if [[ -n "${cmd_args_map["profile"]}" ]]; then jvm_profile="${cmd_args_map["profile"]}"; fi
 
     validateInputs
+
+    jvm_profile="$(echo "$jvm_profile" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$jvm_profile" != "micro" && "$jvm_profile" != "std" && "$jvm_profile" != "perf" ]]; then
+        log_error "Invalid JVM profile '$jvm_profile'. Must be one of: micro, std, perf."
+        showUsage
+        exit 1
+    fi
+    render_profile_values "$jvm_profile"
 
     if [ "$mode" == "deploy" ]; then
         echo -e "${YELLOW}WARN${RESET}   This deployment is recommended for demo, test and educational purposes only."

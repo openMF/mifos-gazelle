@@ -77,11 +77,33 @@ The deployment takes 10–20 minutes.  See [Deployment times out](#deployment-ti
 | `-u` | Non-root user (required) | `$USER` | — |
 | `-a` | Components to deploy | `all`, `infra`, `vnext`, `phee`, `mifosx`, `mastercard-demo`, `setup-data` | `all` |
 | `-e` | Cluster environment | `local`, `remote` | `local` |
+| `-p` | JVM/memory profile | `micro`, `std`, `perf` | `std` |
 | `-d` | Debug output | `true`, `false` | `false` |
 | `-r` | Force redeploy | `true`, `false` | `true` |
 | `-h` | Show help | — | — |
 
 `config/config.ini` is the central configuration file — it controls namespaces, repo branches, domains, and which components are enabled. Use `-f` to point to an alternative file (e.g. for per-environment variants). The file is self-documenting; all keys have inline comments.
+
+### Environment sizing (micro/std/perf)
+
+Gazelle supports heap/GC “profiles” to better fit different deployment sizes:
+
+- **`micro`**: Raspberry Pi / low-memory nodes (smaller JVM heaps; keeps Serial GC where present)
+- **`std`**: default (current values)
+- **`perf`**: higher-throughput environments (larger heaps; switches `UseSerialGC` → `UseG1GC` where present)
+
+Example:
+
+```bash
+sudo ./run.sh -u $USER -m deploy -a all -p micro
+```
+
+To confirm the effective JVM heap flags after deploy (per namespace), you can use:
+
+```bash
+kubens paymenthub
+./src/utils/get-java-memory.sh
+```
 
 ---
 

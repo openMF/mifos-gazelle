@@ -186,16 +186,28 @@ function deployInfrastructure() {
   log_ok
 
   log_step "Updating FQDNs"
-  apply_domain_to_file "$INFRA_CHART_DIR/values.yaml" "$GAZELLE_DOMAIN"
+  if [[ -n "${INFRA_VALUES_FILE:-}" && -f "${INFRA_VALUES_FILE:-}" ]]; then
+    apply_domain_to_file "$INFRA_VALUES_FILE" "$GAZELLE_DOMAIN"
+  else
+    apply_domain_to_file "$INFRA_CHART_DIR/values.yaml" "$GAZELLE_DOMAIN"
+  fi
   log_ok
 
   ensure_helm_dependencies "$INFRA_CHART_DIR"
 
   log_step "Helm chart (infra)"
   if [ "$debug" = true ]; then
-    deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME"
+    if [[ -n "${INFRA_VALUES_FILE:-}" && -f "${INFRA_VALUES_FILE:-}" ]]; then
+      deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" "$INFRA_VALUES_FILE"
+    else
+      deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME"
+    fi
   else
-    deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" >> /dev/null 2>&1
+    if [[ -n "${INFRA_VALUES_FILE:-}" && -f "${INFRA_VALUES_FILE:-}" ]]; then
+      deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" "$INFRA_VALUES_FILE" >> /dev/null 2>&1
+    else
+      deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" >> /dev/null 2>&1
+    fi
   fi
   check_command_execution $? "deployHelmChartFromDir infra"
   log_ok
