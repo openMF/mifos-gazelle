@@ -48,7 +48,7 @@ jobs:
                   `To get unblocked:\n` +
                   `1. Complete the form at https://mifos.org/about-us/financial-legal/mifos-contributor-agreement\n` +
                   `2. Complete the CLA signing process\n` +
-                  `3. Once verified you will be added to the approved contributors list and this PR will be cleared`
+                  `3. Once verified you will be added to the approved contributors list and this PR check will be cleared`
               });
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
