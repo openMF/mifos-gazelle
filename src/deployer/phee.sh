@@ -2,14 +2,14 @@
 # phee.sh -- Mifos Gazelle deployer script for PaymentHub EE 
 
 #------------------------------------------------------------------------------
-# Function : deployPH
+# Function : deploy_ph
 # Description: Deploys PaymentHub EE using Helm charts.
 #------------------------------------------------------------------------------
-function deployPH(){
+deploy_ph(){
   gazelleChartPath="$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/gazelle"
   pheeEngineChartPath="$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine"
 
-  # createIngressSecret "$PH_NAMESPACE"  \
+  # create_ingress_secret "$PH_NAMESPACE"  \
   # "bulk-processor.$GAZELLE_DOMAIN" \
   # "sandbox-secret" \
   # "ops.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost"
@@ -24,33 +24,33 @@ function deployPH(){
   fi
 
   log_step "Removing existing Payment Hub resources"
-  deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
-  manageElasticSecrets delete "$INFRA_NAMESPACE"
+  delete_resources_in_namespace_matching_pattern "$PH_NAMESPACE"
+  manage_elastic_secrets delete "$INFRA_NAMESPACE"
   log_ok
 
   run_as_user "kubectl wait --for=condition=ready pod --all -n $VNEXT_NAMESPACE --timeout=600s" > /dev/null 2>&1
 
   log_step "Creating namespace $PH_NAMESPACE"
-  createNamespace "$PH_NAMESPACE"
+  create_namespace "$PH_NAMESPACE"
   log_ok
 
   prepare_payment_hub_chart
 
   log_step "Creating elastic secrets"
-  manageElasticSecrets delete "$INFRA_NAMESPACE"
-  manageElasticSecrets create "$PH_NAMESPACE"
-  manageElasticSecrets create "$INFRA_NAMESPACE"
+  manage_elastic_secrets delete "$INFRA_NAMESPACE"
+  manage_elastic_secrets create "$PH_NAMESPACE"
+  manage_elastic_secrets create "$INFRA_NAMESPACE"
   log_ok
 
-  createIngressSecret "$PH_NAMESPACE" \
+  create_ingress_secret "$PH_NAMESPACE" \
     "bulk-processor.$GAZELLE_DOMAIN" \
     "sandbox-secret" \
     "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,ph-ee-connector-channel,ph-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
 
-  deployPhHelmChartFromDir "$PH_NAMESPACE" "$gazelleChartPath" "$PH_VALUES_FILE"
+  deploy_ph_helm_chart_from_dir "$PH_NAMESPACE" "$gazelleChartPath" "$PH_VALUES_FILE"
 
   local bpmns_to_deploy=$(ls -l "$BASE_DIR/orchestration/feel"/*.bpmn | wc -l)
-  logWithVerboseCheck "$debug" "$DEBUG" "BPMNs to deploy: $bpmns_to_deploy"
+  log_with_verbose_check "$debug" "$DEBUG" "BPMNs to deploy: $bpmns_to_deploy"
   if are_bpmns_loaded $bpmns_to_deploy; then
     echo "    BPMN diagrams already loaded — skipping."
   else
@@ -65,9 +65,9 @@ function deployPH(){
 # Description: Prepares the PaymentHub EE Helm chart by cloning necessary repositories
 #              and updating FQDNs in values files and manifests.
 #------------------------------------------------------------------------------
-function prepare_payment_hub_chart() {
+prepare_payment_hub_chart() {
   # Clone the repositories
-  cloneRepo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
+  clone_repo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
   
   log_step "Updating FQDNs in Helm chart values and manifests"
   update_fqdn "$PH_VALUES_FILE" "mifos.gazelle.test" "$GAZELLE_DOMAIN" 
@@ -86,14 +86,14 @@ function prepare_payment_hub_chart() {
 }
 
 #------------------------------------------------------------------------------
-# Function : deployPhHelmChartFromDir
+# Function : deploy_ph_helm_chart_from_dir
 # Description: Deploys a Helm chart for PaymentHub EE from a specified directory.
 # Parameters:
 #   $1 - Namespace to deploy to
 #   $2 - Directory containing the Helm chart
 #   $3 - (Optional) Values file for the Helm chart
 #------------------------------------------------------------------------------
-function deployPhHelmChartFromDir(){
+deploy_ph_helm_chart_from_dir(){
   local namespace="$1"
   local chartDir="$2"      # Directory containing the Helm chart
   local valuesFile="$3"    # Values file for the Helm chart
@@ -107,7 +107,7 @@ function deployPhHelmChartFromDir(){
   fi
 
   log_step "Helm install ($releaseName)"
-  logWithVerboseCheck "$debug" "$DEBUG" "→ $helm_cmd"
+  log_with_verbose_check "$debug" "$DEBUG" "→ $helm_cmd"
 
   if [ "$debug" = true ]; then
     su - "$k8s_user" -c "bash -c '$helm_cmd'"
@@ -147,7 +147,7 @@ deploy_bpmns() {
           --form 'file=@\"$file\"' \
           -s -o /dev/null -w '%{http_code}'"
 
-      logWithVerboseCheck "$debug" "$DEBUG" "Uploading $(basename $file)"
+      log_with_verbose_check "$debug" "$DEBUG" "Uploading $(basename $file)"
       http_code=$(eval "$cmd")
       exit_code=$?
 
@@ -178,7 +178,7 @@ deploy_bpmns() {
 #------------------------------------------------------------------------------
 # Function: generate_sample_csvs
 # Description: Generates sample bulk payment CSV files for closedloop and mojaloop
-#              testing. Called from generateMifosXandVNextData() after Fineract is ready.
+#              testing. Called from generate_mifosx_and_vnext_data() after Fineract is ready.
 #              Files are gitignored and recreated on each deploy.
 #------------------------------------------------------------------------------
 generate_sample_csvs() {
@@ -186,7 +186,7 @@ generate_sample_csvs() {
     local output_dir="$RUN_DIR/src/utils/batch"
 
     if [ ! -f "$csv_generator" ]; then
-            logWithVerboseCheck "$debug" "$WARNING" "CSV generator not found: $csv_generator"
+            log_with_verbose_check "$debug" "$WARNING" "CSV generator not found: $csv_generator"
         return 0
     fi
 
@@ -232,8 +232,8 @@ are_bpmns_loaded() {
           }
         }' 2>/dev/null | jq -r '.aggregations.by_bpmn_id.buckets | length // 0')
 
-    [[ "$COUNT" =~ ^[0-9]+$ ]] || { logWithVerboseCheck "$debug" "$DEBUG" "ES query failed — assuming BPMNs not loaded"; return 1; }
+    [[ "$COUNT" =~ ^[0-9]+$ ]] || { log_with_verbose_check "$debug" "$DEBUG" "ES query failed — assuming BPMNs not loaded"; return 1; }
 
-    logWithVerboseCheck "$debug" "$DEBUG" "Unique BPMNs already deployed: $COUNT"
+    log_with_verbose_check "$debug" "$DEBUG" "Unique BPMNs already deployed: $COUNT"
     (( COUNT >= MIN_REQUIRED )) && return 0 || return 1
 }

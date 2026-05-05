@@ -9,21 +9,21 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
-# Log levels (used by logWithLevel / logWithVerboseCheck)
+# Log levels (used by log_with_level / log_with_verbose_check)
 DEBUG="debug"
 INFO="info"
 WARNING="warning"
 ERROR="error"
 
 #------------------------------------------------------------------------------
-# Low-level levelled logger — used internally and by logWithVerboseCheck
+# Low-level levelled logger — used internally and by log_with_verbose_check
 #------------------------------------------------------------------------------
-function logWithLevel() {
+log_with_level() {
   local logLevel=$1
   shift
 
   if [ -z "$logLevel" ] || [ -z "$1" ]; then
-    echo "Usage: logWithLevel <log_level> <log_message>"
+    echo "Usage: log_with_level <log_level> <log_message>"
     return 1
   fi
 
@@ -51,18 +51,18 @@ function logWithLevel() {
 #------------------------------------------------------------------------------
 # Verbose-gated logger — only prints when isVerbose=true
 #------------------------------------------------------------------------------
-function logWithVerboseCheck() {
+log_with_verbose_check() {
   local isVerbose=$1
   local logLevel=$2
   shift && shift
 
   if [ -z "$isVerbose" ] || [ -z "$logLevel" ] || [ -z "$1" ]; then
-    echo "Usage: logWithVerboseCheck <verbose_flag> <log_level> <log_message>"
+    echo "Usage: log_with_verbose_check <verbose_flag> <log_level> <log_message>"
     return 1
   fi
 
   if [ "$isVerbose" = true ]; then
-    logWithLevel "$logLevel" "$*"
+    log_with_level "$logLevel" "$*"
   fi
 }
 
@@ -71,22 +71,28 @@ function logWithVerboseCheck() {
 #------------------------------------------------------------------------------
 
 # Major section header: ==> Title
-function log_section() {
+log_section() {
   echo -e "\n${BLUE}${BOLD}==> $*${RESET}"
 }
 
 # Step in progress (no newline — caller must follow with log_ok or log_failed)
-function log_step() {
-  printf "    %s " "$*"
+# Pads to column 55 so status tags align regardless of message length.
+log_step() {
+  printf "%-55s" "    $*"
 }
 
 # Success status — appended on same line as log_step
-function log_ok() {
+log_ok() {
   echo -e "${GREEN}[  ok  ]${RESET}"
 }
 
+# Skipped status — appended on same line as log_step
+log_skipped() {
+  echo -e "${YELLOW}[skipping]${RESET}"
+}
+
 # Failure status — appended on same line as log_step, optional detail on next line
-function log_failed() {
+log_failed() {
   echo -e "${RED}[FAILED]${RESET}"
   if [ -n "$1" ]; then
     echo -e "         ${RED}$*${RESET}"
@@ -94,17 +100,17 @@ function log_failed() {
 }
 
 # Warning message (non-fatal)
-function log_warn() {
+log_warn() {
   echo -e "${YELLOW}WARN${RESET}   $*"
 }
 
 # Error message (fatal — caller should exit after)
-function log_error() {
+log_error() {
   echo -e "${RED}ERROR${RESET}  $*"
 }
 
 # Success banner — green box with fixed 34-char rule
-function log_banner() {
+log_banner() {
   echo -e "\n${GREEN}==================================${RESET}"
   echo -e "${GREEN} $*${RESET}"
   echo -e "${GREEN}==================================${RESET}"

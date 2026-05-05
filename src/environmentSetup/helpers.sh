@@ -6,7 +6,7 @@
 # Locates the Homebrew binary at its known macOS install paths (sudo strips
 # PATH so 'command -v brew' fails) and runs it as the invoking non-root user.
 #------------------------------------------------------------------------------
-function run_brew {
+run_brew() {
     local brew_bin=""
     for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
         if [[ -x "$candidate" ]]; then brew_bin="$candidate"; break; fi
@@ -19,11 +19,11 @@ function run_brew {
     sudo -u "${SUDO_USER:-$k8s_user}" "$brew_bin" "$@"
 }
 
-function brew_available {
+brew_available() {
     [[ -x "/opt/homebrew/bin/brew" ]] || [[ -x "/usr/local/bin/brew" ]]
 }
 
-function check_arch_ok {
+check_arch_ok() {
     local arch=$(uname -m)
     if [[ "$arch" != "x86_64" && "$arch" != "arm64" && "$arch" != "aarch64" ]]; then
         printf " **** Error Unknown CPU architecture : mifos-gazelle only works properly with x86_64, arm64, or aarch64 architectures today  *****\n"
@@ -31,7 +31,7 @@ function check_arch_ok {
     fi
 }
 
-function check_resources_ok {
+check_resources_ok() {
     local total_ram free_space
     if [[ "$(uname -s)" == "Darwin" ]]; then
         total_ram=$(( $(sysctl -n hw.memsize) / 1073741824 ))
@@ -52,7 +52,7 @@ function check_resources_ok {
     fi
 }
 
-function set_linux_os_distro {
+set_linux_os_distro() {
     LINUX_VERSION="Unknown"
     if [ -x "/usr/bin/lsb_release" ]; then
         LINUX_OS=`lsb_release --d | perl -ne 'print if s/^.*Ubuntu.*(\d+).(\d+).*$/Ubuntu/' `
@@ -63,13 +63,14 @@ function set_linux_os_distro {
     #printf "\r     Linux OS is [%s] " "$LINUX_OS"
 }
 
-function check_os_ok {
+check_os_ok() {
     printf "\r==> checking operating system is tested with mifos-gazelle\n"
     if [[ "$(uname -s)" == "Darwin" ]]; then
         local mac_version
         mac_version=$(sw_vers -productVersion 2>/dev/null)
         printf "    macOS %s detected\n" "$mac_version"
-        printf "    Operating system check                         [ok]\n"
+        log_step "Operating system check"
+        log_ok
         return 0
     fi
     set_linux_os_distro
@@ -84,10 +85,11 @@ function check_os_ok {
         printf "** Error, Mifos Gazelle is only tested with Ubuntu this time   **\n"
         exit 1
     fi
-    printf "    Operating system and versions checks            [ok]\n"
+    log_step "Operating system check"
+    log_ok
 }
 
-function verify_user {
+verify_user() {
     if [ -z ${k8s_user+x} ]; then
         printf "** Error: The operating system user has not been specified with the -u flag \n"
         printf "          the user specified with the -u flag must exist and not be the root user \n"
@@ -109,7 +111,7 @@ function verify_user {
 }
 
 # check which kubernetes related tools are installed 
-function checkTools {
+check_tools() {
     # Set the default tools to check (helm and kubectl)
     local tools=("helm" "kubectl")
 
@@ -129,7 +131,7 @@ function checkTools {
     return 0 # Return 0 (success) if all tools were found
 }
 
-function is_local_cluster_installed () {
+is_local_cluster_installed()  {
     if [[ -f /usr/local/bin/k3s ]]; then
         #echo "local Kubernetes Cluster (k3s) is installed."
         return 0 # Success
@@ -139,7 +141,7 @@ function is_local_cluster_installed () {
 }
 
 
-function configure_k3s_kernel_params() {
+configure_k3s_kernel_params() {
     echo "Checking current kernel parameters for K3s..."
     
     # Define target values

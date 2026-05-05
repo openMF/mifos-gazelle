@@ -2,10 +2,10 @@
 # vnext.sh -- Mifos Gazelle deployer script for vNext Beta 1 switch 
 
 #------------------------------------------------------------------------------
-# Function : deployvNext
+# Function : deploy_vnext
 # Description: Deploys Mojaloop vNext using Kubernetes manifests.
 #------------------------------------------------------------------------------
-function deployvNext() {
+deploy_vnext() {
   log_section "Deploying Mojaloop vNext"
 
   if is_app_running "$VNEXT_NAMESPACE"; then
@@ -16,14 +16,14 @@ function deployvNext() {
   fi
 
   log_step "Removing existing vNext resources"
-  deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
+  delete_resources_in_namespace_matching_pattern "$VNEXT_NAMESPACE"
   log_ok
 
   log_step "Creating namespace $VNEXT_NAMESPACE"
-  createNamespace "$VNEXT_NAMESPACE"
+  create_namespace "$VNEXT_NAMESPACE"
   log_ok
 
-  cloneRepo "$VNEXTBRANCH" "$VNEXT_REPO_LINK" "$APPS_DIR" "$VNEXTREPO_DIR"
+  clone_repo "$VNEXTBRANCH" "$VNEXT_REPO_LINK" "$APPS_DIR" "$VNEXTREPO_DIR"
 
   rm -f "$APPS_DIR/$VNEXTREPO_DIR/packages/installer/manifests/ttk/ttk-cli.yaml" > /dev/null 2>&1
   rm -rf "$APPS_DIR/$VNEXTREPO_DIR/packages/installer/manifests/infra" > /dev/null 2>&1
@@ -50,10 +50,10 @@ function deployvNext() {
   for index in "${!VNEXT_LAYER_DIRS[@]}"; do
     folder="${VNEXT_LAYER_DIRS[index]}"
     log_step "Applying layer $((index+1)) manifests"
-    applyKubeManifests "$folder" "$VNEXT_NAMESPACE"
+    apply_kube_manifests "$folder" "$VNEXT_NAMESPACE"
     log_ok
     if [ "$index" -eq 0 ]; then
-      logWithVerboseCheck "$debug" "$DEBUG" "Cross-cutting concerns layer applied — proceeding"
+      log_with_verbose_check "$debug" "$DEBUG" "Cross-cutting concerns layer applied — proceeding"
     fi
   done
 
@@ -66,7 +66,7 @@ function deployvNext() {
 # Parameters:
 #   $1 - Directory containing the vNext manifests.
 #------------------------------------------------------------------------------
-function update_vnext_service_urls() {
+update_vnext_service_urls() {
     local target_dir="$1"
     
     # Check if directory parameter is provided
@@ -115,7 +115,7 @@ function update_vnext_service_urls() {
 # Parameters:
 #   $1 - Directory containing the vNext manifests.
 #------------------------------------------------------------------------------
-function fix_vnext_liveness_probes() {
+fix_vnext_liveness_probes() {
     local target_dir="$1"
 
     if [[ -z "$target_dir" ]] || [[ ! -d "$target_dir" ]]; then
@@ -146,7 +146,7 @@ function fix_vnext_liveness_probes() {
 #   $2 - Name of the MongoDB dump file (e.g., mongodump.gz).
 #   $3 - Kubernetes namespace where vNext is deployed.
 #------------------------------------------------------------------------------
-function vnext_restore_demo_data {
+vnext_restore_demo_data() {
     local mongo_data_dir="$1"
     local mongo_dump_file="$2"
     local namespace="$3"
@@ -201,59 +201,4 @@ function vnext_restore_demo_data {
 
     rm -rf "${temp_dir:-}"
     log_ok
-}
-
-#------------------------------------------------------------------------------
-# NOTE: this is not used in Gazelle v1.1.0 but may be useful in future releases
-# Function : vnext_configure_ttk
-# Description: Configures the Testing Toolkit (TTK) in the vNext deployment by copying
-#              necessary environment and specification files into the TTK pods.
-# Parameters:
-#   $1 - Directory containing the TTK files to be copied.
-#   $2 - Kubernetes namespace where vNext is deployed.
-#------------------------------------------------------------------------------
-function vnext_configure_ttk {
-  local ttk_files_dir=$1
-  local namespace=$2
-  local warning_issued=false
-  log_section "Configuring the Testing Toolkit"
-
-  local bb_pod_status
-  bb_pod_status=$(kubectl get pods bluebank-backend-0 --namespace "$namespace" --no-headers 2>/dev/null | awk '{print $3}')
-
-  if [[ "$bb_pod_status" != "Running" ]]; then
-    echo "    TTK pod not running — skipping (TTK may not support arm64 and is not essential)"
-    return 0
-  fi
-
-  # Define TTK pod destinations
-  local ttk_pod_env_dest="/opt/app/examples/environments"
-  local ttk_pod_spec_dest="/opt/app/spec_files"
-  
-  # Function to check and report on kubectl cp command success
-  check_kubectl_cp() {
-    if ! kubectl cp "$1" "$2" --namespace "$namespace" 2>/dev/null; then
-      log_warn "Failed to copy $(basename $1) to $2"
-      warning_issued=true
-    fi
-  }
-  
-  # Copy BlueBank files
-  check_kubectl_cp "$ttk_files_dir/environment/hub_local_environment.json" "bluebank-backend-0:$ttk_pod_env_dest/hub_local_environment.json"
-  check_kubectl_cp "$ttk_files_dir/environment/dfsp_local_environment.json" "bluebank-backend-0:$ttk_pod_env_dest/dfsp_local_environment.json"
-  check_kubectl_cp "$ttk_files_dir/spec_files/user_config_bluebank.json" "bluebank-backend-0:$ttk_pod_spec_dest/user_config.json"
-  check_kubectl_cp "$ttk_files_dir/spec_files/default.json" "bluebank-backend-0:$ttk_pod_spec_dest/rules_callback/default.json"
-  
-  # Copy GreenBank files
-  check_kubectl_cp "$ttk_files_dir/environment/hub_local_environment.json" "greenbank-backend-0:$ttk_pod_env_dest/hub_local_environment.json"
-  check_kubectl_cp "$ttk_files_dir/environment/dfsp_local_environment.json" "greenbank-backend-0:$ttk_pod_env_dest/dfsp_local_environment.json"
-  check_kubectl_cp "$ttk_files_dir/spec_files/user_config_greenbank.json" "greenbank-backend-0:$ttk_pod_spec_dest/user_config.json"
-  check_kubectl_cp "$ttk_files_dir/spec_files/default.json" "greenbank-backend-0:$ttk_pod_spec_dest/rules_callback/default.json"
-
-  # Final status message
-  if [[ "$warning_issued" == false ]]; then
-    log_ok
-  else
-    log_warn "Some TTK files failed to copy."
-  fi
 }
