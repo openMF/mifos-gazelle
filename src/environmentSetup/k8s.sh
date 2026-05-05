@@ -191,13 +191,11 @@ function install_nginx_local_cluster {
 function install_k8s_tools {
     printf "\r==> Checking and installing Kubernetes tools     "
 
-    # macOS: use Homebrew; kubectl is already provided by OrbStack/Docker Desktop
+    # macOS: use Homebrew. kubectl, docker, and docker-compose are installed here;
+    # Colima does not bundle host-side binaries the way Rancher Desktop did.
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        if ! brew_available; then
-            printf "\n** Error: Homebrew is required on macOS. Install from https://brew.sh **\n"
-            exit 1
-        fi
-        local mac_tools=(helm k9s kubectx kustomize)
+        _ensure_homebrew
+        local mac_tools=(helm k9s kubectx kustomize kubectl docker docker-compose socket_vmnet)
         for tool in "${mac_tools[@]}"; do
             local needs_install=false
             if ! command -v "$tool" &>/dev/null; then
@@ -211,6 +209,11 @@ function install_k8s_tools {
             if [[ "$needs_install" == true ]]; then
                 run_brew install "$tool" >/dev/null 2>&1
             fi
+            # Ensure the binary is linked into /opt/homebrew/bin — brew install
+            # can leave a formula in a broken-linked state if a previous tool
+            # (OrbStack, Rancher Desktop) removed its symlink without telling brew.
+            run_brew unlink "$tool" >/dev/null 2>&1 || true
+            run_brew link --overwrite "$tool" >/dev/null 2>&1 || true
         done
         printf "   [ok]\n"
         return 0

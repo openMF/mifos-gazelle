@@ -11,10 +11,7 @@ source "$RUN_DIR/src/environmentSetup/k8s.sh" || { echo "FATAL: Could not source
 function install_os_prerequisites {
     printf "\n\r==> Check & install operating system packages"
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        if ! brew_available; then
-            printf "\n** Error: Homebrew is required on macOS. Install from https://brew.sh **\n"
-            exit 1
-        fi
+        _ensure_homebrew
         if ! command -v jq &>/dev/null; then
             logWithVerboseCheck "$debug" debug "jq is not installed. Installing via brew..."
             run_brew install jq >/dev/null 2>&1
@@ -142,33 +139,23 @@ function add_hosts {
 
         # Determine which IP to use.
         #
-        # On macOS (Rancher Desktop / Lima): use the vznat IP (192.168.68.x).
-        #   klipper-lb (k3s's built-in LoadBalancer) uses iptables DNAT to route
-        #   ports 80 and 443 inside the VM — no process actually binds 0.0.0.0:80/443.
-        #   Lima's guestIPMustBeZero=true auto-forwarding therefore never triggers for
-        #   those ports, so 127.0.0.1 does NOT work.
-        #   The vznat interface (192.168.68.x) IS directly reachable from the Mac host
-        #   (including with corporate VPN) and iptables routes port 80/443 traffic
-        #   correctly to the nginx ingress controller.
-        #   socket_vmnet IP (192.168.5.x) is unreliable — blocked by many VPNs.
-        #
-        # On Ubuntu (local k3s): the node IS the host, so InternalIP == 127.0.0.1
-        #   anyway, but we read it from kubectl to be explicit.
+        # For both mac (Colima) and local (k3s on Linux): read the node's InternalIP
+        # directly from kubectl — this is the ground truth for what klipper-lb binds the
+        # nginx LoadBalancer service to.  127.0.0.1 does NOT work on mac because
+        # klipper-lb uses iptables DNAT for ports 80/443, bypassing Lima's port-forwarding.
+        # Asking kubectl is more reliable than inspecting VM interface names, which vary
+        # across Lima/Colima versions and network backends.
         local NODE_IP
+        # The node may have both IPv4 and IPv6 InternalIP addresses; the jsonpath
+        # returns both space-separated.  Filter to the first IPv4 address only.
+        NODE_IP=$(sudo -u "$k8s_user" kubectl get nodes \
+            --kubeconfig "$kubeconfig_path" \
+            -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
+            2>/dev/null \
+            | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
         if [[ "$environment" == "mac" ]]; then
-            # Get the vznat IP dynamically from the Lima VM.
-            local rdctl
-            rdctl=$(_find_rdctl 2>/dev/null || true)
-            if [[ -n "$rdctl" ]]; then
-                NODE_IP=$(sudo -u "$k8s_user" "$rdctl" shell -- \
-                    ip addr show vznat 2>/dev/null \
-                    | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 2>/dev/null || true)
-            fi
-            NODE_IP="${NODE_IP:-192.168.68.4}"  # fallback to default vznat address
+            NODE_IP="${NODE_IP:-192.168.5.1}"   # fallback: common Colima socket_vmnet node IP
         else
-            NODE_IP=$(sudo -u "$k8s_user" kubectl get nodes \
-                -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-                2>/dev/null)
             NODE_IP="${NODE_IP:-127.0.0.1}"
         fi
 
@@ -396,30 +383,28 @@ function env_setup_local_cluster {
 #------------------------------------------------------------------------------
 # Function: _configure_mac_vm_limits
 # Description: Increases inotify and file-descriptor kernel limits inside the
-#              Rancher Desktop Lima VM.  Without this, Java/Spring-Boot pods that
+#              Colima Lima VM.  Without this, Java/Spring-Boot pods that
 #              open many fsnotify watchers (bulk-processor, zeebe-broker, etc.)
 #              hit "too many open files" errors.  Settings are applied immediately
 #              and written to /etc/sysctl.d/99-gazelle.conf so they survive Lima
 #              VM restarts.  Idempotent: safe to call on every run.
 #------------------------------------------------------------------------------
 function _configure_mac_vm_limits {
-    local rdctl
-    if ! rdctl=$(_find_rdctl); then
-        printf "    Warning: rdctl not found — skipping VM kernel limit tuning\n"
+    local colima
+    if ! colima=$(_find_colima); then
+        printf "    Warning: colima not found — skipping VM kernel limit tuning\n"
         return 0
     fi
 
     printf "    Configuring VM kernel limits (inotify / file descriptors)...\n"
 
     # Apply immediately (takes effect for all running and new processes).
-    # rdctl shell passes remaining args directly to the VM shell — no -- separator.
-    sudo -u "$k8s_user" "$rdctl" shell sudo sysctl -w fs.inotify.max_user_watches=1048576  >/dev/null 2>&1 || true
-    sudo -u "$k8s_user" "$rdctl" shell sudo sysctl -w fs.inotify.max_user_instances=8192   >/dev/null 2>&1 || true
-    sudo -u "$k8s_user" "$rdctl" shell sudo sysctl -w fs.file-max=2097152                  >/dev/null 2>&1 || true
+    sudo -u "$k8s_user" "$colima" exec -- sudo sysctl -w fs.inotify.max_user_watches=1048576  >/dev/null 2>&1 || true
+    sudo -u "$k8s_user" "$colima" exec -- sudo sysctl -w fs.inotify.max_user_instances=8192   >/dev/null 2>&1 || true
+    sudo -u "$k8s_user" "$colima" exec -- sudo sysctl -w fs.file-max=2097152                  >/dev/null 2>&1 || true
 
     # Persist across Lima VM restarts (idempotent: only write if not already present).
-    # Use a quoted sh -c string so the embedded newlines and redirection stay intact.
-    sudo -u "$k8s_user" "$rdctl" shell sudo sh -c \
+    sudo -u "$k8s_user" "$colima" exec -- sudo sh -c \
         'grep -q max_user_watches /etc/sysctl.d/99-gazelle.conf 2>/dev/null || printf "fs.inotify.max_user_watches=1048576\nfs.inotify.max_user_instances=8192\nfs.file-max=2097152\n" > /etc/sysctl.d/99-gazelle.conf' \
         >/dev/null 2>&1 || true
 
@@ -428,7 +413,7 @@ function _configure_mac_vm_limits {
 
 #------------------------------------------------------------------------------
 # Function: _configure_mac_k3s_node_ip
-# Description: Configures k3s inside the Rancher Desktop Lima VM to bind to
+# Description: Configures k3s inside the Colima Lima VM to bind to
 #              the socket_vmnet (eth0) interface rather than the vznat interface.
 #
 #              Lima has two external interfaces:
@@ -444,15 +429,15 @@ function _configure_mac_vm_limits {
 #              the VM disk across restarts) and restarts k3s.  Idempotent.
 #------------------------------------------------------------------------------
 function _configure_mac_k3s_node_ip {
-    local rdctl
-    if ! rdctl=$(_find_rdctl); then
-        printf "    Warning: rdctl not found — skipping k3s node-ip config\n"
+    local colima
+    if ! colima=$(_find_colima); then
+        printf "    Warning: colima not found — skipping k3s node-ip config\n"
         return 0
     fi
 
     # Detect eth0 IP inside the Lima VM (socket_vmnet, directly reachable from Mac)
     local eth0_ip
-    eth0_ip=$(sudo -u "$k8s_user" "$rdctl" shell ip -4 addr show eth0 2>/dev/null \
+    eth0_ip=$(sudo -u "$k8s_user" "$colima" exec -- ip -4 addr show eth0 2>/dev/null \
         | awk '/inet /{print $2}' | cut -d'/' -f1)
 
     if [[ -z "$eth0_ip" ]]; then
@@ -464,7 +449,7 @@ function _configure_mac_k3s_node_ip {
 
     # Idempotent: skip if already configured with this IP
     local current_ip
-    current_ip=$(sudo -u "$k8s_user" "$rdctl" shell \
+    current_ip=$(sudo -u "$k8s_user" "$colima" exec -- \
         sudo sh -c 'grep -E "^node-ip:" /etc/rancher/k3s/config.yaml 2>/dev/null' \
         | awk -F'"' '{print $2}')
     if [[ "$current_ip" == "$eth0_ip" ]]; then
@@ -473,27 +458,27 @@ function _configure_mac_k3s_node_ip {
     fi
 
     # Write the config file inside the Lima VM
-    sudo -u "$k8s_user" "$rdctl" shell sudo sh -c \
+    sudo -u "$k8s_user" "$colima" exec -- sudo sh -c \
         "mkdir -p /etc/rancher/k3s && printf 'node-ip: \"%s\"\nnode-external-ip: \"%s\"\n' '$eth0_ip' '$eth0_ip' > /etc/rancher/k3s/config.yaml" \
         >/dev/null 2>&1
 
     # Restart k3s so it picks up the new node-ip config.
-    # Try each init mechanism in turn; fall back to a full VM restart via rdctl.
+    # Try each init mechanism in turn; fall back to a full VM restart.
     printf "    Restarting k3s...\n"
     local restarted=false
-    if sudo -u "$k8s_user" "$rdctl" shell sudo rc-service k3s restart >/dev/null 2>&1; then
-        # OpenRC (Alpine Linux — Rancher Desktop Lima VM)
+    if sudo -u "$k8s_user" "$colima" exec -- sudo rc-service k3s restart >/dev/null 2>&1; then
+        # OpenRC (Alpine Linux — Colima Lima VM)
         restarted=true
-    elif sudo -u "$k8s_user" "$rdctl" shell sudo service k3s restart >/dev/null 2>&1; then
+    elif sudo -u "$k8s_user" "$colima" exec -- sudo service k3s restart >/dev/null 2>&1; then
         restarted=true
-    elif sudo -u "$k8s_user" "$rdctl" shell sudo dinitctl restart k3s >/dev/null 2>&1; then
+    elif sudo -u "$k8s_user" "$colima" exec -- sudo dinitctl restart k3s >/dev/null 2>&1; then
         restarted=true
     else
-        # No init service found — restart the whole VM via rdctl (slowest but reliable)
-        printf "    No k3s service manager found — restarting Rancher Desktop VM...\n"
-        sudo -u "$k8s_user" "$rdctl" shutdown >/dev/null 2>&1 || true
+        # No init service found — restart the whole VM (slowest but reliable)
+        printf "    No k3s service manager found — restarting Colima VM...\n"
+        sudo -u "$k8s_user" "$colima" stop >/dev/null 2>&1 || true
         sleep 5
-        _start_rancher_desktop
+        _start_colima
         restarted=true
     fi
 
@@ -508,8 +493,8 @@ function _configure_mac_k3s_node_ip {
 #------------------------------------------------------------------------------
 # Function: _wait_for_k8s
 # Description: Polls until the cluster is accessible or timeout is reached.
-#              Also retries 'kubectl config use-context rancher-desktop' on each
-#              iteration because Rancher Desktop writes its kubeconfig entry
+#              Also retries 'kubectl config use-context colima' on each
+#              iteration because Colima writes its kubeconfig entry
 #              asynchronously after starting — the context may not exist when
 #              the loop begins.
 # Parameters:
@@ -519,9 +504,9 @@ function _wait_for_k8s {
     local timeout="${1:-240}"
     local waited=0
     while ! is_cluster_accessible && [[ $waited -lt $timeout ]]; do
-        su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
+        su - "$k8s_user" -c "kubectl config use-context colima" >/dev/null 2>&1 || true
         sleep 5; (( waited += 5 ))
-        printf "\r    Waiting for Rancher Desktop Kubernetes (%ds/%ds)..." "$waited" "$timeout"
+        printf "\r    Waiting for Colima Kubernetes (%ds/%ds)..." "$waited" "$timeout"
     done
     printf "\n"
     is_cluster_accessible
@@ -529,182 +514,208 @@ function _wait_for_k8s {
 
 #------------------------------------------------------------------------------
 # Function: _recover_mac_k8s
-# Description: Attempts automatic recovery when the Rancher Desktop VM is
+# Description: Attempts automatic recovery when the Colima VM is
 #              running but the k3s cluster is not reachable.
 #
 #              Tier 1 (fast ~15s): removes any stale /etc/rancher/k3s/config.yaml
-#              written by previous gazelle runs (a leftover causes a duplicate
-#              --node-ip that crashes the kubelet) and restarts k3s in place.
+#              written by previous gazelle runs and restarts k3s in place.
 #
 #              Tier 2 (slower ~2min): if k3s is still unreachable, performs a
-#              full rdctl shutdown + start to reset the VM cleanly.
+#              full colima stop + start to reset the VM cleanly.
 #
 # Returns: 0 if cluster becomes accessible, 1 if recovery failed.
 #------------------------------------------------------------------------------
 function _recover_mac_k8s {
-    local rdctl
-    if ! rdctl=$(_find_rdctl); then
-        printf "    Warning: rdctl not found — cannot attempt auto-recovery\n"
+    local colima
+    if ! colima=$(_find_colima); then
+        printf "    Warning: colima not found — cannot attempt auto-recovery\n"
         return 1
     fi
 
     # ---- Tier 1: clean stale config artifact + in-place k3s restart ----
     printf "    Auto-recovery tier 1: restarting k3s inside the VM...\n"
-    sudo -u "$k8s_user" "$rdctl" shell sudo rm -f /etc/rancher/k3s/config.yaml >/dev/null 2>&1 || true
-    sudo -u "$k8s_user" "$rdctl" shell sudo rc-service k3s restart >/dev/null 2>&1 || \
-        sudo -u "$k8s_user" "$rdctl" shell sudo service k3s restart >/dev/null 2>&1 || true
+    sudo -u "$k8s_user" "$colima" exec -- sudo rm -f /etc/rancher/k3s/config.yaml >/dev/null 2>&1 || true
+    sudo -u "$k8s_user" "$colima" exec -- sudo rc-service k3s restart >/dev/null 2>&1 || \
+        sudo -u "$k8s_user" "$colima" exec -- sudo service k3s restart >/dev/null 2>&1 || true
 
-    su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
+    su - "$k8s_user" -c "kubectl config use-context colima" >/dev/null 2>&1 || true
     if _wait_for_k8s 60; then
         printf "    Auto-recovery tier 1 succeeded              [ok]\n"
         return 0
     fi
 
-    # ---- Tier 2: full VM restart via rdctl ----
-    printf "    Auto-recovery tier 2: restarting Rancher Desktop VM...\n"
-    sudo -u "$k8s_user" "$rdctl" shutdown >/dev/null 2>&1 || true
+    # ---- Tier 2: full VM restart ----
+    printf "    Auto-recovery tier 2: restarting Colima VM...\n"
+    sudo -u "$k8s_user" "$colima" stop >/dev/null 2>&1 || true
     sleep 5
-    _start_rancher_desktop
-    su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
+    _start_colima
+    su - "$k8s_user" -c "kubectl config use-context colima" >/dev/null 2>&1 || true
     if _wait_for_k8s 240; then
         printf "    Auto-recovery tier 2 succeeded              [ok]\n"
         return 0
     fi
 
     printf "** Auto-recovery failed. Try:\n"
-    printf "   1. Open Rancher Desktop and check for error messages.\n"
-    printf "   2. If the problem persists, reset Rancher Desktop from its Troubleshooting menu.\n"
+    printf "   1. Run: colima stop && colima start --kubernetes --kubernetes-version v1.30.0+k3s1 --runtime containerd --memory 16 --cpu 4\n"
+    printf "   2. If the problem persists, run: colima delete && re-run ./run.sh\n"
     return 1
 }
 
 #------------------------------------------------------------------------------
 # Function: install_mac_k8s
-# Description: Ensures Rancher Desktop (k3s) is running on macOS.
-#              Rancher Desktop is the only supported provider — it uses k3s,
+# Description: Ensures Colima (k3s) is running on macOS.
+#              Colima is the supported provider — it uses k3s via Lima,
 #              matching the Ubuntu environment and avoiding image pull issues.
 #              Errors if another Kubernetes provider is found running.
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
-# Function: _find_rdctl
-# Description: Locates the rdctl binary at known macOS install paths.
-#              Rancher Desktop puts rdctl inside the app bundle and symlinks
-#              it to ~/.rd/bin, but neither is on PATH when running via sudo.
+# Function: _ensure_homebrew
+# Description: Auto-installs Homebrew if not present. Safe to call as root
+#              (uses sudo -u $k8s_user internally). Exits on failure.
 #------------------------------------------------------------------------------
-function _find_rdctl {
-    local user_home
-    user_home=$(eval echo "~$k8s_user")
+function _ensure_homebrew {
+    if brew_available; then
+        return 0
+    fi
+    printf "    Homebrew not found — installing (this may take a few minutes)...\n"
+    sudo -u "$k8s_user" /bin/bash -c \
+        "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+        </dev/null
+    export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    if ! brew_available; then
+        printf "** Error: Homebrew installation failed. Install manually from https://brew.sh **\n"
+        exit 1
+    fi
+    printf "    Homebrew installed                       [ok]\n"
+}
+
+#------------------------------------------------------------------------------
+# Function: _find_colima
+# Description: Locates the colima binary at known macOS install paths.
+#              colima is not on PATH when running via sudo, so we check
+#              known Homebrew locations explicitly.
+#------------------------------------------------------------------------------
+function _find_colima {
     for candidate in \
-        "$user_home/.rd/bin/rdctl" \
-        "/Applications/Rancher Desktop.app/Contents/Resources/resources/darwin/bin/rdctl" \
-        "/usr/local/bin/rdctl" \
-        "/opt/homebrew/bin/rdctl"; do
+        "/opt/homebrew/bin/colima" \
+        "/usr/local/bin/colima"; do
         if [[ -x "$candidate" ]]; then
             printf '%s' "$candidate"
             return 0
         fi
     done
+    if command -v colima &>/dev/null; then
+        command -v colima; return 0
+    fi
     return 1
 }
 
 #------------------------------------------------------------------------------
-# Function: _start_rancher_desktop
-# Description: Starts Rancher Desktop via rdctl with standard Gazelle settings.
+# Function: _start_colima
+# Description: Starts Colima with k3s and containerd for standard Gazelle use.
+#              k3s version matches the Ubuntu local environment.
+#              containerd is used (not Docker) for consistency.
 #------------------------------------------------------------------------------
-function _start_rancher_desktop {
-    local rdctl
-    if ! rdctl=$(_find_rdctl); then
-        printf "** Error: rdctl not found. Rancher Desktop may not have installed correctly.\n"
+function _start_colima {
+    local colima
+    if ! colima=$(_find_colima); then
+        printf "** Error: colima not found. Install with: brew install colima\n"
         exit 1
     fi
-    # --kubernetes.options.traefik=false: Rancher Desktop ships Traefik by default
-    # but it binds ports 80/443, conflicting with the ingress-nginx the script installs.
-    sudo -u "$k8s_user" "$rdctl" start \
-        --application.start-in-background \
-        --kubernetes.enabled \
-        --kubernetes.version "1.30.0" \
-        --container-engine.name containerd \
-        --virtual-machine.memory-in-gb 16 \
-        --virtual-machine.number-cpus 4 \
-        --kubernetes.options.traefik=false
+    # Pass Homebrew PATH explicitly — sudo strips PATH so colima's internal
+    # kubectl dependency check fails without it.
+    sudo -u "$k8s_user" env PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" \
+        "$colima" start \
+        --kubernetes \
+        --kubernetes-version "v1.30.0+k3s1" \
+        --runtime docker \
+        --memory 16 \
+        --cpu 4 \
+        --network-address
 }
 
 function install_mac_k8s {
     printf "\r==> Checking macOS Kubernetes provider\n"
+    _ensure_homebrew
 
-    # Ensure kubeconfig context is rancher-desktop if available (may be stale from prior provider)
-    su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
+    # socket_vmnet sudoers: required for colima --network-address to get a routable VM IP.
+    # colima sudoers emits the necessary /etc/sudoers.d snippet; idempotent on every run.
+    local colima_bin
+    if colima_bin=$(_find_colima); then
+        sudo -u "$k8s_user" "$colima_bin" sudoers 2>/dev/null \
+            | tee /etc/sudoers.d/colima >/dev/null 2>&1 || true
+    fi
 
-    # If cluster is accessible, verify it is Rancher Desktop
+    # Ensure kubeconfig context is colima if available (may be stale from prior provider)
+    su - "$k8s_user" -c "kubectl config use-context colima" >/dev/null 2>&1 || true
+
+    # If cluster is accessible, verify it is Colima
     if is_cluster_accessible; then
         local current_context
         current_context=$(su - "$k8s_user" -c "kubectl config current-context" 2>/dev/null)
-        if [[ "$current_context" != "rancher-desktop" ]]; then
-            printf "** Error: A Kubernetes cluster is already running but it is not Rancher Desktop.\n"
+        if [[ "$current_context" != "colima" ]]; then
+            printf "** Error: A Kubernetes cluster is already running but it is not Colima.\n"
             printf "   Current context: %s\n" "$current_context"
-            printf "   mifos-gazelle requires Rancher Desktop on macOS.\n"
+            printf "   mifos-gazelle requires Colima on macOS.\n"
             printf "   Please stop the other provider and re-run.\n"
             exit 1
         fi
-        printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
+        printf "    Colima Kubernetes is ready                 [ok]\n"
         return 0
     fi
 
     # VM may already be running in a broken state (e.g. kubelet crashed due to a
     # stale config artifact from a previous run).  Try auto-recovery before
     # attempting a full start, so we don't waste time shutting down a live VM.
-    local rdctl
-    if rdctl=$(_find_rdctl); then
+    local colima
+    if colima=$(_find_colima); then
         local vm_state
-        vm_state=$(sudo -u "$k8s_user" "$rdctl" api /v1/backend_state 2>/dev/null \
-            | python3 -c "import sys,json; print(json.load(sys.stdin).get('vmState',''))" 2>/dev/null || true)
-        if [[ "$vm_state" == "STARTED" ]]; then
+        vm_state=$(sudo -u "$k8s_user" "$colima" list --json 2>/dev/null \
+            | python3 -c "import sys,json; items=json.load(sys.stdin); print(items[0].get('status','') if items else '')" 2>/dev/null || true)
+        if [[ "$vm_state" == "Running" ]]; then
             printf "    VM is running but cluster is unreachable — attempting auto-recovery...\n"
             if _recover_mac_k8s; then
-                printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
+                printf "    Colima Kubernetes is ready                 [ok]\n"
                 return 0
             fi
             # Recovery failed — fall through to a clean start below
         fi
     fi
 
-    # Rancher Desktop installed but not running (or recovery failed) — start it
-    if [[ -d "/Applications/Rancher Desktop.app" ]]; then
-        printf "    Rancher Desktop found, starting...\n"
-        _start_rancher_desktop
-        # Ensure kubeconfig points at rancher-desktop (may be stale from a previous provider)
-        su - "$k8s_user" -c "kubectl config use-context rancher-desktop" >/dev/null 2>&1 || true
+    # Colima installed but not running (or recovery failed) — start it
+    if colima=$(_find_colima); then
+        printf "    Colima found, starting...\n"
+        _start_colima
+        # Ensure kubeconfig points at colima (may be stale from a previous provider)
+        su - "$k8s_user" -c "kubectl config use-context colima" >/dev/null 2>&1 || true
         if _wait_for_k8s 240; then
-            printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
+            printf "    Colima Kubernetes is ready                 [ok]\n"
             return 0
         fi
-        printf "** Error: Rancher Desktop did not become ready.\n"
-        printf "   Open Rancher Desktop and check for errors.\n"
+        printf "** Error: Colima did not become ready.\n"
+        printf "   Run: colima list    and check for errors.\n"
         exit 1
     fi
 
-    # Not installed — install via Homebrew then start
-    printf "    Rancher Desktop not found. Installing via Homebrew...\n"
-    if ! brew_available; then
-        printf "** Error: Homebrew is required. Install from https://brew.sh **\n"
+    # Not installed — install Colima + Docker tooling via Homebrew then start
+    printf "    Colima not found. Installing via Homebrew (this may take a few minutes)...\n"
+    if ! sudo -u "$k8s_user" brew install colima docker docker-compose; then
+        printf "** Error: Colima installation failed.\n"
         exit 1
     fi
-    if ! sudo -u "$k8s_user" brew install --cask rancher; then
-        printf "** Error: Rancher Desktop installation failed.\n"
+    printf "    Starting Colima with Kubernetes (this may take a few minutes)...\n"
+    _start_colima
+    if ! _wait_for_k8s 300; then
+        printf "** Error: Colima did not become ready.\n"
         exit 1
     fi
-    printf "    Configuring and starting Rancher Desktop (this may take a few minutes)...\n"
-    _start_rancher_desktop
-    if ! _wait_for_k8s 240; then
-        printf "** Error: Rancher Desktop did not become ready.\n"
-        exit 1
-    fi
-    printf "    Rancher Desktop Kubernetes is ready        [ok]\n"
+    printf "    Colima Kubernetes is ready                 [ok]\n"
 }
 
 #------------------------------------------------------------------------------
 # Function: env_setup_mac_cluster
-# Description: Sets up Gazelle on a macOS host using Rancher Desktop (k3s) as
-#              the preferred Kubernetes provider, with Docker Desktop as fallback.
+# Description: Sets up Gazelle on a macOS host using Colima (k3s) as the
+#              Kubernetes provider.
 # Parameters:
 #   $1 - Mode of operation: "deploy", "cleanapps", or "cleanall"
 #------------------------------------------------------------------------------
@@ -715,9 +726,8 @@ function env_setup_mac_cluster {
         install_mac_k8s
         _configure_mac_vm_limits
         # NOTE: _configure_mac_k3s_node_ip is intentionally NOT called here.
-        # Rancher Desktop already sets --node-ip via /etc/conf.d/k3s ADDITIONAL_ARGS.
-        # Writing node-ip again to /etc/rancher/k3s/config.yaml produces a duplicate
-        # "192.168.x.x,192.168.x.x" value that causes the kubelet to crash.
+        # The default Colima k3s setup works correctly without explicit node-ip binding.
+        # The function exists and is updated for potential future use if needed.
         ensure_python_venv
         add_hosts
         check_and_load_helm_repos
@@ -744,14 +754,26 @@ function env_setup_mac_cluster {
         fi
         remove_hosts
         if [[ "$mode" == "cleanall" ]]; then
-            # Remove the k3s config.yaml written by previous gazelle runs so that a
-            # subsequent deploy starts with a clean slate (no stale node-ip override).
-            local rdctl
-            if rdctl=$(_find_rdctl); then
-                sudo -u "$k8s_user" "$rdctl" shell sudo rm -f /etc/rancher/k3s/config.yaml >/dev/null 2>&1 || true
-                log_step "Shutting down Rancher Desktop"
-                sudo -u "$k8s_user" "$rdctl" shutdown >/dev/null 2>&1 || true
+            # Delete the Colima VM entirely — full wipe of k3s state and images.
+            # colima delete stops the VM first if running, then removes the disk.
+            local colima
+            if colima=$(_find_colima); then
+                log_step "Deleting Colima VM (full cleanall)"
+                # --yes skips the interactive confirmation prompt.
+                # Stop first (ignoring errors if already stopped) so containerd
+                # shuts down cleanly before delete removes the disk; this avoids
+                # the ttrpc/JSON errors that occur when delete tries to stop a
+                # partially-running VM itself.
+                sudo -u "$k8s_user" "$colima" stop 2>/dev/null || true
+                sudo -u "$k8s_user" "$colima" delete --yes 2>/dev/null || true
+                # colima delete leaves behind ~/.colima (named disks, Lima config, SSH
+                # config) which can hold 20-30 GB of disk images. Remove the entire
+                # directory for a true cleanall — Colima recreates it on next start.
+                rm -rf "$k8s_user_home/.colima" 2>/dev/null || true
                 log_ok
+                # Remove stale kubeconfig and Docker contexts left by the deleted VM.
+                su - "$k8s_user" -c "kubectl config delete-context colima" >/dev/null 2>&1 || true
+                sudo -u "$k8s_user" docker context rm colima >/dev/null 2>&1 || true
             fi
         fi
     else

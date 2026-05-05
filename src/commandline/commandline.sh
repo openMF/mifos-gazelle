@@ -544,8 +544,18 @@ function main {
         env_setup_main "$mode"
         deleteApps "$apps"
     elif [ "$mode" == "cleanall" ]; then
-        # For mac/remote: delete app namespaces BEFORE env_setup_main shuts the
-        # cluster down.  env_setup_mac_cluster's cleanall path calls rdctl shutdown
+        if [[ "$environment" == "mac" ]]; then
+            printf "\n*** WARNING: cleanall will delete the Colima VM, all deployed\n"
+            printf "*** applications, and ALL local state (including ~/.colima).\n"
+            printf "*** This cannot be undone. Continue? [y/N] "
+            read -r _confirm
+            if [[ "$_confirm" != "y" && "$_confirm" != "Y" ]]; then
+                printf "Aborted.\n"
+                exit 0
+            fi
+        fi
+        # For mac/remote: delete app namespaces BEFORE env_setup_main deletes the
+        # cluster.  env_setup_mac_cluster's cleanall path calls colima delete
         # at the end, making kubectl unreachable for any subsequent deleteApps call.
         if [[ "$environment" == "mac" || "$environment" == "remote" ]]; then
             if is_cluster_accessible; then

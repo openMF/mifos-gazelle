@@ -105,7 +105,7 @@ Config values are loaded into shell variables via `crudini --get`. CLI flags ove
 
 ### Kubernetes Targets
 
-- **`mac`** — Rancher Desktop with k3s (primary dev environment)
+- **`mac`** — Colima with k3s (primary dev environment)
 - **`local`** — fresh k3s install on Linux
 - **`remote`** — pre-existing cluster via kubeconfig
 
@@ -134,7 +134,10 @@ Infrastructure (NGINX, MySQL, Kafka, Redis, MongoDB, Elasticsearch) must be up b
 - `run.sh` auto-installs Homebrew bash 4+ if needed (the system `/bin/bash` is 3.2)
 - `sudo` strips PATH on macOS; `run.sh` prepends `/opt/homebrew/bin:/usr/local/bin` after re-exec
 - `crudini` is installed via `pipx` on macOS (Homebrew Python blocks plain `pip install`)
-- Known bug: Rancher Desktop can inject a duplicate `--node-ip` flag causing kubelet crashes — see memory entry `project_k3s_nodeip_bug.md`
+- Colima + docker + docker-compose are installed automatically via Homebrew on first run; Homebrew itself is also auto-installed if absent
+- The Colima k3s VM uses the `eth0` interface IP for `/etc/hosts` entries (not `127.0.0.1`) because klipper-lb uses iptables DNAT which bypasses Lima's port-forwarding
+- Third-party browsers (Firefox, Opera, Chrome) require **Local Network** permission to reach the Colima VM IP (`192.168.68.x`): System Settings → Privacy & Security → Local Network → enable the browser. Safari works without this as a system app.
+- Browsers require a one-time cert acceptance: visit `https://mifos.mifos.gazelle.test` first and click through the self-signed cert warning before logging in. The NGINX ingress uses a default self-signed cert with no trusted CA. TODO: automate self-signed cert generation + macOS keychain trust during deploy.
 
 ## CI/CD
 
