@@ -34,10 +34,8 @@ deploy_mifosx_from_yaml() {
     clone_repo "$MIFOSX_BRANCH" "$MIFOSX_REPO_LINK" "$APPS_DIR" "$MIFOSX_REPO_DIR"
 
     log_step "Updating FQDNs in manifests"
-    update_fqdn "$MIFOSX_MANIFESTS_DIR/web-app-deployment.yaml" "mifos.gazelle.test" "$GAZELLE_DOMAIN"
-    update_fqdn "$MIFOSX_MANIFESTS_DIR/web-app-ingress.yaml" "mifos.gazelle.test" "$GAZELLE_DOMAIN"
-    update_fqdn "$MIFOSX_MANIFESTS_DIR/web-app-deployment.yaml" "mifos.gazelle.localhost" "$GAZELLE_DOMAIN"
-    update_fqdn "$MIFOSX_MANIFESTS_DIR/web-app-ingress.yaml" "mifos.gazelle.localhost" "$GAZELLE_DOMAIN"
+    apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/web-app-deployment.yaml" "$GAZELLE_DOMAIN"
+    apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/web-app-ingress.yaml" "$GAZELLE_DOMAIN"
     log_ok
 
     log_step "Restoring MifosX database dump"

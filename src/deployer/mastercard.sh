@@ -55,10 +55,12 @@ check_prerequisites() {
         exit 1
     fi
 
-    if [ ! -d "$MASTERCARD_CBS_HOME" ]; then
+    if [ "${MASTERCARD_LOCALDEV_ENABLED:-false}" == "true" ] && [ ! -d "$MASTERCARD_CBS_HOME" ]; then
         log_error "Mastercard CBS directory not found: $MASTERCARD_CBS_HOME"
         log_error "Set MASTERCARD_CBS_HOME or ensure ~/ph-ee-connector-mccbs exists"
         exit 1
+    elif [ "${MASTERCARD_LOCALDEV_ENABLED:-false}" != "true" ] && [ ! -d "$MASTERCARD_CBS_HOME" ]; then
+        logWithVerboseCheck "$debug" "$WARNING" "MASTERCARD_CBS_HOME not found ($MASTERCARD_CBS_HOME) - BPMN workflow deploy will be skipped (Docker image deployment)"
     fi
 
     if ! run_as_user "kubectl get namespace \"$PAYMENTHUB_NAMESPACE\"" &> /dev/null; then
@@ -164,8 +166,8 @@ deploy_connector() {
     local api_url="$MASTERCARD_API_URL"
 
     # Determine image settings
-    local image_repo="ph-ee-connector-mastercard-cbs"
-    local image_tag="1.0.0"
+    local sample_cr="$RUN_DIR/src/deployer/operators/mastercard/config/samples/mastercard-cbs-default.yaml"
+    local image_repo image_tag
     local localdev_section=""
 
     if [ "${MASTERCARD_LOCALDEV_ENABLED:-false}" == "true" ]; then
@@ -176,6 +178,13 @@ deploy_connector() {
     enabled: true
     hostPath: \"${MASTERCARD_CBS_HOME}\"
     jarPath: \"/app/build/libs/ph-ee-connector-mastercard-cbs-1.0.0-SNAPSHOT.jar\""
+    else
+        # Read image from sample CR as source of truth
+        image_repo=$(grep 'repository:' "$sample_cr" 2>/dev/null | head -1 | sed 's/.*repository:[[:space:]]*//' | tr -d '"')
+        image_tag=$(grep '[[:space:]]tag:' "$sample_cr" 2>/dev/null | head -1 | sed 's/.*tag:[[:space:]]*//' | tr -d '"')
+        image_repo="${image_repo:-ph-ee-connector-mastercard-cbs}"
+        image_tag="${image_tag:-1.0.0}"
+        logWithVerboseCheck "$debug" "$INFO" "Connector image: ${image_repo}:${image_tag}"
     fi
 
     local cr_file="/tmp/mastercard-cbs-cr.yaml"
@@ -214,7 +223,7 @@ ${localdev_section}
       cpu: "500m"
       memory: "512Mi"
     requests:
-      cpu: "250m"
+      cpu: "50m"
       memory: "256Mi"
 EOF
     chmod 644 "$cr_file"
@@ -250,7 +259,7 @@ wait_for_deployment() {
 }
 
 deploy_bpmn_workflow() {
-    local workflow_file="$MASTERCARD_CBS_HOME/orchestration/MastercardFundTransfer-DFSPID.bpmn"
+    local workflow_file="$RUN_DIR/orchestration/feel/MastercardFundTransfer-DFSPID.bpmn"
     local deploy_script="$RUN_DIR/src/utils/deployBpmn-gazelle.sh"
 
     if [ ! -f "$workflow_file" ]; then
@@ -406,10 +415,6 @@ deploy_mastercard() {
     log_ok
 
     wait_for_deployment
-
-    log_step "Deploying BPMN workflow"
-    deploy_bpmn_workflow
-    log_ok
 
     log_step "Loading supplementary data"
     load_supplementary_data

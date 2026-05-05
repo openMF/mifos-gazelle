@@ -164,13 +164,48 @@ def _ops_get(url, tenant, timeout=15):
         return None
 
 
+# Cache so we only probe once per domain per process
+_ops_api_host_cache = {}
+
+def _resolve_ops_api_host(domain, tenant="greenbank"):
+    """
+    Return the subdomain prefix for the operations-app API backend.
+
+    Standard mifos-gazelle: ops.{domain}
+    GovStack cluster:       ops-bk.{domain}  (ops. is the web frontend there)
+
+    Probes ops-bk first (it returns JSON for the API); if that returns HTML
+    the standard deployment has ops. serving the API directly.
+    """
+    if domain in _ops_api_host_cache:
+        return _ops_api_host_cache[domain]
+
+    for prefix in ("ops-bk", "ops"):
+        probe = f"https://{prefix}.{domain}/actuator/health"
+        try:
+            r = requests.get(probe, verify=False, timeout=5)
+            ct = r.headers.get("content-type", "")
+            # Spring Boot returns application/vnd.spring-boot.actuator.*
+            # The Angular frontend returns text/html
+            if "json" in ct and "html" not in ct:
+                _ops_api_host_cache[domain] = prefix
+                return prefix
+        except Exception:
+            pass
+
+    _ops_api_host_cache[domain] = "ops"
+    return "ops"
+
+
 def fetch_batch_summary(domain, batch_id, tenant):
-    url = f"https://ops.{domain}/api/v1/batch/{batch_id}?command=aggregate"
+    host = _resolve_ops_api_host(domain, tenant)
+    url = f"https://{host}.{domain}/api/v1/batch/{batch_id}?command=aggregate"
     return _ops_get(url, tenant)
 
 
 def fetch_batch_transfers(domain, batch_id, tenant, page_size=20):
-    url = f"https://ops.{domain}/api/v1/batch/detail?batchId={batch_id}&pageSize={page_size}"
+    host = _resolve_ops_api_host(domain, tenant)
+    url = f"https://{host}.{domain}/api/v1/batch/detail?batchId={batch_id}&pageSize={page_size}"
     data = _ops_get(url, tenant)
     if data and "content" in data:
         return data["content"]

@@ -70,10 +70,8 @@ prepare_payment_hub_chart() {
   clone_repo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
   
   log_step "Updating FQDNs in Helm chart values and manifests"
-  update_fqdn "$PH_VALUES_FILE" "mifos.gazelle.test" "$GAZELLE_DOMAIN" 
-  update_fqdn "$PH_VALUES_FILE" "mifos.gazelle.localhost" "$GAZELLE_DOMAIN" 
-  update_fqdn_batch "$APPS_DIR/ph_template" "mifos.gazelle.test" "$GAZELLE_DOMAIN"
-  update_fqdn_batch "$APPS_DIR/ph_template" "mifos.gazelle.localhost" "$GAZELLE_DOMAIN"
+  apply_domain_to_file "$PH_VALUES_FILE" "$GAZELLE_DOMAIN"
+  apply_domain_to_dir "$APPS_DIR/ph_template" "$GAZELLE_DOMAIN"
   log_ok
 
   # Run for ph-ee-engine

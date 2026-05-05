@@ -123,22 +123,22 @@ create_ingress_secret() {
     chown "$k8s_user":"$k8s_user" "$key_dir/$primary_domain.key"
     chmod 600 "$key_dir/$primary_domain.key"
 
-    # Generate certificate with SANs
-    openssl req -x509 -new -nodes \
-        -key "$key_dir/$primary_domain.key" \
-        -sha256 -days 365 \
-        -out "$key_dir/$primary_domain.crt" \
-        -subj "/CN=$primary_domain" \
-        -extensions v3_req \
-        -config <(
-            cat <<EOF
+    # X.509 CN field is limited to 64 characters; truncate if needed.
+    # SANs handle actual hostname matching — CN is informational only.
+    local cn="${primary_domain:0:64}"
+
+    # Write OpenSSL config to a temp file (process substitution is non-seekable;
+    # openssl reads the config multiple times and fails silently with <(...))
+    local config_file
+    config_file=$(mktemp /tmp/openssl-san-XXXXXX.conf)
+    cat > "$config_file" <<EOF
 [req]
 distinguished_name=req_distinguished_name
 x509_extensions=v3_req
 prompt=no
 
 [req_distinguished_name]
-CN=$primary_domain
+CN=$cn
 
 [v3_req]
 subjectAltName=@alt_names
@@ -148,7 +148,17 @@ extendedKeyUsage=serverAuth
 [alt_names]
 ${san_config}
 EOF
-        ) >/dev/null 2>&1
+
+    # Generate certificate with SANs
+    openssl req -x509 -new -nodes \
+        -key "$key_dir/$primary_domain.key" \
+        -sha256 -days 365 \
+        -out "$key_dir/$primary_domain.crt" \
+        -subj "/CN=$cn" \
+        -extensions v3_req \
+        -config "$config_file" >/dev/null 2>&1
+
+    rm -f "$config_file"
 
     # Set proper ownership and permissions on the certificate
     chown "$k8s_user":"$k8s_user" "$key_dir/$primary_domain.crt"
@@ -376,12 +386,69 @@ update_fqdn_batch() {
     local directory="$1"
     local old_fqdn="$2"
     local new_fqdn="$3"
-    
+
     find "$directory" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
         #echo "Processing: $file"
         update_fqdn "$file" "$old_fqdn" "$new_fqdn"
         #echo "---"
     done
+}
+
+#------------------------------------------------------------------------------
+# Domain state tracking — ensures FQDN substitution is idempotent across runs
+# even when GAZELLE_DOMAIN changes between deployments.
+#
+# The last successfully applied domain is stored in config/.last_applied_domain.
+# On each run both the canonical baselines AND the previously applied domain are
+# replaced, so files already patched with a prior domain are correctly updated.
+#------------------------------------------------------------------------------
+_domain_state_file() {
+    echo "${RUN_DIR:-$HOME/mifos-gazelle}/config/.last_applied_domain"
+}
+
+get_last_applied_domain() {
+    local f
+    f=$(_domain_state_file)
+    [ -f "$f" ] && cat "$f"
+}
+
+save_applied_domain() {
+    echo "$GAZELLE_DOMAIN" > "$(_domain_state_file)"
+}
+
+# Replace canonical baselines AND the previously applied domain in a single file.
+# Usage: apply_domain_to_file <file> <new_domain>
+apply_domain_to_file() {
+    local file="$1"
+    local new_domain="$2"
+    local prev_domain
+    prev_domain=$(get_last_applied_domain)
+
+    update_fqdn "$file" "mifos.gazelle.test" "$new_domain"
+    update_fqdn "$file" "mifos.gazelle.localhost" "$new_domain"
+    if [ -n "$prev_domain" ] && [ "$prev_domain" != "$new_domain" ]; then
+        logWithVerboseCheck "$debug" "$DEBUG" "Also replacing previous domain '$prev_domain' → '$new_domain' in $(basename "$file")"
+        update_fqdn "$file" "$prev_domain" "$new_domain"
+    fi
+}
+
+# Replace canonical baselines AND the previously applied domain across a directory tree.
+# Usage: apply_domain_to_dir <directory> <new_domain> [extra_old_fqdn]
+#   extra_old_fqdn: additional baseline to replace first (e.g. "local" for vNext manifests)
+apply_domain_to_dir() {
+    local directory="$1"
+    local new_domain="$2"
+    local extra_old_fqdn="${3:-}"
+    local prev_domain
+    prev_domain=$(get_last_applied_domain)
+
+    [ -n "$extra_old_fqdn" ] && update_fqdn_batch "$directory" "$extra_old_fqdn" "$new_domain"
+    update_fqdn_batch "$directory" "mifos.gazelle.test" "$new_domain"
+    update_fqdn_batch "$directory" "mifos.gazelle.localhost" "$new_domain"
+    if [ -n "$prev_domain" ] && [ "$prev_domain" != "$new_domain" ]; then
+        logWithVerboseCheck "$debug" "$DEBUG" "Also replacing previous domain '$prev_domain' → '$new_domain' in $directory"
+        update_fqdn_batch "$directory" "$prev_domain" "$new_domain"
+    fi
 }
 
 #------------------------------------------------------------------------------

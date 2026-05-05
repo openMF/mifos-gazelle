@@ -219,11 +219,19 @@ install_k8s_tools() {
         return 0
     fi
 
+<<<<<<< HEAD
     # --- NOTE ON VERSIONING ---
     # TODO
     # Define these versions globally (or ensure they are passed in)
     # local kubectl_version="v1.30.0"
     # local helm_version="v3.14.4"
+=======
+    # For local clusters, match kubectl to the configured k3s version so there
+    # is no version skew between the client binary and the server.
+    if [[ "${environment:-local}" == "local" && -n "$k8s_version" ]]; then
+        KUBECTL_VERSION="v${k8s_version}.0"
+    fi
+>>>>>>> dev
 
     # Detect architecture
     ARCH=$(uname -m)
@@ -246,46 +254,47 @@ install_k8s_tools() {
 
     for tool in "${!tools[@]}"; do
         if command -v "$tool" >/dev/null 2>&1; then
-            if [[ "$debug" == "true" ]]; then
-                echo "    $tool is already installed. Skipping."
+            # For kubectl, also verify the installed version matches the required version
+            if [[ "$tool" == "kubectl" ]]; then
+                installed_ver=$(kubectl version --client -o json 2>/dev/null | grep -o '"gitVersion":"[^"]*"' | head -1 | cut -d'"' -f4)
+                if [[ "$installed_ver" != "$KUBECTL_VERSION" ]]; then
+                    logWithVerboseCheck "$debug" "$INFO" "kubectl $installed_ver installed but $KUBECTL_VERSION required — reinstalling"
+                else
+                    logWithVerboseCheck "$debug" "$DEBUG" "$tool $installed_ver is already installed. Skipping."
+                    continue
+                fi
+            else
+                logWithVerboseCheck "$debug" "$DEBUG" "$tool is already installed. Skipping."
+                continue
             fi
-            
-            continue
+        fi
+        # Install or reinstall the tool
+        if [[ "$tool" == "kustomize" ]]; then
+            curl -s "${tools[$tool]}" | bash > /dev/null 2>&1
+
+        elif [[ "$tool" == "kubectl" ]]; then
+            curl -s -L "${tools[$tool]}" -o ./"$tool"
+            chmod +x ./"$tool"
+
         else
-            #echo "Installing $tool..."
-            # Installation logic
-            if [[ "$tool" == "kustomize" ]]; then
-                # kustomize uses a special install script
-                curl -s "${tools[$tool]}" | bash > /dev/null 2>&1
-
-            elif [[ "$tool" == "kubectl" ]]; then
-                # kubectl is a direct executable download, so we save it and make it executable
-                curl -s -L "${tools[$tool]}" -o ./"$tool"
-                chmod +x ./"$tool"
-
-            else
-                # Install archives (kubens, kubectx, k9s, helm)
-                curl -s -L "${tools[$tool]}" | tar xz -C . > /dev/null 2>&1
-                if [[ "$tool" == "helm" ]]; then
-                    # Helm has a nested structure after extraction
-                    mv linux-${ARCH_TYPE}/helm ./"$tool" > /dev/null 2>&1
-                    rm -rf linux-${ARCH_TYPE} > /dev/null 2>&1
-                fi
+            # Install archives (kubens, kubectx, k9s, helm)
+            curl -s -L "${tools[$tool]}" | tar xz -C . > /dev/null 2>&1
+            if [[ "$tool" == "helm" ]]; then
+                mv linux-${ARCH_TYPE}/helm ./"$tool" > /dev/null 2>&1
+                rm -rf linux-${ARCH_TYPE} > /dev/null 2>&1
             fi
+        fi
 
-            # Move the resulting executable(s) to the bin path
-            if [[ "$tool" != "kustomize" ]]; then
-                mv ./"$tool" /usr/local/bin > /dev/null 2>&1
-            fi
-            
-            # Verify installation
-            if command -v "$tool" >/dev/null 2>&1; then
-                if [[ "$debug" == "true" ]]; then
-                    echo "    $tool installed successfully."
-                fi
-            else
-                echo "Error: $tool installation failed."
-            fi
+        # Move the resulting executable(s) to the bin path
+        if [[ "$tool" != "kustomize" ]]; then
+            mv ./"$tool" /usr/local/bin > /dev/null 2>&1
+        fi
+
+        # Verify installation
+        if command -v "$tool" >/dev/null 2>&1; then
+            logWithVerboseCheck "$debug" "$DEBUG" "$tool installed successfully."
+        else
+            echo "Error: $tool installation failed."
         fi
     done
     log_ok

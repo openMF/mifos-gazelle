@@ -372,11 +372,9 @@ deploy_workflow() {
 
     log_info "Deploying BPMN workflows to Zeebe for all tenants..."
 
-    # Read MASTERCARD_CBS_HOME from config (defaults to connector repo location)
-    local mastercard_cbs_home=$(read_config_value "MASTERCARD_CBS_HOME" "$HOME/ph-ee-connector-mccbs" "$config_file")
     local mifos_gazelle_home=$(read_config_value "MIFOS_GAZELLE_HOME" "$HOME/mifos-gazelle" "$config_file")
 
-    local workflow_template="$mastercard_cbs_home/orchestration/MastercardFundTransfer-DFSPID.bpmn"
+    local workflow_template="$mifos_gazelle_home/orchestration/feel/MastercardFundTransfer-DFSPID.bpmn"
     local deploy_script="$mifos_gazelle_home/src/utils/deployBpmn-gazelle.sh"
 
     # Deploy using deployBpmn-gazelle.sh script (it handles multiple tenants)
