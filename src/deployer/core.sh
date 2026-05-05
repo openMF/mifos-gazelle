@@ -65,10 +65,19 @@ function is_app_running() {
 
 function wait_for_pods_ready() {
     local namespace="$1"
+    local timeout="${startup_timeout:-600}"
+    local start_time
+    start_time=$(date +%s)
     log_step "Waiting for $namespace pods to stabilise"
 
     STABLE_COUNT=0
     while [ $STABLE_COUNT -lt 3 ]; do
+      local elapsed=$(( $(date +%s) - start_time ))
+      if [[ $elapsed -ge $timeout ]]; then
+        log_failed "Pods in $namespace did not stabilise within ${timeout}s"
+        return 1
+      fi
+
       NOT_READY=$(run_as_user "kubectl get pods -n \"$namespace\" --no-headers" | awk '{split($2,a,"/"); if(a[1]!=a[2] || a[1]==0) print}')
 
       if [ -z "$NOT_READY" ]; then
@@ -76,7 +85,7 @@ function wait_for_pods_ready() {
         logWithVerboseCheck "$debug" "$DEBUG" "All pods ready — stable count: $STABLE_COUNT/3"
       else
         STABLE_COUNT=0
-        logWithVerboseCheck "$debug" "$DEBUG" "Some pods not ready — waiting 60s..."
+        logWithVerboseCheck "$debug" "$DEBUG" "Some pods not ready — waiting 60s... (${elapsed}s/${timeout}s)"
       fi
       sleep 60
     done
