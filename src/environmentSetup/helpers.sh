@@ -80,7 +80,7 @@ check_os_ok() {
         exit 1
     fi
     echo "    Linux OS is $LINUX_OS and version $LINUX_VERSION"
-    echo "    Supported Ubuntu versions are: ${ubuntu_ok_versions_list[*]}"
+    echo "    Tested Ubuntu versions are: ${ubuntu_ok_versions_list[*]}"
     if [[ ! " ${ubuntu_ok_versions_list[*]} " =~ " ${LINUX_VERSION} " ]]; then
         printf "** Error, Mifos Gazelle is only tested with Ubuntu this time   **\n"
         exit 1
