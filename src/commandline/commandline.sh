@@ -34,7 +34,7 @@ resolve_invoker_user() {
 install_crudini() {
     if ! command -v crudini &> /dev/null; then
         log_with_level "$INFO" "crudini not found. Attempting to install..."
-        if brew_available; then
+        if [[ "$(uname -s)" == "Darwin" ]]; then
             # crudini is a Python CLI tool (not a Homebrew formula).
             # Modern macOS with Homebrew-managed Python blocks plain pip install;
             # use pipx which handles the venv isolation automatically.
