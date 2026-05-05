@@ -32,6 +32,10 @@ function deployvNext() {
   update_vnext_service_urls "$APPS_DIR/vnext/packages/installer/manifests"
   log_ok
 
+  log_step "Fixing liveness probes in manifests"
+  fix_vnext_liveness_probes "$APPS_DIR/vnext/packages/installer/manifests"
+  log_ok
+
   log_step "Updating FQDNs in manifests"
   update_fqdn_batch "$APPS_DIR/vnext/packages/installer/manifests" "local" "$GAZELLE_DOMAIN"
   find "$APPS_DIR/$VNEXTREPO_DIR/packages/installer/manifests" -type f -name "*.yaml" | while read -r file; do
@@ -88,6 +92,50 @@ function update_vnext_service_urls() {
     done < <(find "$target_dir" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0) 
     
     #echo "Service URL updates complete."
+}
+
+#------------------------------------------------------------------------------
+# Function : fix_vnext_liveness_probes
+# Description: Replaces broken nc-based exec liveness probes with tcpSocket probes.
+#
+# The upstream vNext manifests use a single-element exec command:
+#   command:
+#   - nc -z localhost PORT || exit -1
+#
+# Linux exec() treats the entire string as the binary name (spaces included),
+# so the probe always fails and the kubelet kills the pod after 10 attempts.
+# tcpSocket probes are checked by the kubelet externally — no tooling needed
+# inside the container.
+#
+# Also fixes a bug in the upstream reporting-api-svc manifest where the probe
+# checked port 5005 but the service listens on 5000.
+#
+# TODO: remove this function once vNext manifests are vendored into Gazelle
+#       and the probes are corrected at source.
+# Parameters:
+#   $1 - Directory containing the vNext manifests.
+#------------------------------------------------------------------------------
+function fix_vnext_liveness_probes() {
+    local target_dir="$1"
+
+    if [[ -z "$target_dir" ]] || [[ ! -d "$target_dir" ]]; then
+        log_error "fix_vnext_liveness_probes: directory '$target_dir' does not exist"
+        return 1
+    fi
+
+    while IFS= read -r -d '' f; do
+        perl -0777 -pi -e '
+            s{(\n([ ]+)livenessProbe:\n)[ ]+exec:\n[ ]+command:\n[ ]+- nc -z localhost (\d+) \|\| exit -1\n}
+             {$1 . $2 . "  tcpSocket:\n" . $2 . "    port: " . $3 . "\n"}ge
+        ' "$f"
+    done < <(find "$target_dir" -type f -name "*.yaml" -print0)
+
+    # The upstream reporting-api-svc manifest had nc -z on port 5005 but the
+    # service listens on 5000 — correct the port after the probe type is fixed.
+    local reporting_api="$target_dir/reporting/reporting-api-svc-deployment.yaml"
+    if [[ -f "$reporting_api" ]]; then
+        sed_inplace -e 's/port: 5005/port: 5000/' "$reporting_api"
+    fi
 }
 
 #------------------------------------------------------------------------------

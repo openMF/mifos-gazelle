@@ -31,11 +31,13 @@ function cloneRepo() {
   # Check if repository and branch exist
   if [ -d "$repo_path" ]; then
     cd "$repo_path" || return 1
-    # Check if specified branch exists locally
-    if git show-ref --verify --quiet "refs/heads/$branch"; then
+    # Accept if branch exists as local ref, remote-tracking ref, or is currently checked out
+    if git show-ref --verify --quiet "refs/heads/$branch" \
+        || git show-ref --verify --quiet "refs/remotes/origin/$branch" \
+        || [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$branch" ]; then
       return 0
     fi
-    # Remove repo if branch doesn't exist
+    # Remove repo if branch doesn't exist anywhere
     echo "Branch $branch not found in $repo_path. Recloning..."
     rm -rf "$repo_path"
   fi
