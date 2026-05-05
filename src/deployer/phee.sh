@@ -37,7 +37,6 @@ function deployPH(){
   prepare_payment_hub_chart
 
   log_step "Creating elastic secrets"
-  manageElasticSecrets delete "$INFRA_NAMESPACE"
   manageElasticSecrets create "$PH_NAMESPACE"
   manageElasticSecrets create "$INFRA_NAMESPACE"
   log_ok
@@ -135,7 +134,7 @@ deploy_bpmns() {
   local DEBUG=false
   local successful_uploads=0
   local BPMNS_DIR="$BASE_DIR/orchestration/feel"  # BPMNs deployed from  Gazelle but probably eventually belong in ph-ee-env-template 
-  local bpms_to_deploy=$(ls -l "$BPMNS_DIR"/*.bpmn | wc -l)
+  local bpmns_to_deploy=$(ls -l "$BPMNS_DIR"/*.bpmn | wc -l)
   log_step "Deploying BPMN diagrams"
 
   for file in "$BPMNS_DIR"/*.bpmn; do
@@ -158,7 +157,7 @@ deploy_bpmns() {
     fi
   done
 
-  if [ "$successful_uploads" -ge "$bpms_to_deploy" ]; then
+  if [ "$successful_uploads" -ge "$bpmns_to_deploy" ]; then
     log_ok
   else
     log_warn "Some BPMN diagrams may not have deployed. Run: ./src/utils/deployBpmn-gazelle.sh"
