@@ -61,8 +61,8 @@ EOF
 }
 
 #------------------------------------------------------------------------------
-# Function: deploy_ph_helm_chart_from_dir
-# Description: Deploys a Helm chart from a specified directory into a given namespace.
+# Function: check_nginx_running
+# Description: Returns 0 if the NGINX ingress pod is running, 1 otherwise.
 #------------------------------------------------------------------------------
 check_nginx_running() {
     nginx_pod_name=$(run_as_user "kubectl get pods -n default --no-headers -o custom-columns=\":metadata.name\"" | grep nginx | head -n 1)
@@ -219,19 +219,11 @@ install_k8s_tools() {
         return 0
     fi
 
-<<<<<<< HEAD
-    # --- NOTE ON VERSIONING ---
-    # TODO
-    # Define these versions globally (or ensure they are passed in)
-    # local kubectl_version="v1.30.0"
-    # local helm_version="v3.14.4"
-=======
     # For local clusters, match kubectl to the configured k3s version so there
     # is no version skew between the client binary and the server.
     if [[ "${environment:-local}" == "local" && -n "$k8s_version" ]]; then
         KUBECTL_VERSION="v${k8s_version}.0"
     fi
->>>>>>> dev
 
     # Detect architecture
     ARCH=$(uname -m)
@@ -258,13 +250,13 @@ install_k8s_tools() {
             if [[ "$tool" == "kubectl" ]]; then
                 installed_ver=$(kubectl version --client -o json 2>/dev/null | grep -o '"gitVersion":"[^"]*"' | head -1 | cut -d'"' -f4)
                 if [[ "$installed_ver" != "$KUBECTL_VERSION" ]]; then
-                    logWithVerboseCheck "$debug" "$INFO" "kubectl $installed_ver installed but $KUBECTL_VERSION required — reinstalling"
+                    log_with_verbose_check "$debug" "$INFO" "kubectl $installed_ver installed but $KUBECTL_VERSION required — reinstalling"
                 else
-                    logWithVerboseCheck "$debug" "$DEBUG" "$tool $installed_ver is already installed. Skipping."
+                    log_with_verbose_check "$debug" "$DEBUG" "$tool $installed_ver is already installed. Skipping."
                     continue
                 fi
             else
-                logWithVerboseCheck "$debug" "$DEBUG" "$tool is already installed. Skipping."
+                log_with_verbose_check "$debug" "$DEBUG" "$tool is already installed. Skipping."
                 continue
             fi
         fi
@@ -292,7 +284,7 @@ install_k8s_tools() {
 
         # Verify installation
         if command -v "$tool" >/dev/null 2>&1; then
-            logWithVerboseCheck "$debug" "$DEBUG" "$tool installed successfully."
+            log_with_verbose_check "$debug" "$DEBUG" "$tool installed successfully."
         else
             echo "Error: $tool installation failed."
         fi
