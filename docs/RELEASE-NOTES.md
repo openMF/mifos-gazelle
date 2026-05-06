@@ -1,3 +1,35 @@
+# Mifos Gazelle v2.1.0 Release Notes (DRAFT)
+
+## Major New Features
+
+- **macOS Support** — Full deployment on macOS via Colima/k3s; `run.sh` automatically installs Homebrew, Colima, Docker, and Docker Compose on first run
+- **macOS Setup Module** — macOS/Colima setup logic extracted into a dedicated `src/environmentSetup/mac_setup.sh` for cleaner separation of concerns
+- **GovStack Cross-Border Payment Support** — Added `cert-manager` for CORS handling and a GovStack cross-border client deployment script with batch payment features
+- **Configurable Helm Timeout** — Helm chart install timeout is now configurable via `config.ini` (`startup_timeout`), replacing a hard-coded value
+
+## Notable Changes
+
+- Fixed vNext pods crash-looping on Colima (macOS)
+- Fixed macOS/Linux platform detection in `commandline.sh`
+- Fixed Bitnami Helm chart registry path (`oci://registry-1.docker.io/bitnamicharts`) reverting a regression
+- Fixed `kubectl` client skew issue in `deploy-operator.sh` and `k8s.sh`
+- Fixed command-line argument parsing to require correct hyphenated flag syntax (GAZ-227)
+- Improved remote cluster support: domain name detection and kubeconfig handling
+- Improved Mastercard CBS demo integration and testing (GAZ-281)
+- Refactored core scripts to follow Google Shell Style Guide — functions renamed to `snake_case`, dead code removed
+- Default `environment` in `config.ini` restored to `local`
+- Added `CLAUDE.md` developer guide to the repository
+- Added CLA contributor check to CI workflow
+
+## Tickets
+
+EPIC: [GAZ-268 - release 2.1.0](https://mifosforge.jira.com/browse/GAZ-268)<br>
+[GAZ-227 - commandline.sh allows parameters without preceding minus sign](https://mifosforge.jira.com/browse/GAZ-227)<br>
+[GAZ-259 - Improve deployment resilience](https://mifosforge.jira.com/browse/GAZ-259)<br>
+[GAZ-281 - Mastercard Test and help integrate solution into GovStack Sandbox Env](https://mifosforge.jira.com/browse/GAZ-281)<br>
+
+---
+
 # Mifos Gazelle v2.0.0 Release Notes
 
 ## Major New Features
