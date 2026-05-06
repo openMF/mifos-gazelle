@@ -60,7 +60,7 @@ check_prerequisites() {
         log_error "Set MASTERCARD_CBS_HOME or ensure ~/ph-ee-connector-mccbs exists"
         exit 1
     elif [ "${MASTERCARD_LOCALDEV_ENABLED:-false}" != "true" ] && [ ! -d "$MASTERCARD_CBS_HOME" ]; then
-        logWithVerboseCheck "$debug" "$WARNING" "MASTERCARD_CBS_HOME not found ($MASTERCARD_CBS_HOME) - BPMN workflow deploy will be skipped (Docker image deployment)"
+        log_with_verbose_check "$debug" "$WARNING" "MASTERCARD_CBS_HOME not found ($MASTERCARD_CBS_HOME) - BPMN workflow deploy will be skipped (Docker image deployment)"
     fi
 
     if ! run_as_user "kubectl get namespace \"$PAYMENTHUB_NAMESPACE\"" &> /dev/null; then
@@ -184,7 +184,7 @@ deploy_connector() {
         image_tag=$(grep '[[:space:]]tag:' "$sample_cr" 2>/dev/null | head -1 | sed 's/.*tag:[[:space:]]*//' | tr -d '"')
         image_repo="${image_repo:-ph-ee-connector-mastercard-cbs}"
         image_tag="${image_tag:-1.0.0}"
-        logWithVerboseCheck "$debug" "$INFO" "Connector image: ${image_repo}:${image_tag}"
+        log_with_verbose_check "$debug" "$INFO" "Connector image: ${image_repo}:${image_tag}"
     fi
 
     local cr_file="/tmp/mastercard-cbs-cr.yaml"
