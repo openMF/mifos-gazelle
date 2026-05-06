@@ -8,6 +8,7 @@
 - [Goal](#goal-of-mifos-gazelle)
 - [Features](#mifos-gazelle-features)
 - [Prerequisites](#prerequisites)
+- [macOS Quick Start](#macos-quick-start)
 - [Quick Start](#quick-start)
 - [Deployment Options](#deployment-options)
 - [What to Do Next](#what-to-do-next)
@@ -48,10 +49,45 @@ Mifos Gazelle provides a very simple kubernetes based installation for cloud nat
 
 ## Prerequisites
 
+**Linux (primary)**
 - Ubuntu 22.04 or 24.04 LTS (x86_64 or ARM64)
 - 16 GB RAM minimum (less if deploying individual components)
 - 75 GB+ free space in home directory
 - Non-root user with sudo privileges
+
+**macOS** (developer use only) — see [macOS Quick Start](#macos-quick-start) below. Not a primary tested platform; intended for contributors developing and testing Gazelle locally.
+
+---
+
+## macOS Quick Start
+
+> **Note:** macOS is a secondary, developer-oriented platform. Ubuntu 22.04/24.04 LTS is the primary tested and CI-validated environment — all CI runs on Ubuntu and production deployments should use Linux. macOS support exists to help contributors to the Mifos Gazelle project run and test the full stack locally on their development machines without needing a separate Linux host. Expect occasional rough edges, and please report issues on the `#mifos-gazelle-dev` Slack channel.
+
+Gazelle runs on macOS using [Colima](https://github.com/abiosoft/colima) as the Kubernetes provider. Colima is a lightweight, open-source CLI tool that runs a Lima VM with k3s and containerd — the same k3s version used on Linux, so behaviour is identical across environments. It was chosen over alternatives (Rancher Desktop, Docker Desktop, OrbStack) because it is free, resource-efficient, installs cleanly via Homebrew, and does not require a GUI or a paid licence.
+
+Colima's `socket_vmnet` network backend gives the VM a dedicated routable IP address (`192.168.5.x`) on the host. This is required because the k3s load-balancer (klipper-lb) uses iptables DNAT for ports 80 and 443, which bypasses Lima's port-forwarding and means `127.0.0.1` does not reach the NGINX ingress. The VM IP is used in `/etc/hosts` automatically by the installer.
+
+**Requirements**
+- macOS 13 Ventura or later (Apple Silicon M-series or Intel)
+- 16 GB RAM (12 GB allocatable to the Colima VM)
+- 50 GB+ free disk space — all images and k3s state live inside the Colima VM disk image; a full 3-DPG deployment uses roughly 25–30 GB inside the VM
+- Non-root user — run `sudo ./run.sh -u $USER …`
+
+**First run** installs everything automatically:
+- Homebrew (if absent)
+- Homebrew bash 4+ (macOS ships bash 3.2; the script re-execs itself)
+- Colima, Docker, docker-compose, kubectl, helm, k9s, kubectx, kustomize
+
+```bash
+git clone --branch main https://github.com/openMF/mifos-gazelle.git
+cd mifos-gazelle
+sudo ./run.sh -u $USER -m deploy -a all
+```
+
+**After deployment — browser notes**
+
+- Third-party browsers (Firefox, Chrome, Opera) require **Local Network** permission to reach the Colima VM IP. Grant it at: *System Settings → Privacy & Security → Local Network → enable the browser*. Safari works without this as a system app.
+- Browsers require a one-time certificate acceptance: visit `https://mifos.mifos.gazelle.test` first and click through the self-signed certificate warning before logging in.
 
 ---
 
@@ -145,7 +181,7 @@ When all 3 DPGs are deployed, demonstration data is pre-loaded so you can immedi
 
 To view the resulting transaction history across all tenants:
 ```bash
-./src/utils/view-mifos-transactions.py -c config/config.ini
+./src/utils/view-mifos-transactions.py
 ```
 
 **Observe the results:**
@@ -296,7 +332,7 @@ Mifos Gazelle deploys four default tenants: `default`, `greenbank`, `bluebank` a
 
 - Operations-Web UI has been vastly improved but is still WIP
 - Payment Hub EE mifos-v2.0.0 is deployed which is a branch that builds on v1.13.3 release and is reflected in the mifos-v2.0.0 branches of the Paymenthub EE repositories deployed by mifos-gazelle 
-- ARM64 supported for all 3 DPGs; Raspberry Pi 4 has a MongoDB limitation (requires ARMv8.2A) but Pi 5 is well tested now and works well for P2P payments i.e. make-payment.sh. 
+- ARM64 compatible with all 3 DPGs; Raspberry Pi 4 has a MongoDB limitation (requires ARMv8.2A) but Pi 5 is well tested now and works well for P2P payments i.e. make-payment.sh. 
 - Memory reduction is still wip but 16GB generally works fine for all 3 DPGs on a single node.
 - Kubernetes operator work (openMF/mifos-operators) still planned for a future release
 ---
@@ -397,7 +433,7 @@ This reruns only the data generation and loading step — it does not redeploy a
 **To verify data is present before retrying:**
 ```bash
 # Check MifosX has clients in greenbank and bluebank tenants
-./src/utils/view-mifos-transactions.py -c config/config.ini
+./src/utils/view-mifos-transactions.py
 
 # Check vNext oracle has MSISDN registrations
 kubectl exec -n vnext -l app=account-lookup-svc -- \

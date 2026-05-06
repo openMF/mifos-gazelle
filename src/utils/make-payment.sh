@@ -13,7 +13,7 @@ TRANSFER_URL=""
 MIFOS_CORE_API=""
 MIFOS_AUTH="mifos:password"
 
-function usage() {
+usage() {
 cat <<EOF
 Usage: $0 [-f <config_file>] [-p <payer_msisdn>] [-r <payee_msisdn>] [-t <tenant_id>] [-d <payee_dfsp_id>] [-v]
  -c Path to config.ini file (default: ../config/config.ini) [optional]
@@ -30,7 +30,7 @@ EOF
 }
 
 # Function to lookup client name by MSISDN
-function lookup_client_name() {
+lookup_client_name() {
     local msisdn="$1"
     local tenant_id="$2"
     local client_type="$3"  # "payer" or "payee" for debugging
@@ -103,7 +103,7 @@ function lookup_client_name() {
 }
 
 # Function to get first client MSISDN from tenant
-function get_first_client_msisdn() {
+get_first_client_msisdn() {
     local tenant="$1"
     local client_type="$2"  # "payer" or "payee" for logging
 

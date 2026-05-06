@@ -8,6 +8,21 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 #------------------------------------------------------------------------------
+# Function : sed_inplace
+# Description: Cross-platform in-place sed. macOS (BSD) sed requires an explicit
+#              backup extension after -i; GNU sed does not. Pass sed args exactly
+#              as you would for GNU sed — the -i '' is added automatically on macOS.
+# Usage: sed_inplace -e 's/foo/bar/' file
+#------------------------------------------------------------------------------
+sed_inplace() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
+#------------------------------------------------------------------------------
 # Function : check_sudo
 # Description: Checks if the script is run with sudo from a non-root user.
 #              Rejects direct root execution (e.g. 'sudo su -') because
@@ -15,7 +30,7 @@ fi
 #              to determine the real invoking user and causing all artifacts
 #              to be owned by root.
 #------------------------------------------------------------------------------
-function check_sudo() {
+check_sudo() {
     if [[ $EUID -ne 0 ]]; then
         log_error "This script must be run with sudo: sudo ./run.sh"
         exit 1
@@ -34,10 +49,10 @@ function check_sudo() {
 # Parameters:
 #   $1 - Command to run
 #------------------------------------------------------------------------------
-function run_as_user() {
+run_as_user() {
     local command="$1"
     # Debug: Log the command being executed
-    #logWithVerboseCheck "$debug" debug "Running as $k8s_user: $command"
+    #log_with_verbose_check "$debug" debug "Running as $k8s_user: $command"
     
     # Execute the command as k8s_user and capture output and exit code
     local output
@@ -58,7 +73,7 @@ function run_as_user() {
 #   $1 - Exit code of the command
 #   $2 - Command that was executed (for logging purposes)
 #------------------------------------------------------------------------------
-function check_command_execution() {
+check_command_execution() {
     local exit_code=$1
     local cmd="$2"
     if [[ $exit_code -ne 0 ]]; then
@@ -71,7 +86,7 @@ function check_command_execution() {
 #------------------------------------------------------------------------------     
 # Debug function to check if a function exists
 #------------------------------------------------------------------------------
-function function_exists() {
+function_exists() {
     declare -f "$1" > /dev/null
     return $?
 }

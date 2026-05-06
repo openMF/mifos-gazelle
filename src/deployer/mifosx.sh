@@ -2,13 +2,13 @@
 # mifosx.sh -- Mifos Gazelle deployer script for Mifos X 
 
 #------------------------------------------------------------------------------
-# Function: DeployMifosXfromYaml
+# Function: deploy_mifosx_from_yaml
 # Description: Deploys MifosX (Fineract + web app) using Kubernetes manifests from a specified directory.
 # Parameters:
 #   $1 - Directory containing the Kubernetes manifests for MifosX deployment.
 #   $2 - (Optional) Timeout in seconds to wait for the fineract-server pod to be ready. Default is 600 seconds.
 #------------------------------------------------------------------------------
-function DeployMifosXfromYaml() {
+deploy_mifosx_from_yaml() {
     manifests_dir=$1
     timeout_secs=${2:-600}  # Default timeout of 10 minutes if not specified
 
@@ -24,14 +24,14 @@ function DeployMifosXfromYaml() {
     run_as_user "kubectl wait --for=condition=ready pod --all -n $PH_NAMESPACE --timeout=600s" > /dev/null 2>&1
 
     log_step "Removing existing MifosX resources"
-    deleteResourcesInNamespaceMatchingPattern "$MIFOSX_NAMESPACE"
+    delete_resources_in_namespace_matching_pattern "$MIFOSX_NAMESPACE"
     log_ok
 
     log_step "Creating namespace $MIFOSX_NAMESPACE"
-    createNamespace "$MIFOSX_NAMESPACE"
+    create_namespace "$MIFOSX_NAMESPACE"
     log_ok
 
-    cloneRepo "$MIFOSX_BRANCH" "$MIFOSX_REPO_LINK" "$APPS_DIR" "$MIFOSX_REPO_DIR"
+    clone_repo "$MIFOSX_BRANCH" "$MIFOSX_REPO_LINK" "$APPS_DIR" "$MIFOSX_REPO_DIR"
 
     log_step "Updating FQDNs in manifests"
     apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/web-app-deployment.yaml" "$GAZELLE_DOMAIN"
@@ -43,7 +43,7 @@ function DeployMifosXfromYaml() {
     log_ok
 
     log_step "Applying manifests"
-    applyKubeManifests "$manifests_dir" "$MIFOSX_NAMESPACE"
+    apply_kube_manifests "$manifests_dir" "$MIFOSX_NAMESPACE"
     log_ok
 
     log_banner "MifosX Deployed"
@@ -62,7 +62,7 @@ function DeployMifosXfromYaml() {
 # Parameters: None (uses GAZELLE_DOMAIN)
 # Returns:    0 if all tenants ready, 1 on timeout
 #------------------------------------------------------------------------------
-function wait_for_fineract_api_ready {
+wait_for_fineract_api_ready() {
   local tenants=("greenbank" "bluebank" "redbank")
   local base_url="https://mifos.${GAZELLE_DOMAIN}/fineract-provider/api/v1"
   local auth="Basic bWlmb3M6cGFzc3dvcmQ="   # mifos:password
@@ -99,14 +99,14 @@ function wait_for_fineract_api_ready {
           "${base_url}/paymenttypes" 2>/dev/null)
 
         if [[ "$paymenttypes_body" =~ ^\[ && "$paymenttypes_body" != "[]" ]]; then
-          logWithVerboseCheck "$debug" "$DEBUG" "Tenant '${tenant}' ready (${elapsed}s elapsed)"
+          log_with_verbose_check "$debug" "$DEBUG" "Tenant '${tenant}' ready (${elapsed}s elapsed)"
           ready=true
           break
         else
-          logWithVerboseCheck "$debug" "$DEBUG" "Tenant '${tenant}' schema ready, seed data pending (${elapsed}s/${timeout}s)"
+          log_with_verbose_check "$debug" "$DEBUG" "Tenant '${tenant}' schema ready, seed data pending (${elapsed}s/${timeout}s)"
         fi
       else
-        logWithVerboseCheck "$debug" "$DEBUG" "Tenant '${tenant}' schema not ready — HTTP ${clients_code:-000} (${elapsed}s/${timeout}s)"
+        log_with_verbose_check "$debug" "$DEBUG" "Tenant '${tenant}' schema not ready — HTTP ${clients_code:-000} (${elapsed}s/${timeout}s)"
       fi
 
       sleep $retry_interval
@@ -118,11 +118,11 @@ function wait_for_fineract_api_ready {
 }
 
 #------------------------------------------------------------------------------
-# Function : generateMifosXandVNextData
+# Function : generate_mifosx_and_vnext_data
 # Description: Generates MifosX clients and accounts & registers associations with vNext Oracle.
 # Parameters: None
 #------------------------------------------------------------------------------
-function generateMifosXandVNextData {
+generate_mifosx_and_vnext_data() {
   local timeout=${startup_timeout:-600}
   local recheck_time=30
   local start_time
@@ -145,7 +145,7 @@ function generateMifosXandVNextData {
 
       log_step "Generating MifosX clients and registering vNext Oracle associations"
       echo
-      run_as_user "python3 \"$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py\" -c \"$CONFIG_FILE_PATH\" 2>&1"
+      run_as_user "\"$PYTHON3\" \"$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py\" -c \"$CONFIG_FILE_PATH\" 2>&1"
       local data_gen_exit=$?
 
       if [[ $data_gen_exit -ne 0 ]]; then
@@ -159,7 +159,7 @@ function generateMifosXandVNextData {
     else
       elapsed=$(( $(date +%s) - start_time ))
       if [[ $elapsed -lt $timeout ]]; then
-        logWithVerboseCheck "$debug" "$DEBUG" "vNext or MifosX not running — retrying in ${recheck_time}s (${elapsed}s/${timeout}s)"
+        log_with_verbose_check "$debug" "$DEBUG" "vNext or MifosX not running — retrying in ${recheck_time}s (${elapsed}s/${timeout}s)"
         sleep $recheck_time
         elapsed=$(( $(date +%s) - start_time ))
       fi
