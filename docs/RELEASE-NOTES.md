@@ -6,6 +6,7 @@
 - **macOS Setup Module** — macOS/Colima setup logic extracted into a dedicated `src/environmentSetup/mac_setup.sh` for cleaner separation of concerns
 - **GovStack Cross-Border Payment Support** — Added `cert-manager` for CORS handling and a GovStack cross-border client deployment script with batch payment features
 - **Configurable Helm Timeout** — Helm chart install timeout is now configurable via `config.ini` (`startup_timeout`), replacing a hard-coded value
+- **Claude.md** — project file for Claude-code, it streamlines AI code development for claude-code users (/devs)
 
 ## Notable Changes
 
