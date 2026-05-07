@@ -9,7 +9,7 @@ IMAGE_NAME=""
 IMAGE_TAG=""
 VERBOSE=false
 
-function showUsage() {
+showUsage() {
     cat << EOF
 Usage: $(basename $0) [OPTIONS]
 Publish a local Docker image to k3s Kubernetes cluster.
@@ -31,18 +31,18 @@ EOF
     exit 1
 }
 
-function log() {
+log() {
     if [[ "$VERBOSE" == true ]]; then
         echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
     fi
 }
 
-function error() {
+error() {
     echo "ERROR: $1" >&2
     exit 1
 }
 
-function set_user() {
+set_user() {
     # set the k8s_user
     k8s_user=$(who am i | cut -d " " -f1)
     log "k8s_user = $k8s_user"

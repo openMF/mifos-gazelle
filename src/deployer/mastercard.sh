@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Mastercard CBS Deployment Script for Mifos-Gazelle
 # Integrates Mastercard CBS connector with PaymentHub using Kubernetes operator
 
@@ -9,7 +9,7 @@
 # IMPORTANT: Do not source commandline.sh here - it creates circular dependency
 # This script is sourced by deployer.sh, which is already called from commandline.sh
 # All necessary variables are already set in the environment
-# logger.sh (GREEN/RESET/logWithLevel/logWithVerboseCheck) is available via helpers.sh
+# logger.sh (GREEN/RESET/log_with_level/log_with_verbose_check) is available via helpers.sh
 
 # Expand ~ to the actual user's home directory (handles sudo)
 expand_tilde() {
@@ -60,7 +60,7 @@ check_prerequisites() {
         log_error "Set MASTERCARD_CBS_HOME or ensure ~/ph-ee-connector-mccbs exists"
         exit 1
     elif [ "${MASTERCARD_LOCALDEV_ENABLED:-false}" != "true" ] && [ ! -d "$MASTERCARD_CBS_HOME" ]; then
-        logWithVerboseCheck "$debug" "$WARNING" "MASTERCARD_CBS_HOME not found ($MASTERCARD_CBS_HOME) - BPMN workflow deploy will be skipped (Docker image deployment)"
+        log_with_verbose_check "$debug" "$WARNING" "MASTERCARD_CBS_HOME not found ($MASTERCARD_CBS_HOME) - BPMN workflow deploy will be skipped (Docker image deployment)"
     fi
 
     if ! run_as_user "kubectl get namespace \"$PAYMENTHUB_NAMESPACE\"" &> /dev/null; then
@@ -70,7 +70,7 @@ check_prerequisites() {
 }
 
 create_namespace() {
-    logWithVerboseCheck "$debug" "$INFO" "Creating namespace: $MASTERCARD_NAMESPACE"
+    log_with_verbose_check "$debug" "$INFO" "Creating namespace: $MASTERCARD_NAMESPACE"
 
     run_as_user "kubectl create namespace $MASTERCARD_NAMESPACE --dry-run=client -o yaml" \
         | run_as_user "kubectl apply -f -" > /dev/null 2>&1
@@ -81,7 +81,7 @@ create_namespace() {
 }
 
 create_secrets() {
-    logWithVerboseCheck "$debug" "$INFO" "Creating Kubernetes secrets"
+    log_with_verbose_check "$debug" "$INFO" "Creating Kubernetes secrets"
 
     if ! run_as_user "kubectl get secret mastercard-cbs-credentials -n $MASTERCARD_NAMESPACE" &> /dev/null; then
         run_as_user "kubectl create secret generic mastercard-cbs-credentials \
@@ -89,7 +89,7 @@ create_secrets() {
             --from-literal=client_id=${MASTERCARD_CLIENT_ID:-demo} \
             --from-literal=client_secret=${MASTERCARD_CLIENT_SECRET:-demo} \
             --from-literal=partner_id=${MASTERCARD_PARTNER_ID:-MIFOS_GOVSTACK}" > /dev/null 2>&1
-        logWithVerboseCheck "$debug" "$INFO" "Created mastercard-cbs-credentials secret"
+        log_with_verbose_check "$debug" "$INFO" "Created mastercard-cbs-credentials secret"
     fi
 
     local signing_key_path encryption_cert_path decryption_key_path
@@ -111,10 +111,10 @@ create_secrets() {
             run_as_user "kubectl create secret generic mastercard-cbs-certs \
                 -n $MASTERCARD_NAMESPACE \
                 $cert_args" > /dev/null 2>&1
-            logWithVerboseCheck "$debug" "$INFO" "Created mastercard-cbs-certs secret from local cert files"
+            log_with_verbose_check "$debug" "$INFO" "Created mastercard-cbs-certs secret from local cert files"
         fi
     else
-        logWithVerboseCheck "$debug" "$WARNING" "MASTERCARD_SIGNING_KEY_PATH not set - certs must be bundled in Docker image (localdev only)"
+        log_with_verbose_check "$debug" "$WARNING" "MASTERCARD_SIGNING_KEY_PATH not set - certs must be bundled in Docker image (localdev only)"
     fi
 
     if run_as_user "kubectl get secret operationsmysql -n $PAYMENTHUB_NAMESPACE" &> /dev/null; then
@@ -127,7 +127,7 @@ create_secrets() {
                     del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp)
                 ' \
                 | run_as_user "kubectl apply -f -" > /dev/null 2>&1
-            logWithVerboseCheck "$debug" "$INFO" "Copied operationsmysql as mysql-secret to $MASTERCARD_NAMESPACE"
+            log_with_verbose_check "$debug" "$INFO" "Copied operationsmysql as mysql-secret to $MASTERCARD_NAMESPACE"
         fi
     else
         log_warn "operationsmysql secret not found in $PAYMENTHUB_NAMESPACE"
@@ -144,7 +144,7 @@ deploy_operator() {
 
     local config_file
     config_file=$(resolve_config_file)
-    logWithVerboseCheck "$debug" "$INFO" "Deploying operator with config: $config_file"
+    log_with_verbose_check "$debug" "$INFO" "Deploying operator with config: $config_file"
 
     cd "$operator_dir"
     if [ "$debug" == "true" ]; then
@@ -171,7 +171,7 @@ deploy_connector() {
     local localdev_section=""
 
     if [ "${MASTERCARD_LOCALDEV_ENABLED:-false}" == "true" ]; then
-        logWithVerboseCheck "$debug" "$INFO" "Connector local development mode enabled"
+        log_with_verbose_check "$debug" "$INFO" "Connector local development mode enabled"
         image_repo="eclipse-temurin"
         image_tag="17"
         localdev_section="  localdev:
@@ -184,7 +184,7 @@ deploy_connector() {
         image_tag=$(grep '[[:space:]]tag:' "$sample_cr" 2>/dev/null | head -1 | sed 's/.*tag:[[:space:]]*//' | tr -d '"')
         image_repo="${image_repo:-ph-ee-connector-mastercard-cbs}"
         image_tag="${image_tag:-1.0.0}"
-        logWithVerboseCheck "$debug" "$INFO" "Connector image: ${image_repo}:${image_tag}"
+        log_with_verbose_check "$debug" "$INFO" "Connector image: ${image_repo}:${image_tag}"
     fi
 
     local cr_file="/tmp/mastercard-cbs-cr.yaml"
@@ -227,7 +227,7 @@ ${localdev_section}
       memory: "256Mi"
 EOF
     chmod 644 "$cr_file"
-    logWithVerboseCheck "$debug" "$INFO" "Applying connector CR from $cr_file"
+    log_with_verbose_check "$debug" "$INFO" "Applying connector CR from $cr_file"
 
     local apply_output
     apply_output=$(run_as_user "kubectl apply -f '$cr_file' 2>&1")
@@ -237,7 +237,7 @@ EOF
         log_error "Failed to apply connector CR: $apply_output"
         return 1
     fi
-    logWithVerboseCheck "$debug" "$INFO" "Connector CR: $apply_output"
+    log_with_verbose_check "$debug" "$INFO" "Connector CR: $apply_output"
 }
 
 wait_for_deployment() {
@@ -280,9 +280,9 @@ deploy_bpmn_workflow() {
         return 1
     fi
 
-    logWithVerboseCheck "$debug" "$INFO" "Deploying BPMN workflow for greenbank"
+    log_with_verbose_check "$debug" "$INFO" "Deploying BPMN workflow for greenbank"
     if run_as_user "bash \"$deploy_script\" -c \"$config_file\" -f \"$workflow_file\" -t greenbank" > /dev/null 2>&1; then
-        logWithVerboseCheck "$debug" "$DEBUG" "BPMN deployed for greenbank"
+        log_with_verbose_check "$debug" "$DEBUG" "BPMN deployed for greenbank"
     else
         log_warn "Failed to deploy BPMN workflow for greenbank"
         return 1
@@ -290,9 +290,9 @@ deploy_bpmn_workflow() {
 
     for tenant in redbank bluebank; do
         if run_as_user "bash \"$deploy_script\" -c \"$config_file\" -f \"$workflow_file\" -t $tenant" > /dev/null 2>&1; then
-            logWithVerboseCheck "$debug" "$DEBUG" "BPMN deployed for $tenant"
+            log_with_verbose_check "$debug" "$DEBUG" "BPMN deployed for $tenant"
         else
-            logWithVerboseCheck "$debug" "$DEBUG" "Skipped $tenant (tenant may not exist)"
+            log_with_verbose_check "$debug" "$DEBUG" "Skipped $tenant (tenant may not exist)"
         fi
     done
 }
@@ -312,7 +312,7 @@ load_supplementary_data() {
         return 0
     fi
 
-    logWithVerboseCheck "$debug" "$INFO" "Loading supplementary data via $data_loader"
+    log_with_verbose_check "$debug" "$INFO" "Loading supplementary data via $data_loader"
     if [ "$debug" == "true" ]; then
         run_as_user "bash \"$data_loader\" -c \"$config_file\""
     else
@@ -340,11 +340,11 @@ generate_mastercard_csv() {
     fi
 
     local output_dir="$RUN_DIR/src/utils/data-loading"
-    logWithVerboseCheck "$debug" "$INFO" "Generating bulk-gazelle-mastercard-6.csv"
+    log_with_verbose_check "$debug" "$INFO" "Generating bulk-gazelle-mastercard-6.csv"
     if [ "$debug" == "true" ]; then
-        run_as_user "python3 \"$csv_generator\" -c \"$config_file\" --mode mastercard --num-rows 6 --output-dir \"$output_dir\""
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$config_file\" --mode mastercard --num-rows 6 --output-dir \"$output_dir\""
     else
-        run_as_user "python3 \"$csv_generator\" -c \"$config_file\" --mode mastercard --num-rows 6 --output-dir \"$output_dir\"" > /tmp/mastercard-csv-gen.log 2>&1
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$config_file\" --mode mastercard --num-rows 6 --output-dir \"$output_dir\"" > /tmp/mastercard-csv-gen.log 2>&1
     fi
 
     if [ $? -ne 0 ]; then
@@ -353,10 +353,10 @@ generate_mastercard_csv() {
 }
 
 configure_payment_mode() {
-    logWithVerboseCheck "$debug" "$INFO" "Payment mode MASTERCARD_CBS requires bulk-processor config:"
-    logWithVerboseCheck "$debug" "$INFO" "  payment-modes: [{id: MASTERCARD_CBS, type: BULK, endpoint: bulk_connector_mastercard_cbs-{dfspid}}]"
+    log_with_verbose_check "$debug" "$INFO" "Payment mode MASTERCARD_CBS requires bulk-processor config:"
+    log_with_verbose_check "$debug" "$INFO" "  payment-modes: [{id: MASTERCARD_CBS, type: BULK, endpoint: bulk_connector_mastercard_cbs-{dfspid}}]"
     if [ -d "$HOME/ph-ee-bulk-processor" ]; then
-        logWithVerboseCheck "$debug" "$INFO" "Hostpath detected - rebuild JAR and restart pod after editing application.yaml"
+        log_with_verbose_check "$debug" "$INFO" "Hostpath detected - rebuild JAR and restart pod after editing application.yaml"
     fi
 }
 
@@ -394,7 +394,7 @@ cleanup() {
 deploy_mastercard() {
     log_section "Deploying Mastercard CBS"
     check_prerequisites
-    logWithVerboseCheck "$debug" "$DEBUG" "Namespace: $MASTERCARD_NAMESPACE"
+    log_with_verbose_check "$debug" "$DEBUG" "Namespace: $MASTERCARD_NAMESPACE"
 
     log_step "Creating namespace $MASTERCARD_NAMESPACE"
     create_namespace

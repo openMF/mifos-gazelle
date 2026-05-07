@@ -6,7 +6,7 @@
 # based on k3s check-config output parsing and removing ANSI escape codes if any
 # note this isn't used for k3s cluster health checking just installation verification
 #------------------------------------------------------------------------------
-function check_k3s_cluster_status {
+check_k3s_cluster_status() {
     status=$(
         k3s check-config 2>/dev/null | 
         perl -ne 's/\e\[[0-9;]*m//g; if (/STATUS: (pass|fail)/) { print "$1\n" }' | 
@@ -22,18 +22,18 @@ function check_k3s_cluster_status {
 #------------------------------------------------------------------------------
 # Install k3s lightweight Kubernetes cluster
 #------------------------------------------------------------------------------
-function install_k3s {
+install_k3s() {
     # TODO check this i.e. do we need to remove old kube config like this 
     rm -rf "$k8s_user_home/.kube" >> /dev/null 2>&1
-    printf "\r==> install local k3s cluster v%s user [%s]    " "$k8s_version" "$k8s_user"
+    log_step "install local k3s cluster v${k8s_version} user [${k8s_user}]"
     curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE="644" \
                             INSTALL_K3S_CHANNEL="v$k8s_version" \
                             INSTALL_K3S_EXEC=" --disable traefik " sh > /dev/null 2>&1
 
     if ! check_k3s_cluster_status ; then
-        printf "[fail]\n"
-        printf "    ** Error: k3s check-config not reporting status of pass ** \n"
-        printf "    ** run sudo k3s check-config manually as user [%s] for more information   ** \n" "$k8s_user"
+        log_failed
+        log_error "k3s check-config not reporting status of pass"
+        log_error "run sudo k3s check-config manually as user [$k8s_user] for more information"
         exit 1
     fi
 
@@ -44,16 +44,27 @@ function install_k3s {
     chown "$k8s_user" "$kubeconfig_path"
     chmod 600 "$kubeconfig_path"
 
-    logWithVerboseCheck "$debug" debug "k3s kubeconfig copied to $kubeconfig_path"
-    printf "[ok]\n"
+    log_with_verbose_check "$debug" debug "k3s kubeconfig copied to $kubeconfig_path"
+
+    # Increase inotify and file-descriptor limits so Java/Spring-Boot pods (zeebe,
+    # bulk-processor, etc.) don't hit "too many open files" / fsnotify errors.
+    # Write to sysctl.d so the settings survive reboots.
+    log_step "Configuring kernel limits for k3s (inotify / file descriptors)"
+    tee /etc/sysctl.d/99-k3s.conf > /dev/null <<'EOF'
+fs.inotify.max_user_watches=1048576
+fs.inotify.max_user_instances=8192
+fs.file-max=2097152
+EOF
+    sysctl --system > /dev/null 2>&1
+    log_ok
 
 }
 
 #------------------------------------------------------------------------------
-# Function: deployPhHelmChartFromDir
-# Description: Deploys a Helm chart from a specified directory into a given namespace.
+# Function: check_nginx_running
+# Description: Returns 0 if the NGINX ingress pod is running, 1 otherwise.
 #------------------------------------------------------------------------------
-function check_nginx_running {
+check_nginx_running() {
     nginx_pod_name=$(run_as_user "kubectl get pods -n default --no-headers -o custom-columns=\":metadata.name\"" | grep nginx | head -n 1)
     if [ -z "$nginx_pod_name" ]; then
         return 1
@@ -70,7 +81,7 @@ function check_nginx_running {
 # Function: get_ingress_ip
 # Description: Retrieves and displays the external IP or hostname of the NGINX Ingress Controller
 #------------------------------------------------------------------------------
-function get_ingress_ip {
+get_ingress_ip() {
     ingress_ip=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
     if [ -z "$ingress_ip" ]; then
         ingress_ip=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
@@ -94,7 +105,7 @@ function get_ingress_ip {
 #              minimises updates and network traffic 
 #------------------------------------------------------------------------------
 check_and_load_helm_repos() {
-printf "\r==> Check and load Helm repositories    "
+log_step "Check and load Helm repositories"
   local updated=false
 
   # Gazelle Repos List (name and URL)
@@ -151,15 +162,15 @@ printf "\r==> Check and load Helm repositories    "
       exit 1
     fi
   fi
-  printf "            [ok]\n"
+  log_ok
 }
 
 #------------------------------------------------------------------------------
 # Description: Install NGINX ingress controller in a local cluster using Helm 
 #              if not already installed. Wait for it to be running.   
 #------------------------------------------------------------------------------ 
-function install_nginx_local_cluster {
-    printf "\r==> Installing NGINX to local cluster "
+install_nginx_local_cluster() {
+    log_step "Installing NGINX ingress controller"
     if ! check_nginx_running; then 
         run_as_user  "helm delete ingress-nginx -n default " > /dev/null 2>&1
         run_as_user  "helm install --wait --timeout 1200s ingress-nginx ingress-nginx \
@@ -167,9 +178,9 @@ function install_nginx_local_cluster {
                             -n default -f $NGINX_VALUES_FILE"  > /dev/null 2>&1
     fi 
     if check_nginx_running; then 
-        printf "              [ok]\n"
+        log_ok
     else
-        printf "** Error: Helm install of NGINX ingress controller failed, pod is not running **\n"
+        log_failed "Helm install of NGINX ingress controller failed, pod is not running"
         exit 1
     fi
 }
@@ -177,8 +188,36 @@ function install_nginx_local_cluster {
 #------------------------------------------------------------------------------
 # Install k8s related tools if not already installed
 #------------------------------------------------------------------------------
-function install_k8s_tools {
-    printf "\r==> Checking and installing Kubernetes tools     "
+install_k8s_tools() {
+    log_step "Checking and installing Kubernetes tools"
+
+    # macOS: use Homebrew. kubectl, docker, and docker-compose are installed here;
+    # Colima does not bundle host-side binaries the way Rancher Desktop did.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        ensure_homebrew
+        local mac_tools=(helm k9s kubectx kustomize kubectl docker docker-compose socket_vmnet)
+        for tool in "${mac_tools[@]}"; do
+            local needs_install=false
+            if ! command -v "$tool" &>/dev/null; then
+                needs_install=true
+            elif ! "$tool" version &>/dev/null && ! "$tool" --version &>/dev/null; then
+                # Binary exists but fails to execute (e.g. Linux ELF on macOS) — remove and reinstall
+                printf "\n    Replacing non-native '%s' binary with Homebrew version...\n" "$tool"
+                rm -f "$(command -v "$tool")"
+                needs_install=true
+            fi
+            if [[ "$needs_install" == true ]]; then
+                run_brew install "$tool" >/dev/null 2>&1
+            fi
+            # Ensure the binary is linked into /opt/homebrew/bin — brew install
+            # can leave a formula in a broken-linked state if a previous tool
+            # (OrbStack, Rancher Desktop) removed its symlink without telling brew.
+            run_brew unlink "$tool" >/dev/null 2>&1 || true
+            run_brew link --overwrite "$tool" >/dev/null 2>&1 || true
+        done
+        log_ok
+        return 0
+    fi
 
     # For local clusters, match kubectl to the configured k3s version so there
     # is no version skew between the client binary and the server.
@@ -211,13 +250,13 @@ function install_k8s_tools {
             if [[ "$tool" == "kubectl" ]]; then
                 installed_ver=$(kubectl version --client -o json 2>/dev/null | grep -o '"gitVersion":"[^"]*"' | head -1 | cut -d'"' -f4)
                 if [[ "$installed_ver" != "$KUBECTL_VERSION" ]]; then
-                    logWithVerboseCheck "$debug" "$INFO" "kubectl $installed_ver installed but $KUBECTL_VERSION required — reinstalling"
+                    log_with_verbose_check "$debug" "$INFO" "kubectl $installed_ver installed but $KUBECTL_VERSION required — reinstalling"
                 else
-                    logWithVerboseCheck "$debug" "$DEBUG" "$tool $installed_ver is already installed. Skipping."
+                    log_with_verbose_check "$debug" "$DEBUG" "$tool $installed_ver is already installed. Skipping."
                     continue
                 fi
             else
-                logWithVerboseCheck "$debug" "$DEBUG" "$tool is already installed. Skipping."
+                log_with_verbose_check "$debug" "$DEBUG" "$tool is already installed. Skipping."
                 continue
             fi
         fi
@@ -245,12 +284,12 @@ function install_k8s_tools {
 
         # Verify installation
         if command -v "$tool" >/dev/null 2>&1; then
-            logWithVerboseCheck "$debug" "$DEBUG" "$tool installed successfully."
+            log_with_verbose_check "$debug" "$DEBUG" "$tool installed successfully."
         else
             echo "Error: $tool installation failed."
         fi
     done
-    printf "   [ok]\n"
+    log_ok
 }
 
 
@@ -258,7 +297,7 @@ function install_k8s_tools {
 # Function : report_cluster_info
 # Description: Reports basic information about the Kubernetes cluster.
 #------------------------------------------------------------------------------
-function report_cluster_info {
+report_cluster_info() {
     #export KUBECONFIG="$kubeconfig_path"
     num_nodes=$(kubectl get nodes --no-headers | wc -l)
     k8s_version=$(kubectl version | grep Server | awk '{print $3}')
