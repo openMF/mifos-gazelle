@@ -1,11 +1,12 @@
 #!/bin/bash
 
-RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"  # the directory that this script is in 
+RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"  # the directory that this script is in
 echo "RUN_DIR is $RUN_DIR"
 BASE_DIR="$( cd $(dirname "$RUN_DIR") ; pwd )"
+source "$BASE_DIR/utils/helpers.sh"
 echo "BASE_DIR is $BASE_DIR"
 
-function welcome {
+welcome() {
     echo -e "\e[33mWARNING: In case you start getting service unavailable errors, please follow the Step 5 from the POSTMAN_SETPUP.md file.\e[0m"
     echo -e "\e[33mWARNING: This script will only work if you have run the deployment atleast once successfully.\e[0m"
     echo -e "\e[33mWARNING: This script uses the directory repos/phlabs/orchestration/feel/ to upload the BPMN diagrams to zeebe operations service.\e[0m"
@@ -84,7 +85,7 @@ add_or_update_hosts() {
 
     if [ -n "$existing_line" ]; then
         if $override; then
-            sed -i "/^$ip[[:space:]]/c\\$ip $hosts" /etc/hosts
+            sed_inplace "/^$ip[[:space:]]/c\\$ip $hosts" /etc/hosts
             echo "Updated existing entry for $ip with hardcoded hostnames."
         else
             echo "$ip $hosts" >> /etc/hosts

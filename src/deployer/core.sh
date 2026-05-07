@@ -6,26 +6,26 @@
 # Description: Check if the application is deployed by 
 # verifying the number of "Ready" pods in a namespace
 #------------------------------------------------------
-function is_app_running() {
+is_app_running() {
     local namespace="$1"
     local min_pods=2
     
     # Validate inputs
     [[ -z "$namespace" ]] && {
-        logWithVerboseCheck "$debug" error "Namespace missing: namespace=$namespace"
+        log_with_verbose_check "$debug" error "Namespace missing: namespace=$namespace"
         return 1
     }
     
     # Debug: Print namespace and minimum pods
-    logWithVerboseCheck "$debug" debug "Checking for at least $min_pods pods, all Ready, in namespace $namespace"
+    log_with_verbose_check "$debug" debug "Checking for at least $min_pods pods, all Ready, in namespace $namespace"
     
     # Check if namespace exists
     local namespace_check
     namespace_check=$(run_as_user "kubectl get namespace \"$namespace\" -o name")
     local namespace_exit_code=$?
-    logWithVerboseCheck "$debug" debug "Namespace check exit code: $namespace_exit_code, output: [$namespace_check]"
+    log_with_verbose_check "$debug" debug "Namespace check exit code: $namespace_exit_code, output: [$namespace_check]"
     [[ $namespace_exit_code -ne 0 ]] && {
-        logWithVerboseCheck "$debug" error "Namespace $namespace does not exist or is inaccessible"
+        log_with_verbose_check "$debug" error "Namespace $namespace does not exist or is inaccessible"
         return 1
     }
     
@@ -34,7 +34,7 @@ function is_app_running() {
     local exit_code=$?
 
     # Strip any lines that look like debug/command echo (e.g., "DEBUG Running as ...")
-    pod_list=$(echo "$raw_output" | grep -v 'DEBUG' | grep -v "kubectl" || true)
+    pod_list=$(echo "$raw_output" | grep -vE '(DEBUG|kubectl)' || true)
     
     # Count total pods and ready pods
     total_pods=$(echo "$pod_list" | grep -c '^')
@@ -43,27 +43,27 @@ function is_app_running() {
     ready_count=$(echo "$pod_list" | awk '{split($2,a,"/"); if(a[1]==a[2] && a[1]>0) print}' | grep -c '^')
 
     # Debug: Print kubectl exit code, pod list, total pods, and ready count
-    logWithVerboseCheck "$debug" debug "kubectl exit code: $exit_code, pod list: [$pod_list], total pods: $total_pods, ready pods: $ready_count"
+    log_with_verbose_check "$debug" debug "kubectl exit code: $exit_code, pod list: [$pod_list], total pods: $total_pods, ready pods: $ready_count"
 
-    logWithVerboseCheck "$debug" "$DEBUG" "is_app_running($namespace): total_pods=$total_pods, ready_count=$ready_count, min_pods=$min_pods"
+    log_with_verbose_check "$debug" "$DEBUG" "is_app_running($namespace): total_pods=$total_pods, ready_count=$ready_count, min_pods=$min_pods"
     
     # Check if command failed
     [[ $exit_code -ne 0 ]] && {
-        logWithVerboseCheck "$debug" error "Failed to retrieve pods in namespace $namespace"
+        log_with_verbose_check "$debug" error "Failed to retrieve pods in namespace $namespace"
         return 1
     }
     
     # Check if there are enough pods and all are Ready
     if [[ $total_pods -ge $min_pods && $ready_count -ge $min_pods ]]; then
-        logWithVerboseCheck "$debug" debug "Found $total_pods pods, all Ready, in namespace $namespace, meeting minimum of $min_pods"
+        log_with_verbose_check "$debug" debug "Found $total_pods pods, all Ready, in namespace $namespace, meeting minimum of $min_pods"
         return 0
     else
-        logWithVerboseCheck "$debug" debug "Check failed: $total_pods pods, $ready_count Ready, in namespace $namespace (requires at least $min_pods pods, all Ready)"
+        log_with_verbose_check "$debug" debug "Check failed: $total_pods pods, $ready_count Ready, in namespace $namespace (requires at least $min_pods pods, all Ready)"
         return 1
     fi
 } # end of is_app_running
 
-function wait_for_pods_ready() {
+wait_for_pods_ready() {
     local namespace="$1"
     log_step "Waiting for $namespace pods to stabilise"
 
@@ -73,17 +73,17 @@ function wait_for_pods_ready() {
 
       if [ -z "$NOT_READY" ]; then
         STABLE_COUNT=$((STABLE_COUNT + 1))
-        logWithVerboseCheck "$debug" "$DEBUG" "All pods ready — stable count: $STABLE_COUNT/3"
+        log_with_verbose_check "$debug" "$DEBUG" "All pods ready — stable count: $STABLE_COUNT/3"
       else
         STABLE_COUNT=0
-        logWithVerboseCheck "$debug" "$DEBUG" "Some pods not ready — waiting 60s..."
+        log_with_verbose_check "$debug" "$DEBUG" "Some pods not ready — waiting 60s..."
       fi
       sleep 60
     done
     log_ok
 }
 #------------------------------------------------------------------------------
-# Function : createIngressSecret
+# Function : create_ingress_secret
 # Description: Creates a self-signed TLS cert with multiple SANs and stores it as a Kubernetes secret.
 # Parameters:
 #   $1 - Namespace
@@ -91,7 +91,7 @@ function wait_for_pods_ready() {
 #   $3 - Secret name
 #   $4 - Comma-separated SAN list (optional) - e.g. "ops.example.com,api.example.com,*.example.com"
 #------------------------------------------------------------------------------
-function createIngressSecret {
+create_ingress_secret() {
     local namespace="$1"
     local primary_domain="$2"
     local secret_name="$3"
@@ -114,7 +114,7 @@ function createIngressSecret {
     fi
 
     log_step "Creating TLS secret '$secret_name' ($primary_domain, $((index-1)) SANs)"
-    logWithVerboseCheck "$debug" "$DEBUG" "SANs:\n$san_config"
+    log_with_verbose_check "$debug" "$DEBUG" "SANs:\n$san_config"
 
     # Generate private key
     openssl genrsa -out "$key_dir/$primary_domain.key" 2048 >/dev/null 2>&1
@@ -123,22 +123,22 @@ function createIngressSecret {
     chown "$k8s_user":"$k8s_user" "$key_dir/$primary_domain.key"
     chmod 600 "$key_dir/$primary_domain.key"
 
-    # Generate certificate with SANs
-    openssl req -x509 -new -nodes \
-        -key "$key_dir/$primary_domain.key" \
-        -sha256 -days 365 \
-        -out "$key_dir/$primary_domain.crt" \
-        -subj "/CN=$primary_domain" \
-        -extensions v3_req \
-        -config <(
-            cat <<EOF
+    # X.509 CN field is limited to 64 characters; truncate if needed.
+    # SANs handle actual hostname matching — CN is informational only.
+    local cn="${primary_domain:0:64}"
+
+    # Write OpenSSL config to a temp file (process substitution is non-seekable;
+    # openssl reads the config multiple times and fails silently with <(...))
+    local config_file
+    config_file=$(mktemp /tmp/openssl-san-XXXXXX.conf)
+    cat > "$config_file" <<EOF
 [req]
 distinguished_name=req_distinguished_name
 x509_extensions=v3_req
 prompt=no
 
 [req_distinguished_name]
-CN=$primary_domain
+CN=$cn
 
 [v3_req]
 subjectAltName=@alt_names
@@ -148,7 +148,17 @@ extendedKeyUsage=serverAuth
 [alt_names]
 ${san_config}
 EOF
-        ) >/dev/null 2>&1
+
+    # Generate certificate with SANs
+    openssl req -x509 -new -nodes \
+        -key "$key_dir/$primary_domain.key" \
+        -sha256 -days 365 \
+        -out "$key_dir/$primary_domain.crt" \
+        -subj "/CN=$cn" \
+        -extensions v3_req \
+        -config "$config_file" >/dev/null 2>&1
+
+    rm -f "$config_file"
 
     # Set proper ownership and permissions on the certificate
     chown "$k8s_user":"$k8s_user" "$key_dir/$primary_domain.crt"
@@ -187,7 +197,7 @@ EOF
 
 
 #------------------------------------------------------------------------------
-# Function : manageElasticSecrets
+# Function : manage_elastic_secrets
 # Description: Creates or deletes Elasticsearch related Kubernetes secrets.
 #              On create, generates a self-signed certificate and packages it
 #              as a PKCS12 file using only openssl — no external repo required.
@@ -195,7 +205,7 @@ EOF
 #   $1 - Action: "create" or "delete"
 #   $2 - Namespace where the secrets are managed
 #------------------------------------------------------------------------------
-function manageElasticSecrets {
+manage_elastic_secrets() {
     local action="$1"
     local namespace="$2"
     local password="XVYgwycNuEygEEEI0hQF"
@@ -317,7 +327,6 @@ function manageElasticSecrets {
                 log_warn "Failed to delete secret $secret: $delete_output"
                 all_success=false
             fi
-            # echo "DEBUG removed secret $secret in namespace $namespace ok" 
         done
 
         if [ "$all_success" = false ]; then
@@ -368,16 +377,6 @@ update_fqdn() {
 
 }
 
-# update_fqdn() {
-#     local file="$1"
-#     local old_fqdn="$2"
-#     local new_fqdn="$3"
-    
-#     [ ! -f "$file" ] && echo "Error: File not found" && return 1
-#     perl -pi -e "s/\\b([a-zA-Z0-9.-]+)\\.$old_fqdn\\b/\$1.$new_fqdn/g" "$file"
-
-# }
-
 #------------------------------------------------------------------------------
 # Function to update all YAML files in a directory structure
 # Example:
@@ -387,7 +386,7 @@ update_fqdn_batch() {
     local directory="$1"
     local old_fqdn="$2"
     local new_fqdn="$3"
-    
+
     find "$directory" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
         #echo "Processing: $file"
         update_fqdn "$file" "$old_fqdn" "$new_fqdn"
@@ -396,28 +395,92 @@ update_fqdn_batch() {
 }
 
 #------------------------------------------------------------------------------
+# Domain state tracking — ensures FQDN substitution is idempotent across runs
+# even when GAZELLE_DOMAIN changes between deployments.
+#
+# The last successfully applied domain is stored in config/.last_applied_domain.
+# On each run both the canonical baselines AND the previously applied domain are
+# replaced, so files already patched with a prior domain are correctly updated.
+#------------------------------------------------------------------------------
+_domain_state_file() {
+    echo "${RUN_DIR:-$HOME/mifos-gazelle}/config/.last_applied_domain"
+}
+
+get_last_applied_domain() {
+    local f
+    f=$(_domain_state_file)
+    [ -f "$f" ] && cat "$f"
+}
+
+save_applied_domain() {
+    echo "$GAZELLE_DOMAIN" > "$(_domain_state_file)"
+}
+
+# Replace canonical baselines AND the previously applied domain in a single file.
+# Usage: apply_domain_to_file <file> <new_domain>
+apply_domain_to_file() {
+    local file="$1"
+    local new_domain="$2"
+    local prev_domain
+    prev_domain=$(get_last_applied_domain)
+
+    update_fqdn "$file" "mifos.gazelle.test" "$new_domain"
+    update_fqdn "$file" "mifos.gazelle.localhost" "$new_domain"
+    if [ -n "$prev_domain" ] && [ "$prev_domain" != "$new_domain" ]; then
+        log_with_verbose_check "$debug" "$DEBUG" "Also replacing previous domain '$prev_domain' → '$new_domain' in $(basename "$file")"
+        update_fqdn "$file" "$prev_domain" "$new_domain"
+    fi
+}
+
+# Replace canonical baselines AND the previously applied domain across a directory tree.
+# Usage: apply_domain_to_dir <directory> <new_domain> [extra_old_fqdn]
+#   extra_old_fqdn: additional baseline to replace first (e.g. "local" for vNext manifests)
+apply_domain_to_dir() {
+    local directory="$1"
+    local new_domain="$2"
+    local extra_old_fqdn="${3:-}"
+    local prev_domain
+    prev_domain=$(get_last_applied_domain)
+
+    [ -n "$extra_old_fqdn" ] && update_fqdn_batch "$directory" "$extra_old_fqdn" "$new_domain"
+    update_fqdn_batch "$directory" "mifos.gazelle.test" "$new_domain"
+    update_fqdn_batch "$directory" "mifos.gazelle.localhost" "$new_domain"
+    if [ -n "$prev_domain" ] && [ "$prev_domain" != "$new_domain" ]; then
+        log_with_verbose_check "$debug" "$DEBUG" "Also replacing previous domain '$prev_domain' → '$new_domain' in $directory"
+        update_fqdn_batch "$directory" "$prev_domain" "$new_domain"
+    fi
+}
+
+#------------------------------------------------------------------------------
 # Standalone function to ensure Helm dependencies are up to date
 # Can be called from any function that needs to manage Helm chart dependencies
 # Parameters:
 #   $1 - Path to the Helm chart directory
 #------------------------------------------------------------------------------
-function ensure_helm_dependencies() {
+ensure_helm_dependencies() {
   local chartPath=$1
   local chartName=$(basename "$chartPath")
   
-  logWithVerboseCheck "$debug" "$DEBUG" "Ensuring helm dependencies for $chartName"
+  log_with_verbose_check "$debug" "$DEBUG" "Ensuring helm dependencies for $chartName"
 
   if [[ -f "$chartPath/Chart.lock" && -s "$chartPath/Chart.lock" ]]; then
-    # Count entries in Chart.lock and compare with .tgz files in charts/
-    local expected=$(grep -c "name:" "$chartPath/Chart.lock")
-    local actual=$(find "$chartPath/charts" -maxdepth 1 -name '*.tgz' 2>/dev/null | wc -l)
-    
+    local expected actual
+    expected=$(grep -c "name:" "$chartPath/Chart.lock")
+    actual=$(find "$chartPath/charts" -maxdepth 1 -name '*.tgz' 2>/dev/null | wc -l | tr -d '[:space:]')
+
     if [[ $actual -ge $expected && $expected -gt 0 ]]; then
-      run_as_user "cd $chartPath && helm dep build" >> /dev/null 2>&1
-    else
-      run_as_user "cd $chartPath && helm dep update" >> /dev/null 2>&1
+      # All dependencies already present — nothing to do
+      log_with_verbose_check "$debug" "$DEBUG" "helm dependencies for $chartName already present ($actual/$expected), skipping fetch"
+      return 0
     fi
-  else
-    run_as_user "cd $chartPath && helm dep update" >> /dev/null 2>&1
+  fi
+
+  # Dependencies missing — run helm dep update as the invoking user directly
+  # (not via run_as_user/su) so that credential helpers and PATH work correctly
+  if ! (cd "$chartPath" && helm dep update); then
+    log_with_level "$ERROR" "helm dependency fetch failed for '$chartName'."
+    log_with_level "$ERROR" "Try running manually as your normal user:"
+    log_with_level "$ERROR" "  cd $chartPath && helm dep update"
+    exit 1
   fi
 }

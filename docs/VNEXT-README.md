@@ -30,8 +30,8 @@ sudo ./run.sh -u $USER -m deploy -d true -a vNext
 - **Resource Efficient**: Optimized resource usage for testing environments
 - **vNext only**: using the -a flag on the Mifos Gazelle installer 
 
-## Supported Environments
-- the Mifos Gazelle vNext Beta install works on Ubuntu 20.04 and 22.04 LTS on x86_64 or ARM64:
+## Tested Environments
+- the Mifos Gazelle vNext Beta install has been tested on Ubuntu 20.04 and 22.04 LTS on x86_64 or ARM64:
   - Bare metal servers
   - Virtual machines (VirtualBox, Parallels, UTM, QEMU)
   - Cloud instances (AWS, GCP, Azure, etc.)
@@ -127,6 +127,6 @@ ipconfig /flushdns
 - Ideal for development, testing, and educational purposes
 - Not suitable for production deployments
 
-## Support
-- Support for deployment issues through Mifos-Gazelle can be obtained through the Mifos Gazelle Slack channel https://mifos.slack.com/archives/C082PNLUCRK
-- Support for issues with vNext Beta 1 should be directed to the Mojaloop Development Community.
+## Community Help
+- Community help with deployment issues is available on the Mifos Gazelle Slack channel https://mifos.slack.com/archives/C082PNLUCRK
+- For vNext Beta 1 issues, reach out to the Mojaloop Development Community.

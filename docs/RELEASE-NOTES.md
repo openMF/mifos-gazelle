@@ -1,15 +1,48 @@
+# Mifos Gazelle v2.1.0 Release Notes (DRAFT)
+
+## Major New Features
+
+- **macOS Support** — Full deployment on macOS via Colima/k3s; `run.sh` automatically installs Homebrew, Colima, Docker, and Docker Compose on first run
+- **macOS Setup Module** — macOS/Colima setup logic extracted into a dedicated `src/environmentSetup/mac_setup.sh` for cleaner separation of concerns
+- **GovStack Cross-Border Payment Support** — Added `cert-manager` for CORS handling and a GovStack cross-border client deployment script with batch payment features
+- **Configurable Helm Timeout** — Helm chart install timeout is now configurable via `config.ini` (`startup_timeout`), replacing a hard-coded value
+- **Claude.md** — project file for Claude-code, it streamlines AI code development for claude-code users (/devs)
+
+## Notable Changes
+
+- Fixed vNext pods crash-looping on Colima (macOS)
+- Fixed macOS/Linux platform detection in `commandline.sh`
+- Fixed Bitnami Helm chart registry path (`oci://registry-1.docker.io/bitnamicharts`) reverting a regression
+- Fixed `kubectl` client skew issue in `deploy-operator.sh` and `k8s.sh`
+- Fixed command-line argument parsing to require correct hyphenated flag syntax (GAZ-227)
+- Improved remote cluster support: domain name detection and kubeconfig handling
+- Improved Mastercard CBS demo integration and testing (GAZ-281)
+- Refactored core scripts to follow Google Shell Style Guide — functions renamed to `snake_case`, dead code removed
+- Default `environment` in `config.ini` restored to `local`
+- Added `CLAUDE.md` developer guide to the repository
+- Added CLA contributor check to CI workflow
+
+## Tickets
+
+EPIC: [GAZ-268 - release 2.1.0](https://mifosforge.jira.com/browse/GAZ-268)<br>
+[GAZ-227 - commandline.sh allows parameters without preceding minus sign](https://mifosforge.jira.com/browse/GAZ-227)<br>
+[GAZ-259 - Improve deployment resilience](https://mifosforge.jira.com/browse/GAZ-259)<br>
+[GAZ-281 - Mastercard Test and help integrate solution into GovStack Sandbox Env](https://mifosforge.jira.com/browse/GAZ-281)<br>
+
+---
+
 # Mifos Gazelle v2.0.0 Release Notes
 
 ## Major New Features
 
-- **Raspberry Pi Support** - Full and stable Raspberry Pi deployment onto a Pi5 16GB with all components deployed
+- **Raspberry Pi Compatibility** - Full and stable Raspberry Pi deployment onto a Pi5 16GB with all components deployed
 - **Payment Hub v2.0.0 preview** - Extensive Updates to Payment Hub EE with a pre-release view, including upgraded UI, tested workflows, GovStack support
-- **config.ini** - Config.ini supported to add configurations to deployments and enable demo setups
+- **config.ini** - Config.ini available for adding configurations to deployments and enabling demo setups
 - **Reduced Memory Utilization** - All components now require less than 16GB memory
 - **Data Generation and Population** - for MifosX and PaymentHub EE and VNext to allow for demos
 - **Mastercard CBS Connector Demo** - A demo version of the Mastercard CBS Connector which can be configured to connect to the Mastercard Sandbox instance
 - **Updated version of the k9s kubernetes utility automatically installed** - in ~/local/bin/k9s 
-- **Support for installation to local or remote clusters** - support included for deployment to remote clusters
+- **Installation to local or remote clusters** - remote cluster deployment included
 - **Demo Creator** - Standalone Demo Creator which allows for the creation of demos using Mifos Gazelle components [Mifos Gazelle Demo Creator](https://github.com/openMF/mifos-gazelle-demo-creator)
 - **Demo Runtime** - Standalone Demo Runtime environment that allows guided navigation in demos with Mifos Gazelle components [Mifos Gazelle Demo Runtime](https://github.com/openMF/mifos-gazelle-demo-runtime)
 - **Significant Documentation** - New updated documentation for Bulk operations, GovStack Operation, Mastercard CBS Demo, PHEE Releases, Raspberry Pi, Postman collections.
@@ -150,7 +183,7 @@ Mifos would like to recognise the significant contributions of the following con
 
 ## Major New Features
 
-- **ARM64 Support** - Full support for ARM64 architecture
+- **ARM64 Compatibility** - Full ARM64 architecture compatibility
 - **End-to-End Payment Demonstration** - Complete payment flow from a customer in a Mifos Tenant (Greenbank)  to a customer in another Mifos Tenant (Bluebank)  using PHEE, Mifos X, and vNext
 - **Enhanced Observability** - Includes Camunda workflows with Camunda Operate
 - **Reduced Memory Utilization** - All components now require less than 24GB memory

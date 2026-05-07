@@ -156,9 +156,15 @@ deploy_controller() {
         -n mastercard-demo \
         --dry-run=client -o yaml | kubectl apply -f -
 
+    # Create ConfigMap from config file so it can be mounted in the pod
+    # (hostPath does not work on remote clusters where worker nodes lack the local filesystem)
+    kubectl create configmap mastercard-operator-config \
+        --from-file="config.ini=${CONFIG_FILE}" \
+        -n mastercard-demo \
+        --dry-run=client -o yaml | kubectl apply -f -
+
     # Deploy controller as a Deployment
-    # Note: Mount config directory at the SAME path as on host so paths work consistently
-    # Note: Run as same UID as config file owner to access home directory (typically 750 permissions)
+    # Config is mounted from a ConfigMap at /etc/gazelle/config.ini
     cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -178,49 +184,39 @@ spec:
         app: mastercard-cbs-operator
     spec:
       serviceAccountName: mastercard-cbs-operator
-      securityContext:
-        runAsUser: ${config_uid}
-        runAsGroup: ${config_uid}
-        fsGroup: ${config_uid}
       containers:
       - name: operator
         image: bitnami/kubectl:latest
+        imagePullPolicy: IfNotPresent
         command:
           - /bin/bash
           - /scripts/reconcile.sh
           - -c
-          - ${CONFIG_FILE}
+          - /etc/gazelle/config.ini
         env:
         - name: HOME
           value: /tmp
         volumeMounts:
         - name: scripts
           mountPath: /scripts
-        - name: mastercard-data
-          mountPath: /opt/mastercard
         - name: config
-          mountPath: ${config_dir}
+          mountPath: /etc/gazelle
           readOnly: true
         resources:
           limits:
-            cpu: "200m"
+            cpu: "100m"
             memory: "256Mi"
           requests:
-            cpu: "100m"
+            cpu: "10m"
             memory: "128Mi"
       volumes:
       - name: scripts
         configMap:
           name: mastercard-operator-scripts
           defaultMode: 0755
-      - name: mastercard-data
-        hostPath:
-          path: ${mastercard_cbs_home}
-          type: Directory
       - name: config
-        hostPath:
-          path: ${config_dir}
-          type: Directory
+        configMap:
+          name: mastercard-operator-config
 EOF
 
     echo "✓ Controller deployed"
@@ -238,9 +234,14 @@ verify_deployment() {
     }
 
     echo "Checking operator pod..."
-    kubectl wait --for=condition=ready --timeout=60s pod -l app=mastercard-cbs-operator -n mastercard-demo || {
+    kubectl rollout status deployment/mastercard-cbs-operator -n mastercard-demo --timeout=120s || {
         echo "✗ Operator pod not ready"
-        kubectl logs -l app=mastercard-cbs-operator -n mastercard-demo --tail=50
+        echo "--- Pod status ---"
+        kubectl get pods -l app=mastercard-cbs-operator -n mastercard-demo
+        echo "--- Pod events ---"
+        kubectl describe pods -l app=mastercard-cbs-operator -n mastercard-demo | grep -A20 "Events:"
+        echo "--- Pod logs ---"
+        kubectl logs -l app=mastercard-cbs-operator -n mastercard-demo --tail=30 2>/dev/null || true
         return 1
     }
 
