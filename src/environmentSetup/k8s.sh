@@ -294,6 +294,34 @@ install_k8s_tools() {
 
 
 #------------------------------------------------------------------------------
+# Function: increase_inotify_params
+# Description: Increases inotify limits required for Kubernetes/container
+#              workloads. Without this, vnext pods hit EMFILE errors on startup.
+#------------------------------------------------------------------------------
+increase_inotify_params() {
+    log_step "Increase inotify limits for Kubernetes workloads"
+    local SYSCTL_FILE="/etc/sysctl.d/99-inotify.conf"
+
+    sysctl -w fs.inotify.max_user_watches=1048576 >/dev/null 2>&1 || {
+        log_warn "Failed to set fs.inotify.max_user_watches"
+        return 1
+    }
+    sysctl -w fs.inotify.max_user_instances=1024 >/dev/null 2>&1 || {
+        log_warn "Failed to set fs.inotify.max_user_instances"
+        return 1
+    }
+
+    cat <<EOF > "${SYSCTL_FILE}"
+# Increased inotify limits for Kubernetes/container workloads
+fs.inotify.max_user_watches = 1048576
+fs.inotify.max_user_instances = 1024
+EOF
+
+    sysctl --system >/dev/null 2>&1
+    log_ok
+}
+
+#------------------------------------------------------------------------------
 # Function : report_cluster_info
 # Description: Reports basic information about the Kubernetes cluster.
 #------------------------------------------------------------------------------
