@@ -47,6 +47,12 @@ deploy_ph(){
     "sandbox-secret" \
     "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,ph-ee-connector-channel,ph-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
 
+  # Apply ExternalName bridge services so PHEE pods resolve kafka and
+  # operationsmysql to the shared infra namespace equivalents.
+  log_step "Applying PHEE-to-infra bridge services"
+  run_as_user "kubectl apply -f $RUN_DIR/src/deployer/k8s/phee-infra-bridge.yaml -n $PH_NAMESPACE"
+  log_ok
+
   deploy_ph_helm_chart_from_dir "$PH_NAMESPACE" "$gazelleChartPath" "$PH_VALUES_FILE"
 
   local bpmns_to_deploy=$(ls -l "$BASE_DIR/orchestration/feel"/*.bpmn | wc -l)
