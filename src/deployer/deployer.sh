@@ -385,3 +385,155 @@ deploy_apps() {
   save_applied_domain
   print_deployment_end_message "$data_gen_failed"
 }
+
+#------------------------------------------------------------
+# Description : Checks all pods in a namespace are Running/Completed.
+#               Calls k8s-error-summary.py on failure.
+# Usage : check_pods_ready <namespace>
+# Returns : 0 = all ready, 1 = something not ready
+#------------------------------------------------------------
+check_pods_ready() {
+  local namespace="$1"
+  local not_ready
+
+  not_ready=$(run_as_user "kubectl get pods -n \"$namespace\" --no-headers 2>/dev/null" \
+    | grep -v -E "Running|Completed|Succeeded" | wc -l)
+
+  if [[ "$not_ready" -gt 0 ]]; then
+    log_error "Namespace '$namespace': $not_ready pod(s) not Running/Completed:"
+    run_as_user "kubectl get pods -n \"$namespace\""
+    if [[ -f "$UTILS_DIR/k8s-error-summary.py" ]]; then
+      python3 "$UTILS_DIR/k8s-error-summary.py" "$namespace" || true
+    fi
+    return 1
+  fi
+
+  log_ok
+  return 0
+}
+
+#------------------------------------------------------------
+# Description : Checks an HTTP endpoint is reachable (HTTP 2xx/3xx).
+# Usage : check_endpoint <label> <url>
+# Returns : 0 = reachable, 1 = not reachable
+#------------------------------------------------------------
+check_endpoint() {
+  local label="$1"
+  local url="$2"
+  local http_code
+
+  http_code=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
+
+  if [[ "$http_code" =~ ^[23] ]]; then
+    log_ok
+    return 0
+  else
+
+    log_error "Endpoint '$label' at $url — HTTP $http_code (unreachable or error)"
+    return 1
+  fi
+}
+
+#------------------------------------------------------------
+# Description : Health check for infrastructure namespace.
+#------------------------------------------------------------
+test_infra() {
+  local rc=0
+  log_section "Health check: infra"
+
+  log_step "Pods in namespace '$INFRA_NAMESPACE'"
+  check_pods_ready "$INFRA_NAMESPACE" || rc=1
+
+  log_step "Cluster default health endpoint"
+  check_endpoint "Cluster" "http://${GAZELLE_DOMAIN}/health" || rc=1
+
+  return $rc
+}
+
+#------------------------------------------------------------
+# Description : Health check for MifosX / Fineract.
+#------------------------------------------------------------
+test_mifosx() {
+  local rc=0
+  log_section "Health check: MifosX"
+
+  log_step "Pods in namespace '$MIFOSX_NAMESPACE'"
+  check_pods_ready "$MIFOSX_NAMESPACE" || rc=1
+
+  log_step "Fineract API health endpoint"
+  check_endpoint "Fineract" "https://mifos.${GAZELLE_DOMAIN}/fineract-provider/actuator/health" || rc=1
+
+  return $rc
+}
+
+#------------------------------------------------------------
+# Description : Health check for Payment Hub EE.
+#------------------------------------------------------------
+test_phee() {
+  local rc=0
+  log_section "Health check: Payment Hub EE"
+
+  log_step "Pods in namespace '$PH_NAMESPACE'"
+  check_pods_ready "$PH_NAMESPACE" || rc=1
+
+  log_step "Ops Web endpoint"
+  check_endpoint "Ops Web" "http://ops.${GAZELLE_DOMAIN}" || rc=1
+
+  log_step "Zeebe Operate endpoint"
+  check_endpoint "Zeebe Operate" "http://zeebe-operate.${GAZELLE_DOMAIN}" || rc=1
+
+  return $rc
+}
+
+#------------------------------------------------------------
+# Description : Health check for Mojaloop vNext.
+#------------------------------------------------------------
+test_vnext() {
+  local rc=0
+  log_section "Health check: Mojaloop vNext"
+
+  log_step "Pods in namespace '$VNEXT_NAMESPACE'"
+  check_pods_ready "$VNEXT_NAMESPACE" || rc=1
+
+  log_step "vNext Admin endpoint"
+  check_endpoint "vNext Admin" "http://vnextadmin.${GAZELLE_DOMAIN}" || rc=1
+
+  return $rc
+}
+
+#------------------------------------------------------------
+# Description : Orchestrates health checks for selected components.
+# Usage : test_apps <"app1 app2" | all>
+# Example: test_apps "mifosx phee"
+#------------------------------------------------------------
+test_apps() {
+  local appsToTest="$1"
+  local overall_rc=0
+
+  log_with_verbose_check "$debug" "$DEBUG" "Apps to test: $appsToTest"
+
+  for app in $appsToTest; do
+    case "$app" in
+      "infra")
+        test_infra   || overall_rc=1 ;;
+      "mifosx")
+        test_mifosx  || overall_rc=1 ;;
+      "phee")
+        test_phee    || overall_rc=1 ;;
+      "vnext")
+        test_vnext   || overall_rc=1 ;;
+      *)
+        log_error "Unknown app '$app' for testing. Valid: infra, mifosx, phee, vnext."
+        overall_rc=1
+        ;;
+    esac
+  done
+
+  if [[ "$overall_rc" -eq 0 ]]; then
+    log_banner "All health checks passed"
+  else
+    log_banner "One or more health checks FAILED"
+  fi
+
+  return $overall_rc
+}
