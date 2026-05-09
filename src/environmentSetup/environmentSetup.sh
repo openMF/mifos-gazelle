@@ -348,7 +348,8 @@ env_setup_local_cluster() {
         check_resources_ok
         ensure_python_venv
         add_hosts
-
+        increase_inotify_params
+        
         if ! is_local_cluster_installed; then
             install_k3s
             $UTILS_DIR/install-k9s.sh > /dev/null 2>&1

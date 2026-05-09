@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: paymenthub
+  labels:
+    app: phee-infra-bridge
+    component: kafka-proxy
+spec:
+  type: ExternalName
+  externalName: kafka.infra.svc.cluster.local
+  ports:
+    - port: 9092
+      targetPort: 9092
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: operationsmysql
+  namespace: paymenthub
+  labels:
+    app: phee-infra-bridge
+    component: mysql-proxy
+spec:
+  type: ExternalName
+  externalName: mysql.infra.svc.cluster.local
+  ports:
+    - port: 3306
+      targetPort: 3306

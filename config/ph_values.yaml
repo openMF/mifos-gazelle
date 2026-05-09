@@ -111,7 +111,7 @@ ph-ee-engine:
 
   operations:
     mysql:
-      enabled: true
+      enabled: false  # was true — now served from infra namespace
       image:
         # repository: bitnamilegacy/mysql
         tag: "5.7"
@@ -549,7 +549,7 @@ ph-ee-engine:
         - minio-console.mifos.gazelle.test
         
   kafka:
-    enabled: true
+    enabled: false  # was true — now served from infra namespace
     heapOpts: "-Xms128m -Xmx256m"
     resources:
       requests:
