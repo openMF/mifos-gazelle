@@ -116,15 +116,24 @@ deploy_helm_chart_from_dir() {
     return 1
   fi
 
-  # Build helm install command
-  local helm_cmd="helm install --wait --timeout ${startup_timeout}s $release_name $chart_dir -n $namespace"
+  # Build helm command — upgrade --install is idempotent: works whether the
+  # release exists or not, avoiding "already exists" failures on re-runs.
+  local helm_cmd="helm upgrade --install --wait --timeout ${startup_timeout}s $release_name $chart_dir -n $namespace"
   if [ -n "$values_file" ]; then
       helm_cmd="$helm_cmd -f $values_file"
   fi
 
-  run_as_user "$helm_cmd" #> /dev/null 2>&1
-  check_command_execution $? "$helm_cmd"
-  
+  # Run helm and capture the exit code WITHOUT calling exit here.
+  # deploy_infrastructure wraps this call with >/dev/null 2>&1 in non-debug
+  # mode to suppress verbose output.  Any exit called inside that suppressed
+  # block would terminate the whole script silently — returning lets the
+  # caller's check_command_execution show a visible error instead.
+  run_as_user "$helm_cmd"
+  local helm_exit=$?
+  if [[ $helm_exit -ne 0 ]]; then
+    return $helm_exit
+  fi
+
   if is_app_running $namespace; then
     return 0
   else

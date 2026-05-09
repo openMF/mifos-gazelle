@@ -48,6 +48,7 @@ deploy_ph(){
     "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,ph-ee-connector-channel,ph-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
 
   deploy_ph_helm_chart_from_dir "$PH_NAMESPACE" "$gazelleChartPath" "$PH_VALUES_FILE"
+  check_command_execution $? "deploy_ph_helm_chart_from_dir $PH_NAMESPACE"
 
   local bpmns_to_deploy=$(ls -l "$BASE_DIR/orchestration/feel"/*.bpmn | wc -l)
   log_with_verbose_check "$debug" "$DEBUG" "BPMNs to deploy: $bpmns_to_deploy"
@@ -98,8 +99,8 @@ deploy_ph_helm_chart_from_dir(){
   local releaseName="$PH_RELEASE_NAME"
   local timeout="1200s"
 
-  # Construct install command
-  local helm_cmd="helm install $releaseName $chartDir -n $namespace --wait --timeout $timeout"
+  # Construct install command — upgrade --install is idempotent on re-runs
+  local helm_cmd="helm upgrade --install $releaseName $chartDir -n $namespace --wait --timeout $timeout"
   if [ -n "$valuesFile" ]; then
     helm_cmd="$helm_cmd -f $valuesFile"
   fi
@@ -122,7 +123,7 @@ deploy_ph_helm_chart_from_dir(){
     return 0
   else
     log_failed "Helm release '$releaseName' did not reach deployed status"
-    exit 1
+    return 1
   fi
 }
 

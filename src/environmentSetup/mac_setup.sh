@@ -98,6 +98,8 @@ configure_mac_k3s_node_ip() {
     if sudo -u "$k8s_user" "$colima" exec -- sudo rc-service k3s restart >/dev/null 2>&1; then
         # OpenRC (Alpine Linux — Colima Lima VM)
         restarted=true
+    elif sudo -u "$k8s_user" "$colima" exec -- sudo systemctl restart k3s >/dev/null 2>&1; then
+        restarted=true
     elif sudo -u "$k8s_user" "$colima" exec -- sudo service k3s restart >/dev/null 2>&1; then
         restarted=true
     elif sudo -u "$k8s_user" "$colima" exec -- sudo dinitctl restart k3s >/dev/null 2>&1; then
@@ -165,6 +167,7 @@ recover_mac_k8s() {
     printf "    Auto-recovery tier 1: restarting k3s inside the VM...\n"
     sudo -u "$k8s_user" "$colima" exec -- sudo rm -f /etc/rancher/k3s/config.yaml >/dev/null 2>&1 || true
     sudo -u "$k8s_user" "$colima" exec -- sudo rc-service k3s restart >/dev/null 2>&1 || \
+        sudo -u "$k8s_user" "$colima" exec -- sudo systemctl start k3s >/dev/null 2>&1 || \
         sudo -u "$k8s_user" "$colima" exec -- sudo service k3s restart >/dev/null 2>&1 || true
 
     use_colima_context
@@ -304,7 +307,19 @@ install_mac_k8s() {
     if colima=$(find_colima); then
         local vm_state
         vm_state=$(sudo -u "$k8s_user" "$colima" list --json 2>/dev/null \
-            | python3 -c "import sys,json; items=json.load(sys.stdin); print(items[0].get('status','') if items else '')" 2>/dev/null || true)
+            | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if isinstance(data, list):
+        print(data[0].get('status', '') if data else '')
+    elif isinstance(data, dict):
+        print(data.get('status', ''))
+    else:
+        print('')
+except Exception:
+    print('')
+" 2>/dev/null || true)
         if [[ "$vm_state" == "Running" ]]; then
             printf "    VM is running but cluster is unreachable — attempting auto-recovery...\n"
             if recover_mac_k8s; then
