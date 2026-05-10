@@ -93,3 +93,4 @@ ph-ee-engine:
       limits:
         cpu: 500m
         memory: 768Mi
+ 
