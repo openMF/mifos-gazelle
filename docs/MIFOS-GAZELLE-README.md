@@ -236,14 +236,15 @@ Login at https://mifos.mifos.gazelle.test with user `mifos` / password `password
 
 ```
 # Linux/macOS
-<VM-IP> vnextadmin.mifos.gazelle.test elasticsearch.mifos.gazelle.test kibana.mifos.gazelle.test mongoexpress.mifos.gazelle.test kafkaconsole.mifos.gazelle.test fspiop.mifos.gazelle.test bluebank.mifos.gazelle.test greenbank.mifos.gazelle.test redpanda-console.mifos.gazelle.test
+<VM-IP> mongohost.mifos.gazelle.test mongo-express.mifos.gazelle.test vnextadmin.mifos.gazelle.test elasticsearch.mifos.gazelle.test kibana.mifos.gazelle.test mongoexpress.mifos.gazelle.test fspiop.mifos.gazelle.test bluebank.mifos.gazelle.test greenbank.mifos.gazelle.test redpanda-console.mifos.gazelle.test
 
 # Windows (one per line)
+<VM-IP> mongohost.mifos.gazelle.test
+<VM-IP> mongo-express.mifos.gazelle.test
 <VM-IP> vnextadmin.mifos.gazelle.test
 <VM-IP> elasticsearch.mifos.gazelle.test
 <VM-IP> kibana.mifos.gazelle.test
 <VM-IP> mongoexpress.mifos.gazelle.test
-<VM-IP> kafkaconsole.mifos.gazelle.test
 <VM-IP> fspiop.mifos.gazelle.test
 <VM-IP> bluebank.mifos.gazelle.test
 <VM-IP> greenbank.mifos.gazelle.test
@@ -254,11 +255,11 @@ Login at https://mifos.mifos.gazelle.test with user `mifos` / password `password
 
 ```
 # Linux/macOS
-<VM-IP> ops.mifos.gazelle.test kibana-phee.mifos.gazelle.test zeebe-operate.mifos.gazelle.test
+<VM-IP> ops.mifos.gazelle.test minio-console.mifos.gazelle.test zeebe-operate.mifos.gazelle.test
 
 # Windows (one per line)
 <VM-IP> ops.mifos.gazelle.test
-<VM-IP> kibana-phee.mifos.gazelle.test
+<VM-IP> minio-console.mifos.gazelle.test
 <VM-IP> zeebe-operate.mifos.gazelle.test
 ```
 
@@ -270,17 +271,17 @@ Payment Hub EE ships with pre-built Kibana visualizations and dashboards for mon
 
 **Import dashboards after deployment:**
 ```bash
-# Default URL (kibana.mifos.gazelle.localhost)
+# Default URL (kibana.mifos.gazelle.test)
 ./src/utils/kibana-dashboard-setup.sh
 
 # Custom Kibana URL
-export KIBANA_URL=https://kibana-phee.mifos.gazelle.test
+export KIBANA_URL=https://kibana.mifos.gazelle.test
 ./src/utils/kibana-dashboard-setup.sh
 ```
 
 The script imports objects from `repos/ph_template/Kibana Visualisations/` in the correct order: index patterns → searches → visualizations → lenses → dashboards. It reports a success/failure count on completion.
 
-Access Kibana at http://kibana-phee.mifos.gazelle.test (add to `/etc/hosts` as shown in [Payment Hub EE Host Configuration](#payment-hub-ee)).
+Access Kibana at https://kibana.mifos.gazelle.test (add to `/etc/hosts` as shown in [vNext Host Configuration](#vnext)).
 
 ---
 
