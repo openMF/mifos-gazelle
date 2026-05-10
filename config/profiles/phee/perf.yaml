@@ -1,0 +1,95 @@
+# PH-EE JVM Profile: Performance
+# Optimized for high-throughput environments (> 32GB RAM)
+# The JVM will use G1GC and enable String Deduplication.
+
+ph-ee-engine:
+  operations_app:
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 1.5Gi
+
+  connector_mojaloop:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 1.5Gi
+
+  connector_mock_payment_schema:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  bulk_processor:
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 1.5Gi
+
+  connector_channel:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+  kafka:
+    heapOpts: "-Xms512m -Xmx512m"
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 1.5Gi
+
+  connector_bulk:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  importer_rdbms:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+  zeebe_ops:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 1.5Gi
+
+  connector_ams_mifos:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 1.5Gi

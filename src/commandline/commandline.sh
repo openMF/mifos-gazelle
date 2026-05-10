@@ -157,7 +157,7 @@ load_config_from_file() {
     local config_ubuntu_ok_versions_list=$(crudini --get "$config_path" kubernetes ubuntu_ok_versions_list 2>/dev/null)
     if [[ -n "$config_ubuntu_ok_versions_list" ]]; then ubuntu_ok_versions_list="$config_ubuntu_ok_versions_list"; fi
 
-    # Read app enablement flags and construct the 'apps' variable
+    # Construct the 'apps' variable based on enabled flags
     local enabled_apps_list=""
     local valid_apps=("infra" "vnext" "phee" "mifosx" "mastercard-demo")
 
@@ -166,10 +166,14 @@ load_config_from_file() {
         app_enabled=$(echo "$app_enabled" | tr '[:upper:]' '[:lower:]')
         if [[ "$app_enabled" == "true" ]]; then
             enabled_apps_list+=" $app_name"
-            #log_with_level "$INFO" "Config indicates '$app_name' is enabled."
         fi
     done
     apps=$(echo "$enabled_apps_list" | xargs)
+
+    # Resolve JVM Profile
+    local config_profile=$(crudini --get "$config_path" jvm profile 2>/dev/null)
+    export JVM_PROFILE=$(resolve_jvm_profile "${config_profile:-auto}")
+    log_with_level "$INFO" "Resolved JVM profile: $JVM_PROFILE (source: ${config_profile:-default})"
 
     # Dynamically load all variables from config.ini sections
     # Get all sections from config file

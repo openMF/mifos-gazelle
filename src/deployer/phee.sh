@@ -98,10 +98,23 @@ deploy_ph_helm_chart_from_dir(){
   local releaseName="$PH_RELEASE_NAME"
   local timeout="1200s"
 
-  # Construct install command
+  # Construct install command with layered values resolution
   local helm_cmd="helm install $releaseName $chartDir -n $namespace --wait --timeout $timeout"
+  
+  # 1. Base values (structural & domain config)
   if [ -n "$valuesFile" ]; then
     helm_cmd="$helm_cmd -f $valuesFile"
+  fi
+
+  # 2. JVM Profile Overlay (resources & ergonomics)
+  if [[ -n "${JVM_PROFILE:-}" && "${JVM_PROFILE}" != "none" ]]; then
+    local profile_file="$RUN_DIR/config/profiles/phee/${JVM_PROFILE}.yaml"
+    if [[ -f "$profile_file" ]]; then
+      log_with_verbose_check "$debug" "$INFO" "Applying JVM profile overlay: $JVM_PROFILE"
+      helm_cmd="$helm_cmd -f $profile_file"
+    else
+      log_warn "JVM profile overlay not found: $profile_file. Falling back to base defaults."
+    fi
   fi
 
   log_step "Helm install ($releaseName)"

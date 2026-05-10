@@ -71,9 +71,8 @@ ph-ee-engine:
           value: "paymenthub-ee"
         - name: JAVA_TOOL_OPTIONS
           value: |
-            -Xms128m
-            -Xmx256m
-            -XX:+UseSerialGC
+            -XX:InitialRAMPercentage=75.0
+            -XX:MaxRAMPercentage=75.0
             -XX:ReservedCodeCacheSize=64m
             -XX:MaxMetaspaceSize=128m
             -XX:+HeapDumpOnOutOfMemoryError
@@ -224,9 +223,9 @@ ph-ee-engine:
           io.camunda.operate: DEBUG
 
       deployment:
-      extraEnv:
-        - name: JAVA_TOOL_OPTIONS
-          value: "-Xms64m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m -XX:+HeapDumpOnOutOfMemoryError"
+        extraEnvs:
+          - name: JAVA_TOOL_OPTIONS
+            value: "-XX:InitialRAMPercentage=75.0 -XX:MaxRAMPercentage=75.0 -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m -XX:+HeapDumpOnOutOfMemoryError"
           
       resources:
         requests:
@@ -301,9 +300,8 @@ ph-ee-engine:
           value: "bluebank"
         - name: JAVA_TOOL_OPTIONS
           value: |
-            -Xms128m
-            -Xmx256m
-            -XX:+UseSerialGC
+            -XX:InitialRAMPercentage=75.0
+            -XX:MaxRAMPercentage=75.0
             -XX:ReservedCodeCacheSize=64m
             -XX:MaxMetaspaceSize=128m
             -XX:+HeapDumpOnOutOfMemoryError
@@ -322,9 +320,9 @@ ph-ee-engine:
     extraEnvs:
       - name: JAVA_TOOL_OPTIONS
         value: |
-          -Xms64m
-          -Xmx128m
-          -XX:+UseSerialGC
+
+            -XX:InitialRAMPercentage=75.0
+            -XX:MaxRAMPercentage=75.0
           -XX:ReservedCodeCacheSize=64m
           -XX:MaxMetaspaceSize=128m
           -XX:+HeapDumpOnOutOfMemoryError
@@ -352,9 +350,8 @@ ph-ee-engine:
       extraEnvs:
         - name: JAVA_TOOL_OPTIONS
           value: |
-            -Xms64m
-            -Xmx256m
-            -XX:+UseSerialGC
+            -XX:InitialRAMPercentage=75.0
+            -XX:MaxRAMPercentage=75.0
             -XX:ReservedCodeCacheSize=64m
             -XX:MaxMetaspaceSize=128m
             -XX:+HeapDumpOnOutOfMemoryError
@@ -432,9 +429,8 @@ ph-ee-engine:
       extraEnvs:
         - name: JAVA_TOOL_OPTIONS
           value: |
-            -Xms128m
-            -Xmx256m
-            -XX:+UseSerialGC
+            -XX:InitialRAMPercentage=75.0
+            -XX:MaxRAMPercentage=75.0
             -XX:ReservedCodeCacheSize=64m
             -XX:MaxMetaspaceSize=128m
             -XX:+HeapDumpOnOutOfMemoryError
@@ -497,9 +493,9 @@ ph-ee-engine:
     extraEnvs:
       - name: JAVA_TOOL_OPTIONS
         value: |
-          -Xms64m
-          -Xmx128m
-          -XX:+UseSerialGC
+
+            -XX:InitialRAMPercentage=75.0
+            -XX:MaxRAMPercentage=75.0
           -XX:ReservedCodeCacheSize=64m
           -XX:MaxMetaspaceSize=128m
           -XX:+HeapDumpOnOutOfMemoryError
@@ -550,7 +546,6 @@ ph-ee-engine:
         
   kafka:
     enabled: true
-    heapOpts: "-Xms128m -Xmx256m"
     resources:
       requests:
         memory: 500Mi
@@ -580,9 +575,9 @@ ph-ee-engine:
         value: "/batchtransactions/execution"
       - name: JAVA_TOOL_OPTIONS
         value: |
-          -Xms64m
-          -Xmx128m
-          -XX:+UseSerialGC
+
+            -XX:InitialRAMPercentage=75.0
+            -XX:MaxRAMPercentage=75.0
           -XX:ReservedCodeCacheSize=64m
           -XX:MaxMetaspaceSize=128m
           -XX:+HeapDumpOnOutOfMemoryError
@@ -593,11 +588,11 @@ ph-ee-engine:
     resources:
       requests:
         cpu: 50m
-        memory: 192Mi
+        memory: 128Mi
       limits:
-        cpu: 300m
+        cpu: 100m
         memory: 256Mi
-    javaToolOptions: "-Xms64m -Xmx128m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m -XX:+HeapDumpOnOutOfMemoryError"
+
 
   zeebe_ops:
     enabled: true
@@ -617,9 +612,8 @@ ph-ee-engine:
       extraEnvs:
         - name: JAVA_TOOL_OPTIONS
           value: |
-            -Xms128m
-            -Xmx256m
-            -XX:+UseSerialGC
+            -XX:InitialRAMPercentage=75.0
+            -XX:MaxRAMPercentage=75.0
             -XX:ReservedCodeCacheSize=64m
             -XX:MaxMetaspaceSize=128m
             -XX:+HeapDumpOnOutOfMemoryError
@@ -643,9 +637,16 @@ ph-ee-engine:
       extraEnvs:
         - name: JAVA_TOOL_OPTIONS
           value: |
-            -Xms128m
-            -Xmx256m
-            -XX:+UseSerialGC
+            -XX:InitialRAMPercentage=75.0
+            -XX:MaxRAMPercentage=75.0
+            -XX:ReservedCodeCacheSize=64m
+            -XX:MaxMetaspaceSize=128m
+            -XX:+HeapDumpOnOutOfMemoryError
+taspaceSize=128m
+            -XX:+HeapDumpOnOutOfMemoryError
+|
+            -XX:InitialRAMPercentage=75.0
+            -XX:MaxRAMPercentage=75.0
             -XX:ReservedCodeCacheSize=64m
             -XX:MaxMetaspaceSize=128m
             -XX:+HeapDumpOnOutOfMemoryError

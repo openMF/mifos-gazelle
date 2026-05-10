@@ -199,3 +199,34 @@ EOF
         echo "✓ All kernel parameters already set correctly. No changes needed."
     fi
 }
+
+#------------------------------------------------------------------------------
+# Function : resolve_jvm_profile
+# Description: Resolves the JVM profile (micro, std, perf) based on detected
+#              host RAM when set to 'auto'.
+#------------------------------------------------------------------------------
+resolve_jvm_profile() {
+    local requested_profile="${1:-auto}"
+
+    # If explicitly set to something other than auto, return it
+    if [[ "$requested_profile" != "auto" ]]; then
+        echo "$requested_profile"
+        return 0
+    fi
+
+    local total_ram_gb
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        total_ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+    else
+        total_ram_gb=$(free -g | awk '/^Mem:/{print $2}')
+    fi
+
+    # Auto-resolution logic
+    if [[ "$total_ram_gb" -lt 8 ]]; then
+        echo "micro"
+    elif [[ "$total_ram_gb" -le 32 ]]; then
+        echo "std"
+    else
+        echo "perf"
+    fi
+}
