@@ -51,8 +51,8 @@ check_sudo() {
 #------------------------------------------------------------------------------
 run_as_user() {
     local command="$1"
-    # Debug: Log the command being executed
-    #log_with_verbose_check "$debug" debug "Running as $k8s_user: $command"
+    # Log the command being executed (filtered by GAZELLE_LOG_LEVEL)
+    log_debug "Running as $k8s_user: $command"
     
     # Execute the command as k8s_user and capture output and exit code
     local output

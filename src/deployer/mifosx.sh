@@ -11,6 +11,7 @@
 deploy_mifosx_from_yaml() {
     manifests_dir=$1
     timeout_secs=${2:-600}  # Default timeout of 10 minutes if not specified
+    log_func_start "manifests_dir=$manifests_dir timeout=$timeout_secs"
 
     log_section "Deploying MifosX"
 
@@ -70,6 +71,7 @@ wait_for_fineract_api_ready() {
   local retry_interval=10
   local global_start
   global_start=$(date +%s)
+  log_func_start "timeout=${timeout}s tenants=${tenants[*]}"
 
   log_step "Waiting for Fineract tenant APIs (schema + seed data, timeout=${timeout}s)"
 
@@ -129,6 +131,7 @@ generate_mifosx_and_vnext_data() {
   start_time=$(date +%s)
   local elapsed=0
   local retry_cmd="sudo $RUN_DIR/run.sh -a setup-data -f \"$CONFIG_FILE_PATH\""
+  log_func_start "timeout=${timeout}s"
 
   while [[ $elapsed -lt $timeout ]]; do
     is_app_running "vnext"

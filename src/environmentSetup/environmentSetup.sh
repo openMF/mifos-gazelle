@@ -14,16 +14,16 @@ install_os_prerequisites() {
     if [[ "$(uname -s)" == "Darwin" ]]; then
         ensure_homebrew
         if ! command -v jq &>/dev/null; then
-            log_with_verbose_check "$debug" debug "jq is not installed. Installing via brew..."
+            log_with_verbose_check "$debug" "$DEBUG" "jq is not installed. Installing via brew..."
             run_brew install jq >/dev/null 2>&1
         else
-            log_with_verbose_check "$debug" debug "jq is already installed\n"
+            log_with_verbose_check "$debug" "$DEBUG" "jq is already installed"
         fi
         log_ok
         return 0
     fi
     if ! command -v docker &> /dev/null; then
-        log_with_verbose_check "$debug" debug "Docker is not installed. Installing Docker..."
+        log_with_verbose_check "$debug" "$DEBUG" "Docker is not installed. Installing Docker..."
         apt update >> /dev/null 2>&1
         apt install -y apt-transport-https ca-certificates curl software-properties-common >> /dev/null 2>&1
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg >> /dev/null 2>&1
@@ -33,23 +33,23 @@ install_os_prerequisites() {
         usermod -aG docker "$k8s_user"
         log_ok
     else
-        log_with_verbose_check "$debug" debug "Docker is already installed.\n"
+        log_with_verbose_check "$debug" "$DEBUG" "Docker is already installed."
     fi
     if ! command -v nc &> /dev/null; then
-        log_with_verbose_check "$debug" debug "nc (netcat) is not installed. Installing..."
+        log_with_verbose_check "$debug" "$DEBUG" "nc (netcat) is not installed. Installing..."
         apt-get update >> /dev/null 2>&1
         apt-get install -y netcat >> /dev/null 2>&1
         log_ok
     else
-        log_with_verbose_check "$debug" debug "nc (netcat) is already installed.\n"
+        log_with_verbose_check "$debug" "$DEBUG" "nc (netcat) is already installed."
     fi
     if ! command -v jq &> /dev/null; then
-        log_with_verbose_check "$debug" debug "jq is not installed. Installing ..."
+        log_with_verbose_check "$debug" "$DEBUG" "jq is not installed. Installing ..."
         apt-get update >> /dev/null 2>&1
         apt-get -y install jq >> /dev/null 2>&1
         log_ok
     else
-        log_with_verbose_check "$debug" debug "jq is already installed\n"
+        log_with_verbose_check "$debug" "$DEBUG" "jq is already installed"
     fi
     log_ok
 }
@@ -310,7 +310,7 @@ is_cluster_accessible() {
     local ready_nodes=$(su - "$k8s_user" -c "$k8s_user_cmd" | grep -c " Ready ")    
     if [[ "$ready_nodes" -eq 0 ]]; then
         # This means we could access the cluster, but no nodes are reported as Ready.
-        log_with_verbose_check "$debug" info "Kubernetes cluster is reachable, but zero nodes are in the 'Ready' state."
+        log_with_verbose_check "$debug" "$INFO" "Kubernetes cluster is reachable, but zero nodes are in the 'Ready' state."
         return 1
     fi
     return 0
@@ -384,6 +384,7 @@ env_setup_local_cluster() {
 
 env_setup_main() {
     local mode="$1"
+    log_func_start "mode=$mode environment=$environment"
 
     check_sudo
     check_arch_ok
@@ -401,7 +402,7 @@ env_setup_main() {
     elif [[ "$environment" == "mac" ]]; then
         env_setup_mac_cluster "$mode"
     else
-        printf "** Error: Invalid environment type specified: %s. Must be 'local', 'remote', or 'mac'. **\n" "$environment"
+        log_error "Invalid environment type specified: $environment. Must be 'local', 'remote', or 'mac'."
         exit 1
     fi
 } 

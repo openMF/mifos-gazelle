@@ -83,6 +83,16 @@ install_crudini() {
 #------------------------------------------------------------------------------
 setup_logging() {
     local config="$1"
+
+    # Parse log_level from config.ini (before crudini is available)
+    local cfg_log_level
+    cfg_log_level=$(grep -E '^\s*log_level\s*=' "$config" 2>/dev/null | tail -1 \
+        | awk -F'=' '{print $2}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+    if [[ -n "$cfg_log_level" ]]; then
+        export GAZELLE_LOG_LEVEL="$cfg_log_level"
+    fi
+
+    # Parse logging flag
     local log_enabled
     log_enabled=$(grep -E '^\s*logging\s*=' "$config" 2>/dev/null | tail -1 \
         | awk -F'=' '{print $2}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
@@ -90,7 +100,7 @@ setup_logging() {
         GAZELLE_LOG="/tmp/gazelle-$(date +%Y%m%d-%H%M).log"
         export GAZELLE_LOG
         exec > >(tee -a "$GAZELLE_LOG") 2>&1
-        echo "  Log: $GAZELLE_LOG"
+        log_info "Logging to $GAZELLE_LOG"
         echo
     fi
 }
@@ -129,7 +139,7 @@ load_config_from_file() {
     if [[ -n "$config_k8s_user" ]]; then
         if [[ "$config_k8s_user" == "\$USER" || "$config_k8s_user" == '$USER' ]]; then
             k8s_user="$(resolve_invoker_user)"
-            #log_with_level "$INFO" "Expanded '\$USER' in config to invoking username: $k8s_user"
+            log_debug "Expanded '\$USER' in config to invoking username: $k8s_user"
         else
             k8s_user="$config_k8s_user"
         fi
@@ -139,7 +149,7 @@ load_config_from_file() {
         if [[ "$config_kubeconfig_path" == "~/.kube/config" ]]; then
             k8s_user_home=$(eval echo "~$k8s_user")
             kubeconfig_path="$k8s_user_home/.kube/config"
-            #log_with_level "$INFO" "Expanded kubeconfig_path to: $kubeconfig_path"
+            log_debug "Expanded kubeconfig_path to: $kubeconfig_path"
         else
             kubeconfig_path="$config_kubeconfig_path"
         fi
@@ -166,7 +176,7 @@ load_config_from_file() {
         app_enabled=$(echo "$app_enabled" | tr '[:upper:]' '[:lower:]')
         if [[ "$app_enabled" == "true" ]]; then
             enabled_apps_list+=" $app_name"
-            #log_with_level "$INFO" "Config indicates '$app_name' is enabled."
+            log_debug "Config indicates '$app_name' is enabled."
         fi
     done
     apps=$(echo "$enabled_apps_list" | xargs)
@@ -189,10 +199,10 @@ load_config_from_file() {
                     if [[ -n "$value" ]]; then
                         # Store value as-is, let bash expand variables when referenced
                         eval "export $var_name=\"\$value\""
-                        #log_with_level "$INFO" "Loaded from config [$section]: $var_name=$value"
+                        log_debug "Loaded from config [$section]: $var_name=$value"
                     fi
-                #else
-                    #log_with_level "$INFO" "Skipped (already set) [$section]: $var_name=$current_value"
+                else
+                    log_debug "Skipped (already set) [$section]: $var_name=$current_value"
                 fi
             fi
         done <<< "$section_keys"
@@ -256,7 +266,7 @@ check_duplicates() {
     
     for app in "${arr[@]}"; do
         if [[ ${seen[$app]} ]]; then
-            #echo "Error: Duplicate entry found: '$app'"
+            log_debug "Duplicate entry found: '$app'"
             return 1
         fi
         seen[$app]=1
@@ -534,8 +544,13 @@ main() {
 
     validate_inputs
 
+    # When debug mode is active, force log level to debug so all messages show
+    if [[ "$debug" == "true" ]]; then
+        export GAZELLE_LOG_LEVEL="debug"
+    fi
+
     if [ "$mode" == "deploy" ]; then
-        echo -e "${YELLOW}WARN${RESET}   This deployment is recommended for demo, test and educational purposes only."
+        log_warn "This deployment is recommended for demo, test and educational purposes only."
         echo
         env_setup_main "$mode"
         deploy_apps "$apps" "$redeploy"

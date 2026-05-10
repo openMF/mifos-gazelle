@@ -44,7 +44,7 @@ install_k3s() {
     chown "$k8s_user" "$kubeconfig_path"
     chmod 600 "$kubeconfig_path"
 
-    log_with_verbose_check "$debug" debug "k3s kubeconfig copied to $kubeconfig_path"
+    log_with_verbose_check "$debug" "$DEBUG" "k3s kubeconfig copied to $kubeconfig_path"
 
     # Increase inotify and file-descriptor limits so Java/Spring-Boot pods (zeebe,
     # bulk-processor, etc.) don't hit "too many open files" / fsnotify errors.
@@ -230,7 +230,7 @@ install_k8s_tools() {
     case "$ARCH" in
         x86_64) ARCH_TYPE="amd64" ;;
         aarch64|arm64) ARCH_TYPE="arm64" ;;
-        *) echo "Unsupported architecture: $ARCH"; echo "error ***  Wrong CPU Type ****" ; exit 1 ;;
+        *) log_error "Unsupported architecture: $ARCH"; exit 1 ;;
     esac
 
     # Array of tools and their installation details
@@ -286,7 +286,7 @@ install_k8s_tools() {
         if command -v "$tool" >/dev/null 2>&1; then
             log_with_verbose_check "$debug" "$DEBUG" "$tool installed successfully."
         else
-            echo "Error: $tool installation failed."
+            log_error "$tool installation failed."
         fi
     done
     log_ok

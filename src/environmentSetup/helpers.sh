@@ -12,8 +12,8 @@ run_brew() {
         if [[ -x "$candidate" ]]; then brew_bin="$candidate"; break; fi
     done
     if [[ -z "$brew_bin" ]]; then
-        printf "** Error: Homebrew not found at /opt/homebrew/bin or /usr/local/bin.\n"
-        printf "   Install from https://brew.sh then re-run.\n"
+        log_error "Homebrew not found at /opt/homebrew/bin or /usr/local/bin."
+        log_error "Install from https://brew.sh then re-run."
         exit 1
     fi
     sudo -u "${SUDO_USER:-$k8s_user}" "$brew_bin" "$@"
@@ -26,7 +26,7 @@ brew_available() {
 check_arch_ok() {
     local arch=$(uname -m)
     if [[ "$arch" != "x86_64" && "$arch" != "arm64" && "$arch" != "aarch64" ]]; then
-        printf " **** Error Unknown CPU architecture : mifos-gazelle only works properly with x86_64, arm64, or aarch64 architectures today  *****\n"
+        log_error "Unknown CPU architecture: mifos-gazelle only works with x86_64, arm64, or aarch64 architectures."
         exit 1 
     fi
 }
@@ -41,14 +41,14 @@ check_resources_ok() {
         free_space=$(df -BG ~ | awk '{print $4}' | tail -n 1 | sed 's/G//')
     fi
     if [[ "$total_ram" -lt "$MIN_RAM" ]]; then
-        printf " ** Error: mifos-gazelle currently requires $MIN_RAM GBs to run properly \n"
-        printf "    Please increase RAM available before trying to run mifos-gazelle \n"
+        log_error "mifos-gazelle currently requires $MIN_RAM GBs RAM to run properly."
+        log_error "Please increase RAM available before trying to run mifos-gazelle."
         exit 1
     fi
     if [[ "$free_space" -lt "$MIN_FREE_SPACE" ]] ; then
-        printf " ** Warning: mifos-gazelle currently requires %sGBs free storage in %s home directory  \n" "$MIN_FREE_SPACE" "$k8s_user"
-        printf "    but only found %sGBs free storage \n" "$free_space"
-        printf "    mifos-gazelle installation will continue, but beware it might fail later due to insufficient storage \n"
+        log_warn "mifos-gazelle currently requires ${MIN_FREE_SPACE}GB free storage in $k8s_user home directory."
+        log_warn "Only found ${free_space}GB free storage."
+        log_warn "Installation will continue, but it might fail later due to insufficient storage."
     fi
 }
 
@@ -64,11 +64,11 @@ set_linux_os_distro() {
 }
 
 check_os_ok() {
-    printf "\r==> checking operating system is tested with mifos-gazelle\n"
+    log_section "Checking operating system compatibility"
     if [[ "$(uname -s)" == "Darwin" ]]; then
         local mac_version
         mac_version=$(sw_vers -productVersion 2>/dev/null)
-        printf "    macOS %s detected\n" "$mac_version"
+        log_debug "macOS $mac_version detected"
         log_step "Operating system check"
         log_ok
         return 0
@@ -76,13 +76,13 @@ check_os_ok() {
     set_linux_os_distro
     # Only Linux OS supported at this time
     if [[ ! $LINUX_OS == "Ubuntu" ]]; then
-        printf "** Error, Mifos Gazelle is only tested with Ubuntu OS at this time   **\n"
+        log_error "Mifos Gazelle is only tested with Ubuntu OS at this time."
         exit 1
     fi
-    echo "    Linux OS is $LINUX_OS and version $LINUX_VERSION"
-    echo "    Tested Ubuntu versions are: ${ubuntu_ok_versions_list[*]}"
+    log_debug "Linux OS is $LINUX_OS and version $LINUX_VERSION"
+    log_debug "Tested Ubuntu versions are: ${ubuntu_ok_versions_list[*]}"
     if [[ ! " ${ubuntu_ok_versions_list[*]} " =~ " ${LINUX_VERSION} " ]]; then
-        printf "** Error, Mifos Gazelle is only tested with Ubuntu this time   **\n"
+        log_error "Ubuntu version $LINUX_VERSION is not tested with Mifos Gazelle."
         exit 1
     fi
     log_step "Operating system check"
@@ -91,20 +91,18 @@ check_os_ok() {
 
 verify_user() {
     if [ -z ${k8s_user+x} ]; then
-        printf "** Error: The operating system user has not been specified with the -u flag \n"
-        printf "          the user specified with the -u flag must exist and not be the root user \n"
-        printf "** \n"
+        log_error "The operating system user has not been specified with the -u flag."
+        log_error "The user specified with the -u flag must exist and not be the root user."
         exit 1
     fi
     if [[ `id -u $k8s_user >/dev/null 2>&1; echo $?` == 0 ]]; then
         if [[ `id -u $k8s_user` == 0 ]]; then
-            printf "** Error: The user specified by -u should be a non-root user ** \n"
+            log_error "The user specified by -u should be a non-root user."
             exit 1
         fi
     else
-        printf "** Error: The user [ %s ] does not exist in the operating system \n" "$k8s_user"
-        printf "            please try again and specify an existing user \n"
-        printf "** \n"
+        log_error "The user [ $k8s_user ] does not exist in the operating system."
+        log_error "Please try again and specify an existing user."
         exit 1
     fi
     k8s_user_home=`eval echo "~$k8s_user"`
@@ -123,7 +121,7 @@ check_tools() {
     # Loop through the list of tools and check each one
     for tool in "${tools[@]}"; do
         if ! command -v "$tool" &>/dev/null; then
-            echo "Error: '$tool' is not installed. Check failed." >&2
+            log_error "'$tool' is not installed. Check failed."
             return 1 # Return 1 (failure) without exiting the script
         fi
     done

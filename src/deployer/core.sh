@@ -9,23 +9,24 @@
 is_app_running() {
     local namespace="$1"
     local min_pods=2
+    log_func_start "namespace=$namespace"
     
     # Validate inputs
     [[ -z "$namespace" ]] && {
-        log_with_verbose_check "$debug" error "Namespace missing: namespace=$namespace"
+        log_with_verbose_check "$debug" "$ERROR" "Namespace missing: namespace=$namespace"
         return 1
     }
     
     # Debug: Print namespace and minimum pods
-    log_with_verbose_check "$debug" debug "Checking for at least $min_pods pods, all Ready, in namespace $namespace"
+    log_with_verbose_check "$debug" "$DEBUG" "Checking for at least $min_pods pods, all Ready, in namespace $namespace"
     
     # Check if namespace exists
     local namespace_check
     namespace_check=$(run_as_user "kubectl get namespace \"$namespace\" -o name")
     local namespace_exit_code=$?
-    log_with_verbose_check "$debug" debug "Namespace check exit code: $namespace_exit_code, output: [$namespace_check]"
+    log_with_verbose_check "$debug" "$DEBUG" "Namespace check exit code: $namespace_exit_code, output: [$namespace_check]"
     [[ $namespace_exit_code -ne 0 ]] && {
-        log_with_verbose_check "$debug" error "Namespace $namespace does not exist or is inaccessible"
+        log_with_verbose_check "$debug" "$ERROR" "Namespace $namespace does not exist or is inaccessible"
         return 1
     }
     
@@ -43,22 +44,22 @@ is_app_running() {
     ready_count=$(echo "$pod_list" | awk '{split($2,a,"/"); if(a[1]==a[2] && a[1]>0) print}' | grep -c '^')
 
     # Debug: Print kubectl exit code, pod list, total pods, and ready count
-    log_with_verbose_check "$debug" debug "kubectl exit code: $exit_code, pod list: [$pod_list], total pods: $total_pods, ready pods: $ready_count"
+    log_with_verbose_check "$debug" "$DEBUG" "kubectl exit code: $exit_code, pod list: [$pod_list], total pods: $total_pods, ready pods: $ready_count"
 
     log_with_verbose_check "$debug" "$DEBUG" "is_app_running($namespace): total_pods=$total_pods, ready_count=$ready_count, min_pods=$min_pods"
     
     # Check if command failed
     [[ $exit_code -ne 0 ]] && {
-        log_with_verbose_check "$debug" error "Failed to retrieve pods in namespace $namespace"
+        log_with_verbose_check "$debug" "$ERROR" "Failed to retrieve pods in namespace $namespace"
         return 1
     }
     
     # Check if there are enough pods and all are Ready
     if [[ $total_pods -ge $min_pods && $ready_count -ge $min_pods ]]; then
-        log_with_verbose_check "$debug" debug "Found $total_pods pods, all Ready, in namespace $namespace, meeting minimum of $min_pods"
+        log_with_verbose_check "$debug" "$DEBUG" "Found $total_pods pods, all Ready, in namespace $namespace, meeting minimum of $min_pods"
         return 0
     else
-        log_with_verbose_check "$debug" debug "Check failed: $total_pods pods, $ready_count Ready, in namespace $namespace (requires at least $min_pods pods, all Ready)"
+        log_with_verbose_check "$debug" "$DEBUG" "Check failed: $total_pods pods, $ready_count Ready, in namespace $namespace (requires at least $min_pods pods, all Ready)"
         return 1
     fi
 } # end of is_app_running
@@ -97,6 +98,7 @@ create_ingress_secret() {
     local secret_name="$3"
     local sans="$4"
     local key_dir="$k8s_user_home/.ssh"
+    log_func_start "namespace=$namespace secret=$secret_name"
 
     mkdir -p "$key_dir"
 
@@ -388,9 +390,8 @@ update_fqdn_batch() {
     local new_fqdn="$3"
 
     find "$directory" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
-        #echo "Processing: $file"
+        log_debug "Processing FQDN update: $file"
         update_fqdn "$file" "$old_fqdn" "$new_fqdn"
-        #echo "---"
     done
 }
 
@@ -460,8 +461,7 @@ apply_domain_to_dir() {
 ensure_helm_dependencies() {
   local chartPath=$1
   local chartName=$(basename "$chartPath")
-  
-  log_with_verbose_check "$debug" "$DEBUG" "Ensuring helm dependencies for $chartName"
+  log_func_start "chart=$chartName"
 
   if [[ -f "$chartPath/Chart.lock" && -s "$chartPath/Chart.lock" ]]; then
     local expected actual

@@ -68,6 +68,25 @@ src/utils/test-scripts/test-mastercard-e2e.sh
 ### Logging
 Set `logging = true` in `config/config.ini` to write a full run log to `/tmp/gazelle-YYYYMMDD-HHMM.log`.
 
+Set `log_level` in `config/config.ini` to control verbosity. Supported values: `debug`, `info` (default), `warning`, `error`.
+The `-d true` CLI flag automatically overrides `log_level` to `debug`.
+
+**Logger functions** (defined in `src/utils/logger.sh`):
+| Function | Purpose |
+|----------|---------|
+| `log_debug "msg"` | Debug-level message (hidden unless `log_level=debug` or `-d true`) |
+| `log_info "msg"` | Info-level message |
+| `log_warn "msg"` | Warning (non-fatal) |
+| `log_error "msg"` | Error (caller should exit after) |
+| `log_section "title"` | Major section header (always visible) |
+| `log_step "desc"` / `log_ok` / `log_failed` | Inline progress (always visible) |
+| `log_func_start` | Traces function entry (debug level, auto-captures function name) |
+| `log_func_end` | Traces function exit |
+| `log_timer_start` / `log_elapsed` | Elapsed-time measurement helpers |
+| `log_banner "msg"` | Green success box |
+
+All timestamped log lines use ISO-8601 format: `2026-05-10T14:03:22`.
+
 ## Architecture
 
 ### Script Execution Flow

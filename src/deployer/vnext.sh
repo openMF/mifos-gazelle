@@ -6,6 +6,7 @@
 # Description: Deploys Mojaloop vNext using Kubernetes manifests.
 #------------------------------------------------------------------------------
 deploy_vnext() {
+  log_func_start
   log_section "Deploying Mojaloop vNext"
 
   if is_app_running "$VNEXT_NAMESPACE"; then
@@ -79,7 +80,7 @@ update_vnext_service_urls() {
         log_error "update_vnext_service_urls: directory '$target_dir' does not exist"
         return 1
     fi
-    #echo "    Updating service URLs in: $target_dir"
+    log_debug "Updating service URLs in: $target_dir"
     
     # Find all YAML files and apply replacements (idempotent - won't duplicate if run multiple times)
     while IFS= read -r -d '' f; do
@@ -91,7 +92,7 @@ update_vnext_service_urls() {
             "$f"
     done < <(find "$target_dir" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0) 
     
-    #echo "Service URL updates complete."
+    log_debug "Service URL updates complete."
 }
 
 #------------------------------------------------------------------------------

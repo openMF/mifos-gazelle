@@ -74,7 +74,7 @@ configure_mac_k3s_node_ip() {
         return 0
     fi
 
-    printf "    Configuring k3s node-ip to %s (socket_vmnet eth0)...\n" "$eth0_ip"
+    log_debug "Configuring k3s node-ip to $eth0_ip (socket_vmnet eth0)"
 
     # Idempotent: skip if already configured with this IP
     local current_ip
@@ -82,7 +82,7 @@ configure_mac_k3s_node_ip() {
         sudo sh -c 'grep -E "^node-ip:" /etc/rancher/k3s/config.yaml 2>/dev/null' \
         | awk -F'"' '{print $2}')
     if [[ "$current_ip" == "$eth0_ip" ]]; then
-        printf "    k3s node-ip already set to %s   [ok]\n" "$eth0_ip"
+        log_debug "k3s node-ip already set to $eth0_ip"
         return 0
     fi
 
@@ -93,7 +93,7 @@ configure_mac_k3s_node_ip() {
 
     # Restart k3s so it picks up the new node-ip config.
     # Try each init mechanism in turn; fall back to a full VM restart.
-    printf "    Restarting k3s...\n"
+    log_debug "Restarting k3s..."
     local restarted=false
     if sudo -u "$k8s_user" "$colima" exec -- sudo rc-service k3s restart >/dev/null 2>&1; then
         # OpenRC (Alpine Linux — Colima Lima VM)
@@ -104,7 +104,7 @@ configure_mac_k3s_node_ip() {
         restarted=true
     else
         # No init service found — restart the whole VM (slowest but reliable)
-        printf "    No k3s service manager found — restarting Colima VM...\n"
+        log_debug "No k3s service manager found — restarting Colima VM..."
         sudo -u "$k8s_user" "$colima" stop >/dev/null 2>&1 || true
         sleep 5
         start_colima
@@ -113,7 +113,7 @@ configure_mac_k3s_node_ip() {
 
     # Wait for the cluster to recover
     if [[ "$restarted" == true ]] && wait_for_k8s 180; then
-        printf "    k3s node-ip configured              [ok]\n"
+        log_debug "k3s node-ip configured to $eth0_ip"
     else
         log_warn "k3s did not recover within 3 minutes after restart"
     fi
@@ -162,7 +162,7 @@ recover_mac_k8s() {
     fi
 
     # ---- Tier 1: clean stale config artifact + in-place k3s restart ----
-    printf "    Auto-recovery tier 1: restarting k3s inside the VM...\n"
+    log_debug "Auto-recovery tier 1: restarting k3s inside the VM..."
     sudo -u "$k8s_user" "$colima" exec -- sudo rm -f /etc/rancher/k3s/config.yaml >/dev/null 2>&1 || true
     sudo -u "$k8s_user" "$colima" exec -- sudo rc-service k3s restart >/dev/null 2>&1 || \
         sudo -u "$k8s_user" "$colima" exec -- sudo service k3s restart >/dev/null 2>&1 || true
@@ -175,7 +175,7 @@ recover_mac_k8s() {
     fi
 
     # ---- Tier 2: full VM restart ----
-    printf "    Auto-recovery tier 2: restarting Colima VM...\n"
+    log_debug "Auto-recovery tier 2: restarting Colima VM..."
     sudo -u "$k8s_user" "$colima" stop >/dev/null 2>&1 || true
     sleep 5
     start_colima
@@ -187,8 +187,8 @@ recover_mac_k8s() {
     fi
 
     log_error "Auto-recovery failed. Try:"
-    printf "   1. Run: colima stop && colima start --kubernetes --kubernetes-version v1.30.0+k3s1 --runtime containerd --memory 16 --cpu 4\n"
-    printf "   2. If the problem persists, run: colima delete && re-run ./run.sh\n"
+    log_error "  1. Run: colima stop && colima start --kubernetes --kubernetes-version v1.30.0+k3s1 --runtime containerd --memory 16 --cpu 4"
+    log_error "  2. If the problem persists, run: colima delete && re-run ./run.sh"
     return 1
 }
 
@@ -201,7 +201,7 @@ ensure_homebrew() {
     if brew_available; then
         return 0
     fi
-    printf "    Homebrew not found — installing (this may take a few minutes)...\n"
+    log_debug "Homebrew not found — installing (this may take a few minutes)..."
     sudo -u "$k8s_user" /bin/bash -c \
         "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
         </dev/null
@@ -287,9 +287,8 @@ install_mac_k8s() {
         current_context=$(su - "$k8s_user" -c "kubectl config current-context" 2>/dev/null)
         if [[ "$current_context" != "colima" ]]; then
             log_error "A Kubernetes cluster is already running but it is not Colima."
-            printf "   Current context: %s\n" "$current_context"
-            printf "   mifos-gazelle requires Colima on macOS.\n"
-            printf "   Please stop the other provider and re-run.\n"
+            log_error "Current context: $current_context"
+            log_error "mifos-gazelle requires Colima on macOS. Please stop the other provider and re-run."
             exit 1
         fi
         log_step "Colima Kubernetes is ready"
@@ -306,7 +305,7 @@ install_mac_k8s() {
         vm_state=$(sudo -u "$k8s_user" "$colima" list --json 2>/dev/null \
             | python3 -c "import sys,json; items=json.load(sys.stdin); print(items[0].get('status','') if items else '')" 2>/dev/null || true)
         if [[ "$vm_state" == "Running" ]]; then
-            printf "    VM is running but cluster is unreachable — attempting auto-recovery...\n"
+            log_debug "VM is running but cluster is unreachable — attempting auto-recovery..."
             if recover_mac_k8s; then
                 log_step "Colima Kubernetes is ready"
         log_ok
@@ -318,7 +317,7 @@ install_mac_k8s() {
 
     # Colima installed but not running (or recovery failed) — start it
     if colima=$(find_colima); then
-        printf "    Colima found, starting...\n"
+        log_debug "Colima found, starting..."
         start_colima
         # Ensure kubeconfig points at colima (may be stale from a previous provider)
         use_colima_context
@@ -327,18 +326,17 @@ install_mac_k8s() {
         log_ok
             return 0
         fi
-        log_error "Colima did not become ready."
-        printf "   Run: colima list    and check for errors.\n"
+        log_error "Colima did not become ready. Run: colima list and check for errors."
         exit 1
     fi
 
     # Not installed — install Colima + Docker tooling via Homebrew then start
-    printf "    Colima not found. Installing via Homebrew (this may take a few minutes)...\n"
+    log_debug "Colima not found. Installing via Homebrew (this may take a few minutes)..."
     if ! sudo -u "$k8s_user" brew install colima docker docker-compose; then
         log_error "Colima installation failed."
         exit 1
     fi
-    printf "    Starting Colima with Kubernetes (this may take a few minutes)...\n"
+    log_debug "Starting Colima with Kubernetes (this may take a few minutes)..."
     start_colima
     if ! wait_for_k8s 300; then
         log_error "Colima did not become ready."

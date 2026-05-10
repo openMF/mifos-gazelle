@@ -8,6 +8,7 @@
 deploy_ph(){
   gazelleChartPath="$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/gazelle"
   pheeEngineChartPath="$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine"
+  log_func_start
 
   # create_ingress_secret "$PH_NAMESPACE"  \
   # "bulk-processor.$GAZELLE_DOMAIN" \
@@ -136,6 +137,7 @@ deploy_bpmns() {
   local successful_uploads=0
   local BPMNS_DIR="$BASE_DIR/orchestration/feel"  # BPMNs deployed from  Gazelle but probably eventually belong in ph-ee-env-template 
   local bpms_to_deploy=$(ls -l "$BPMNS_DIR"/*.bpmn | wc -l)
+  log_func_start "bpmns=$bpms_to_deploy"
   log_step "Deploying BPMN diagrams"
 
   for file in "$BPMNS_DIR"/*.bpmn; do

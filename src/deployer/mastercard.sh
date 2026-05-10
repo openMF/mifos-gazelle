@@ -136,6 +136,7 @@ create_secrets() {
 
 deploy_operator() {
     local operator_dir="$RUN_DIR/src/deployer/operators/mastercard"
+    log_func_start "operator_dir=$operator_dir"
 
     if [ ! -d "$operator_dir" ]; then
         log_error "Operator directory not found: $operator_dir"
@@ -162,6 +163,7 @@ deploy_operator() {
 }
 
 deploy_connector() {
+    log_func_start
     # Determine API URL
     local api_url="$MASTERCARD_API_URL"
 
@@ -392,6 +394,7 @@ cleanup() {
 }
 
 deploy_mastercard() {
+    log_func_start
     log_section "Deploying Mastercard CBS"
     check_prerequisites
     log_with_verbose_check "$debug" "$DEBUG" "Namespace: $MASTERCARD_NAMESPACE"

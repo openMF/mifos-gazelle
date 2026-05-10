@@ -24,6 +24,7 @@ clone_repo() {
   local target_directory="$3"
   local cloned_directory_name="$4"
   local repo_path="$target_directory/$cloned_directory_name"
+  log_func_start "branch=$branch repo=$cloned_directory_name"
 
   # Create target directory if it doesn't exist
   run_as_user "mkdir -p \"$target_directory\" " >/dev/null 2>&1
@@ -168,6 +169,7 @@ create_namespace() {
 #------------------------------------------------------------
 deploy_infrastructure() {
   local redeploy="${1:-false}"
+  log_func_start "redeploy=$redeploy"
 
   if is_app_running "$INFRA_NAMESPACE" && [[ "$redeploy" == "false" ]]; then
     return 0
@@ -279,6 +281,7 @@ print_deployment_end_message() {
 #------------------------------------------------------------
 delete_apps() {
   local appsToDelete="$1"
+  log_func_start "apps=$appsToDelete"
 
   log_section "Removing applications"
   for app in $appsToDelete; do
@@ -328,8 +331,7 @@ deploy_apps() {
   local appsToDeploy="$1"
   local redeploy="${2:-false}"
   local data_gen_failed=false
-
-  log_with_verbose_check "$debug" "$DEBUG" "Apps to deploy: $appsToDeploy (redeploy=$redeploy)"
+  log_func_start "apps=$appsToDeploy redeploy=$redeploy"
 
   # Ensure infra is up before any DPG deployment. The idempotency guard inside
   # deploy_infrastructure makes this a no-op if infra is already running.
