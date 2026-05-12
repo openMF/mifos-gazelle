@@ -27,7 +27,7 @@ ph-ee-engine:
       PH_REGISTERING_INSTITUTION_ID: 123
 
   operations_app:
-    enabled: true
+    enabled: false
     #image: docker.io/openmf/ph-ee-operations-app:mifos-v2.0.0
     image: docker.io/openmf/ph-ee-operations-app:dev-latest
     imagePullPolicy: IfNotPresent
@@ -259,7 +259,7 @@ ph-ee-engine:
   #### end of camunda-platform
 
   ph_ee_connector_mojaloop:
-    enabled: true
+    enabled: false
     image: docker.io/openmf/ph-ee-connector-mojaloop-java:dev-latest
     imagePullPolicy: IfNotPresent
     resources:
@@ -309,7 +309,7 @@ ph-ee-engine:
             -XX:+HeapDumpOnOutOfMemoryError
 
   mockpayment:
-    enabled: true
+    enabled: false
     image: docker.io/openmf/ph-ee-connector-mock-payment-schema:dev-latest
     imagePullPolicy: IfNotPresent
     resources:
@@ -388,7 +388,7 @@ ph-ee-engine:
                   number: 80
 
   ph_ee_bulk_processor:
-    enabled: true
+    enabled: false
     image: docker.io/openmf/ph-ee-bulk-processor:dev-latest
     imagePullPolicy: IfNotPresent
     camel_disable_ssl: false  # End-to-end TLS
@@ -476,7 +476,7 @@ ph-ee-engine:
                 number: 8443
 
   channel:
-    enabled: true
+    enabled: false
     image: openmf/ph-ee-connector-channel:dev-latest
     resources:
       requests:
@@ -560,7 +560,7 @@ ph-ee-engine:
         cpu: 500m
 
   ph_ee_connector_bulk:
-    enabled: true
+    enabled: false
     image: docker.io/openmf/ph-ee-connector-bulk:dev-latest
     resources:
       requests:
@@ -588,7 +588,7 @@ ph-ee-engine:
           -XX:+HeapDumpOnOutOfMemoryError
   
   importer_rdbms:
-    enabled: true
+    enabled: false
     image: docker.io/openmf/ph-ee-importer-rdbms:dev-latest
     resources:
       requests:
@@ -600,7 +600,7 @@ ph-ee-engine:
     javaToolOptions: "-Xms64m -Xmx128m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m -XX:+HeapDumpOnOutOfMemoryError"
 
   zeebe_ops:
-    enabled: true
+    enabled: false
     image: docker.io/openmf/ph-ee-zeebe-ops:dev-latest
     resources:
       requests:
@@ -630,7 +630,7 @@ ph-ee-engine:
 
 
   ph_ee_connector_ams_mifos:
-    enabled: true
+    enabled: false
     image: docker.io/openmf/ph-ee-connector-ams-mifos:dev-latest
     resources:
       requests:
@@ -649,3 +649,6 @@ ph-ee-engine:
             -XX:ReservedCodeCacheSize=64m
             -XX:MaxMetaspaceSize=128m
             -XX:+HeapDumpOnOutOfMemoryError
+
+  notifications:
+    enabled: false

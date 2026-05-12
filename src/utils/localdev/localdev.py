@@ -55,6 +55,84 @@ class LocalDevPatcher:
         """Get list of components to patch from config file"""
         return [section for section in self.config.sections() if section != 'general']
     
+    def _is_operator_running_locally(self) -> bool:
+        """Check if the PHEE operator is running as a local process."""
+        try:
+            result = subprocess.run(
+                ['pgrep', '-f', 'com.paymenthub.OperatorMain'],
+                capture_output=True, text=True
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def run_operator(self) -> None:
+        """Run the PHEE operator locally against the cluster via ./gradlew run."""
+        if 'phee-operator' not in self.config:
+            print("❌ [phee-operator] section not found in localdev.ini")
+            return
+
+        comp_config = self.config['phee-operator']
+        operator_dir_str = comp_config.get('operator_dir', '')
+        if not operator_dir_str:
+            print("❌ 'operator_dir' not set in [phee-operator]")
+            return
+
+        operator_dir = Path(self._expand_vars(operator_dir_str))
+
+        if not operator_dir.exists():
+            print(f"❌ Operator directory not found: {operator_dir}")
+            print("  Run first:  ./localdev.py --checkout --component phee-operator")
+            return
+
+        if not (operator_dir / 'gradlew').exists():
+            print(f"❌ gradlew not found in {operator_dir} — is the repo fully checked out?")
+            return
+
+        kubeconfig = os.environ.get('KUBECONFIG', str(Path.home() / '.kube' / 'config'))
+
+        print(f"\n{'═' * 60}")
+        print(f"  Running PHEE Operator locally")
+        print(f"{'═' * 60}")
+        print(f"  Directory : {operator_dir}")
+        print(f"  KUBECONFIG: {kubeconfig}")
+        print()
+        print("  ⚠️  Scale down the in-cluster operator first to avoid dual reconcilers:")
+        print("     kubectl scale deployment phee-operator -n paymenthub --replicas=0")
+        print()
+
+        # Apply CRD if not already installed
+        crd_file = operator_dir / 'deploy' / 'crds' / 'ph-ee-CustomResourceDefinition.yaml'
+        if crd_file.exists():
+            result = subprocess.run(
+                ['kubectl', 'get', 'crd', 'paymenthubdeployments.gazelle.mifos.io'],
+                capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                print("  Applying CRD (paymenthubdeployments.gazelle.mifos.io)...")
+                subprocess.run(['kubectl', 'apply', '-f', str(crd_file)], check=True)
+                subprocess.run(
+                    ['kubectl', 'wait', '--for=condition=Established',
+                     'crd/paymenthubdeployments.gazelle.mifos.io', '--timeout=30s'],
+                    check=True
+                )
+                print("  CRD ready.")
+        else:
+            print(f"  ⚠️  CRD file not found at {crd_file} — skipping auto-apply")
+
+        print("  Press Ctrl+C to stop\n")
+
+        try:
+            subprocess.run(
+                ['./gradlew', 'run'],
+                cwd=operator_dir,
+                env={**os.environ, 'KUBECONFIG': kubeconfig}
+            )
+        except KeyboardInterrupt:
+            print("\n\nOperator stopped.")
+        except FileNotFoundError:
+            print("❌ ./gradlew not found — check operator_dir in localdev.ini")
+
     def _git_skip_worktree(self, file_path: Path, enable: bool = True) -> bool:
         """
         Mark a file to be ignored by git (skip-worktree)
@@ -371,8 +449,11 @@ class LocalDevPatcher:
 
             # ── Deploy column ─────────────────────────────────────────────────
             is_patched = False
-            if 'directory' not in comp_config:
-                dep_col = "— operator"
+            if comp_config.get('app_type', '') == 'operator':
+                running = self._is_operator_running_locally()
+                dep_col = "🟢 running locally" if running else "— not running"
+            elif 'directory' not in comp_config:
+                dep_col = "— operator-cr"
             else:
                 directory = Path(self._expand_vars(comp_config['directory']))
                 deployment_file = directory / "templates" / "deployment.yaml"
@@ -446,10 +527,16 @@ class LocalDevPatcher:
 
         comp_config = self.config[component]
 
+        # The operator itself — run it locally, don't patch anything
+        if comp_config.get('app_type', '') == 'operator':
+            print(f"\n⏭️  Skipping {component} - this IS the operator (nothing to patch)")
+            print(f"  ℹ️  Run it locally with: ./localdev.py --run")
+            return True
+
         # Operator-managed components have no Helm chart to patch
         if 'directory' not in comp_config:
-            print(f"\n⏭️  Skipping {component} - operator-managed (no Helm chart to patch)")
-            print(f"  ℹ️  Use the CR samples in src/operators/ to configure this component")
+            print(f"\n⏭️  Skipping {component} - managed by PHEE operator (no Helm chart)")
+            print(f"  ℹ️  Run the operator locally to reconcile this component: ./localdev.py --run")
             return True
 
         # Get component configuration
@@ -732,8 +819,12 @@ class LocalDevPatcher:
         
         comp_config = self.config[component]
 
+        if comp_config.get('app_type', '') == 'operator':
+            print(f"\n⏭️  Skipping {component} - this IS the operator (nothing to restore)")
+            return True
+
         if 'directory' not in comp_config:
-            print(f"\n⏭️  Skipping {component} - operator-managed (no Helm chart to restore)")
+            print(f"\n⏭️  Skipping {component} - managed by PHEE operator (no Helm chart to restore)")
             return True
 
         directory = Path(self._expand_vars(comp_config['directory']))
@@ -804,6 +895,9 @@ def main():
 Examples:
   # Show status of all components
   ./localdev.py --status
+
+  # Run the PHEE operator locally against Colima (no Docker image needed)
+  ./localdev.py --run
   
   # Complete setup: checkout repos + patch deployments
   ./localdev.py --setup
@@ -881,13 +975,20 @@ Examples:
         action='store_true',
         help='Show status of all components (repos and deployments)'
     )
-    
+    parser.add_argument(
+        '--run',
+        action='store_true',
+        help='Run the PHEE operator locally via ./gradlew run (scales down in-cluster operator first reminder)'
+    )
+
     args = parser.parse_args()
     
     try:
         patcher = LocalDevPatcher(args.config)
         
-        if args.status:
+        if args.run:
+            patcher.run_operator()
+        elif args.status:
             patcher.status_all()
         elif args.check_git_status:
             patcher.check_git_status(args.component)
