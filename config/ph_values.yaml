@@ -14,7 +14,7 @@ ph-ee-engine:
     s3BaseUrl: http://minio:9000
 
   operations_web:
-    enabled: true
+    enabled: false
     image: docker.io/openmf/ph-ee-operations-web:dev
     backend:
       PH_OPS_BACKEND_SERVER_URL: https://ops-bk.mifos.gazelle.test/api/v1
@@ -144,10 +144,6 @@ ph-ee-engine:
           value: "false"
         - name: ZEEBE_BROKER_EXECUTION_METRICS_EXPORTER_ENABLED
           value: "true"
-        # - name: ZEEBE_BROKER_EXPORTERS_ELASTICSEARCH_CLASSNAME
-        #   value: "hu.dpc.rt.kafkastreamer.exporter.NoOpExporter"
-        - name: ZEEBE_BROKER_EXPORTERS_ELASTICSEARCH_JARPATH
-          value: "/exporters/ph-ee-kafka-exporter.jar"
         - name: ZEEBE_BROKER_EXPORTERS_KAFKA_JARPATH
           value: "/exporters/ph-ee-kafka-exporter.jar"
         - name: ZEEBE_BROKER_EXPORTERS_KAFKA_CLASSNAME

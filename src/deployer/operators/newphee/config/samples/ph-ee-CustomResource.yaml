@@ -1,16 +1,17 @@
 # =============================================================================
 # PaymentHub EE — Custom Resource instances
 #
-# Enabled (10 core components managed by the operator):
+# Enabled (11 core components managed by the operator):
 #   ph-ee-importer-rdbms, ph-ee-connector-channel, ph-ee-operations-app,
 #   ph-ee-connector-mojaloop-java, ph-ee-connector-notifications, ph-ee-zeebe-ops,
 #   ph-ee-connector-bulk, ph-ee-bulk-processor,
-#   ph-ee-connector-mock-payment-schema, ph-ee-identity-account-mapper
+#   ph-ee-connector-mock-payment-schema, ph-ee-identity-account-mapper,
+#   ph-ee-connector-ams-mifos
 #
 # Disabled (operator can enable via CR toggle when needed):
 #   ph-ee-connector-gsma (image openmf/ph-ee-connector-gsma:v1.3.0-gazelle-1.1.0 not on Docker Hub),
 #   ph-ee-importer-es, message-gateway, ph-ee-connector-crm,
-#   ph-ee-connector-bill-pay, ph-ee-vouchers, ph-ee-connector-ams-mifos,
+#   ph-ee-connector-bill-pay, ph-ee-vouchers,
 #   ph-ee-operations-web
 # =============================================================================
 
@@ -149,7 +150,7 @@ spec:
     - name: ZEEBE_BROKER_CONTACTPOINT
       value: "phee-infra-zeebe-gateway:26500"
     - name: DFSPIDS
-      value: "wakanda,pluto,venus,jupiter,gorilla"
+      value: "greenbank,redbank,bluebank"
     - name: TRANSACTION-ID-LENGTH
       value: "20"
     - name: MPESA_NOTIFICATION_SUCCESS_ENABLED
@@ -169,13 +170,13 @@ spec:
     - name: CHANNEL_TENANTPRIMARY_CLIENTSECRET
       value: "password"
     - name: CHANNEL_TENANTPRIMARY_TENANT
-      value: "rhino"
+      value: "greenbank"
     - name: CHANNEL_TENANTSECONDARY_CLIENTID
       value: "mifos"
     - name: CHANNEL_TENANTSECONDARY_CLIENTSECRET
       value: "password"
     - name: CHANNEL_TENANTSECONDARY_TENANT
-      value: "gorilla"
+      value: "bluebank"
     - name: redis_idempotency_enabled
       value: "true"
     - name: redis_host
@@ -189,6 +190,8 @@ spec:
           key: redis-password
     - name: server_ssl_enabled
       value: "false"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
 
 ---
 
@@ -267,11 +270,13 @@ spec:
     - name: TOKEN_CLIENT_CHANNEL_SECRET
       value: ""
     - name: TENANTS
-      value: "rhino,gorilla,wakanda,pluto,venus,jupiter"
+      value: "greenbank,bluebank,redbank"
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"
     - name: LOGGING_PATTERN_CONSOLE
       value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
 
 ---
 
@@ -318,13 +323,15 @@ spec:
     - name: SPRING_PROFILES_ACTIVE
       value: "bb"
     - name: DFSPIDS
-      value: "wakanda,pluto,venus,jupiter,gorilla"
+      value: "greenbank,redbank,bluebank"
     - name: ZEEBE_BROKER_CONTACTPOINT
       value: "phee-infra-zeebe-gateway:26500"
     - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
       value: "50"
     - name: ZEEBE_CLIENT_POLL-INTERVAL
       value: "10"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms64m -Xmx192m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=96m"
 
 ---
 
@@ -385,6 +392,8 @@ spec:
       value: "false"
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx512m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
 
 ---
 
@@ -446,9 +455,9 @@ spec:
     - name: ZEEBE_BROKER_CONTACTPOINT
       value: "phee-infra-zeebe-gateway:26500"
     - name: TENANTS
-      value: "rhino,gorilla,wakanda,pluto,venus,jupiter"
+      value: "greenbank,bluebank,redbank"
     - name: DFSPIDS
-      value: "wakanda,pluto,venus,jupiter,gorilla"
+      value: "greenbank,redbank,bluebank"
     - name: ELASTICSEARCH_URL
       value: "http://infra-elasticsearch.infra.svc.cluster.local:9200/"
     - name: SPRING_DATA_ELASTICSEARCH_CLIENT_REACTIVE_ENDPOINTS
@@ -469,6 +478,8 @@ spec:
           key: password
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
 
 ---
 
@@ -582,7 +593,7 @@ spec:
     - name: ZEEBE_CLIENT_POLL-INTERVAL
       value: "10"
     - name: TENANTS
-      value: "rhino,gorilla,wakanda,pluto,venus,jupiter"
+      value: "greenbank,bluebank,redbank"
     - name: APPLICATION_BUCKET-NAME
       value: "paymenthub-ee"
     - name: CLOUD_AWS_S3BASEURL
@@ -608,6 +619,8 @@ spec:
       value: "/api/v1/batch/transactions"
     - name: IDENTITY_MAPPER_CONTACTPOINT
       value: "http://ph-ee-identity-account-mapper:80"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms64m -Xmx192m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=96m"
 
 ---
 
@@ -705,6 +718,8 @@ spec:
       value: "3306"
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
 
 ---
 
@@ -747,7 +762,7 @@ spec:
     - name: SPRING_PROFILES_ACTIVE
       value: "bb"
     - name: DFSPIDS
-      value: "wakanda,pluto,venus,jupiter,gorilla"
+      value: "greenbank,redbank,bluebank"
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"
     - name: ZEEBE_BROKER_CONTACTPOINT
@@ -758,6 +773,8 @@ spec:
       value: "10"
     - name: mockFailure_percentage
       value: "0"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx384m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
 
 ---
 
@@ -830,6 +847,8 @@ spec:
           key: database-password
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
 
 # =============================================================================
 # Disabled components — set enabled: true to activate via operator
@@ -985,7 +1004,7 @@ spec:
     - name: ZEEBE_BROKER_CONTACTPOINT
       value: "phee-infra-zeebe-gateway:26500"
     - name: DFSPIDS
-      value: "wakanda,pluto,venus,jupiter,gorilla"
+      value: "greenbank,redbank,bluebank"
 
 ---
 
@@ -1030,7 +1049,7 @@ spec:
     - name: ZEEBE_BROKER_CONTACTPOINT
       value: "phee-infra-zeebe-gateway:26500"
     - name: DFSPIDS
-      value: "wakanda,pluto,venus,jupiter,gorilla"
+      value: "greenbank,redbank,bluebank"
 
 ---
 
@@ -1083,11 +1102,11 @@ metadata:
   name: ph-ee-connector-ams-mifos
   namespace: paymenthub
 spec:
-  enabled: false
+  enabled: true
   rbacEnabled: false
   secretEnabled: false
   configMapEnabled: false
-  ingressEnabled: false
+  ingressEnabled: true
   initContainerEnabled: true
   volMount:
     enabled: true
@@ -1102,6 +1121,22 @@ spec:
     requests:
       cpu: 100m
       memory: 256M
+  ingress:
+    className: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    tls:
+      - secretName: sandbox-secret
+    rules:
+      - host: ams-mifos.local
+        paths:
+          - path: "/"
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ph-ee-connector-ams-mifos
+                port:
+                  number: 80
   services:
     - name: ph-ee-connector-ams-mifos
       ports:
@@ -1123,7 +1158,21 @@ spec:
     - name: ZEEBE_BROKER_CONTACTPOINT
       value: "phee-infra-zeebe-gateway:26500"
     - name: DFSPIDS
-      value: "wakanda,pluto,venus,jupiter,gorilla"
+      value: "greenbank,redbank,bluebank"
+    - name: ams_local_enabled
+      value: "true"
+    - name: ams_local_interop_host
+      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
+    - name: ams_local_account_host
+      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
+    - name: ams_local_customer_host
+      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
+    - name: ams_local_auth_host
+      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
+    - name: ams_local_loan_host
+      value: ""
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
 
 ---
 
@@ -1133,7 +1182,8 @@ metadata:
   name: ph-ee-operations-web
   namespace: paymenthub
 spec:
-  enabled: false
+  enabled: true
+  domain: GAZELLE_DOMAIN
   volMount:
     enabled: true
     name: ph-ee-operations-web-configmap
@@ -1150,7 +1200,23 @@ spec:
   rbacEnabled: false
   secretEnabled: false
   configMapEnabled: true
-  ingressEnabled: false
+  ingressEnabled: true
+  ingress:
+    className: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    tls:
+      - secretName: sandbox-secret
+    rules:
+      - host: ops.local
+        paths:
+          - path: "/"
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ph-ee-operations-web
+                port:
+                  number: 4200
   services:
     - name: ph-ee-operations-web
       ports:
@@ -1164,12 +1230,12 @@ spec:
       type: ClusterIP
   environment:
     - name: PH_OPS_BACKEND_SERVER_URL
-      value: "http://ph-ee-operations-app"
+      value: "http://ph-ee-operations-app:80/api/v1"
     - name: PH_VOU_BACKEND_SERVER_URL
-      value: "http://ph-ee-vouchers"
+      value: "http://ph-ee-operations-app:80/api/v1"
     - name: PH_ACT_BACKEND_SERVER_URL
-      value: "http://ph-ee-identity-account-mapper"
+      value: "http://ph-ee-identity-account-mapper:80"
     - name: PH_PLATFORM_TENANT_ID
-      value: "gorilla"
+      value: "greenbank"
     - name: PH_AUTH_ENABLED
       value: "false"

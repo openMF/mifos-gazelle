@@ -4,10 +4,9 @@
 # Deployment sequence:
 #   1. deploy_ph_infra_helm  -- Helm --wait: Zeebe, operationsmysql, Redis, MinIO, Kafka into paymenthub ns
 #   2. elastic + TLS secrets
-#   3. create_bpmn_configmap -- package BPMN files into a ConfigMap for the operator Job
-#   4. deploy_ph_operator    -- CRD + operator pod + 11 PaymentHubDeployment CRs
-#   5. wait_for_phee_crs_ready
-#      (BPMN upload triggered by operator after ph-ee-zeebe-ops reaches ready)
+#   3. deploy_ph_operator      -- CRD + operator pod + 10 PaymentHubDeployment CRs
+#   4. wait_for_phee_crs_ready -- poll until all enabled CRs reach ready; zeebe-ops confirmed up
+#   5. deploy_bpmns            -- curl BPMN files to zeebe-ops ingress (https://zeebeops.$GAZELLE_DOMAIN)
 
 #------------------------------------------------------------------------------
 # Function : deploy_ph
@@ -52,14 +51,14 @@ deploy_ph(){
     "sandbox-secret" \
     "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,ph-ee-connector-channel,ph-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
 
-  # Step 4 — package BPMN files into a ConfigMap so the operator Job can mount them
-  create_bpmn_configmap || return 1
-
-  # Step 5 — operator + CRs (operator triggers BPMN upload Job after zeebe-ops is ready)
+  # Step 3 — operator reconciles app component Deployments, Services, Ingresses
   deploy_ph_operator
 
-  # Step 6 — wait for all CRs to reach ready
+  # Step 4 — wait for all CRs to reach ready; zeebe-ops pod confirmed running
   wait_for_phee_crs_ready
+
+  # Step 5 — curl BPMN files directly to zeebe-ops via its ingress
+  deploy_bpmns
 
   log_banner "Payment Hub EE Deployed"
 }
@@ -333,10 +332,14 @@ deploy_ph_operator() {
 #------------------------------------------------------------------------------
 generate_phee_crs() {
   local cr_file="$RUN_DIR/src/deployer/operators/newphee/config/samples/ph-ee-CustomResource.yaml"
-  # Replace placeholder .local host suffixes with the real Gazelle domain.
+  # Replace placeholder .local host suffixes and GAZELLE_DOMAIN token with the real Gazelle domain.
   # CR hosts follow the pattern "<prefix>.local" at end-of-line — swap .local → .$GAZELLE_DOMAIN.
   # The $ anchor ensures cluster.local:9200 internal DNS refs are not touched.
-  sed "s/\\.local$/.${GAZELLE_DOMAIN}/g" "$cr_file"
+  # GAZELLE_DOMAIN token is used for the spec.domain field so the operator ConfigMap
+  # for operations-web gets the correct ops-bk.<domain> URL.
+  sed -e "s/\\.local$/.${GAZELLE_DOMAIN}/g" \
+      -e "s/: GAZELLE_DOMAIN$/: ${GAZELLE_DOMAIN}/" \
+      "$cr_file"
 }
 
 #------------------------------------------------------------------------------
@@ -382,72 +385,73 @@ wait_for_phee_crs_ready() {
 }
 
 #------------------------------------------------------------------------------
-# Function : create_bpmn_configmap
-# Description: Packages all BPMN files from orchestration/feel/ into a
-#              Kubernetes ConfigMap (phee-bpmn-diagrams) so the operator Job
-#              can mount and POST them to zeebe-ops after it becomes ready.
-#------------------------------------------------------------------------------
-create_bpmn_configmap() {
-  local bpmns_dir="$BASE_DIR/orchestration/feel"
-  log_step "Creating BPMN ConfigMap (phee-bpmn-diagrams)"
-
-  local files_arg=""
-  for f in "$bpmns_dir"/*.bpmn; do
-    [ -f "$f" ] && files_arg="$files_arg --from-file=$(basename "$f")=$f"
-  done
-
-  if [ -z "$files_arg" ]; then
-    log_warn "No BPMN files found in $bpmns_dir — skipping ConfigMap creation"
-    return 0
-  fi
-
-  # Delete first to ensure idempotency, then create directly — avoids pipe/dry-run complexity.
-  run_as_user "kubectl delete configmap phee-bpmn-diagrams -n $PH_NAMESPACE --ignore-not-found=true"
-  # shellcheck disable=SC2086
-  run_as_user "kubectl create configmap phee-bpmn-diagrams -n $PH_NAMESPACE $files_arg" \
-    || { log_failed "Failed to create BPMN ConfigMap"; return 1; }
-  log_ok
-}
-
-#------------------------------------------------------------------------------
 # Function : deploy_bpmns
-# Description: Deploys BPMN diagrams to Zeebe Operate.
-# NOTE: Retained for manual use; BPMN loading is now handled by the operator
-#       Job (BpmnDeploymentJob) triggered after ph-ee-zeebe-ops becomes ready.
+# Description: Deploys BPMN diagrams to Zeebe via the zeebe-ops ingress.
 #------------------------------------------------------------------------------
 deploy_bpmns() {
   local host="https://zeebeops.$GAZELLE_DOMAIN/zeebe/upload"
-  local DEBUG=false
-  local successful_uploads=0
-  local BPMNS_DIR="$BASE_DIR/orchestration/feel"
-  local bpms_to_deploy
-  bpms_to_deploy=$(ls -l "$BPMNS_DIR"/*.bpmn | wc -l)
+  local bpmns_dir="$BASE_DIR/orchestration/feel"
+  local failed=0
+
   log_step "Deploying BPMN diagrams"
 
-  for file in "$BPMNS_DIR"/*.bpmn; do
-    if [ -f "$file" ]; then
-      local cmd="curl --insecure --location --request POST $host \
-          --header 'Platform-TenantId: greenbank' \
-          --form 'file=@\"$file\"' \
-          -s -o /dev/null -w '%{http_code}'"
-
-      log_with_verbose_check "$debug" "$DEBUG" "Uploading $(basename "$file")"
-      http_code=$(eval "$cmd")
-      exit_code=$?
-
-      if [ "$exit_code" -eq 0 ] && [ "$http_code" -eq 200 ]; then
-          ((successful_uploads++))
-      fi
-      sleep 1
-    else
-      log_warn "No BPMN files found in $BPMNS_DIR"
-    fi
+  local files=()
+  for f in "$bpmns_dir"/*.bpmn; do
+    [ -f "$f" ] && files+=("$f")
   done
 
-  if [ "$successful_uploads" -ge "$bpms_to_deploy" ]; then
+  if [ "${#files[@]}" -eq 0 ]; then
+    log_warn "No BPMN files found in $bpmns_dir"
+    return 0
+  fi
+
+  # The operator sets CR status.ready when resources are created, but the Spring
+  # Boot app inside zeebe-ops needs additional time to start. Poll until the
+  # ingress returns a non-502/503 response before attempting uploads.
+  local zeebe_ops_root="https://zeebeops.$GAZELLE_DOMAIN"
+  local startup_timeout=180
+  local elapsed=0
+  log_with_verbose_check "$debug" "$DEBUG" "Waiting for zeebe-ops to be responsive..."
+  while [ "$elapsed" -lt "$startup_timeout" ]; do
+    local probe_code
+    probe_code=$(curl --insecure --silent --output /dev/null \
+      --write-out "%{http_code}" "$zeebe_ops_root/" 2>/dev/null)
+    if [ "$probe_code" != "000" ] && [ "$probe_code" != "502" ] && [ "$probe_code" != "503" ]; then
+      break
+    fi
+    sleep 10
+    elapsed=$((elapsed + 10))
+  done
+  if [ "$elapsed" -ge "$startup_timeout" ]; then
+    log_warn "zeebe-ops did not become responsive after ${startup_timeout}s — upload may fail"
+  fi
+
+  for file in "${files[@]}"; do
+    local response http_code
+    local retries=3
+    local attempt=0
+    while [ "$attempt" -lt "$retries" ]; do
+      response=$(curl --insecure --location --request POST "$host" \
+        --form "file=@$file" \
+        --write-out "\n%{http_code}" \
+        --silent --show-error 2>&1)
+      http_code=$(echo "$response" | tail -1)
+      [ "$http_code" = "200" ] || [ "$http_code" = "201" ] && break
+      attempt=$((attempt + 1))
+      [ "$attempt" -lt "$retries" ] && sleep 10
+    done
+    if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
+      log_warn "BPMN upload failed (HTTP $http_code): $(basename "$file")"
+      log_warn "  $(echo "$response" | sed '$d')"
+      failed=$((failed + 1))
+    fi
+    sleep 1
+  done
+
+  if [ "$failed" -eq 0 ]; then
     log_ok
   else
-    log_warn "Some BPMN diagrams may not have deployed. Run: ./src/utils/deployBpmn-gazelle.sh"
+    log_warn "$failed BPMN upload(s) failed. Re-run manually: src/utils/deployBpmn-gazelle.sh"
   fi
 }
 
