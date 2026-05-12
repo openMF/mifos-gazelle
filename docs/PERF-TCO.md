@@ -1,6 +1,7 @@
 # Performance Testing and TCO Estimation
 
-This guide covers the performance and cost tooling added to Mifos Gazelle.
+This guide covers optional performance and total-cost-of-ownership (TCO) tooling for Mifos Gazelle. For full deployment prerequisites (RAM, disk, OS), see [MIFOS-GAZELLE-README.md](MIFOS-GAZELLE-README.md).
+
 Three scripts work together to answer two questions:
 
 - **Performance:** how does the stack behave under load?
@@ -26,7 +27,8 @@ sudo apt-get install -y jq
 
 # Python 3 — already used by Gazelle; no extra packages needed for tco-estimate.py
 
-# JMeter — only needed for run-load-test.sh
+# JMeter — only needed for run-load-test.sh (requires a JDK on PATH)
+sudo apt-get install -y default-jdk
 wget https://downloads.apache.org/jmeter/binaries/apache-jmeter-5.6.3.tgz
 tar -xzf apache-jmeter-5.6.3.tgz -C $HOME
 mv $HOME/apache-jmeter-5.6.3 $HOME/apache-jmeter
@@ -126,6 +128,22 @@ python3 src/utils/perf/tco-estimate.py --metrics /tmp/gazelle-metrics.json \
 5. Adds storage (prefer measured PVC requested capacity if present) and network egress costs
 6. Breaks down costs proportionally per DPG component
 
+### Measured inputs vs modeled costs
+
+The dollar amounts are **not** taken from your cloud bill. They are a **model** built from:
+
+| Input | Source |
+|-------|--------|
+| CPU and memory totals | **Measured** at collection time via `kubectl top pods` (point-in-time usage, not limits). |
+| Per-namespace PVC sizes (`--storage`) | **Measured** as Kubernetes **requested** capacity on each PVC, summed per namespace (not actual bytes written). |
+| Instance type and hourly rate | **Modeled** from the built-in catalog or `--pricing-file` (indicative on-demand Linux prices). |
+| Monthly compute | `hourly_rate × 730 hours × topology multiplier` (`single-node` = 1, `ha-3node` = 3). The HA multiplier is a planning shortcut, not proof of a three-node architecture. |
+| Monthly storage | `total_requested_gib × provider_storage_price_per_gib_month × topology multiplier`. |
+| Monthly network | `--egress-gib` (GiB/month) × provider egress price per GiB — **you supply** egress unless you have metering data. |
+| Per-component (DPG) cost share | **Heuristic:** allocated by each component’s share of **measured memory** across namespaces, not true chargeback. |
+
+So: **workload shape is grounded in real cluster snapshots**; **prices, egress, HA shape, and allocation method are assumptions** you should tune and disclose when sharing numbers.
+
 ### Interpreting the output
 
 - The estimate is for a **single-node demo/test deployment** by default
@@ -188,6 +206,38 @@ python3 src/utils/perf/tco-estimate.py --metrics /tmp/lt/metrics-after.json
 ```
 
 This gives you a TCO estimate that reflects actual resource consumption under realistic load, not just idle usage.
+
+The bundled `performance-testing/paymentHubEE.jmx` plan may return HTTP errors until it is aligned with your deployment (correct host, paths, and authentication). The wrapper script still produces snapshots, JTL output, and an HTML report for iteration.
+
+---
+
+## Exporting evidence from a test VM
+
+Artifacts are written under `/tmp` by default. To copy them to your laptop:
+
+**Option A — one archive on the VM, then download**
+
+Run on the VM (adjust paths if your load-test output directory differs):
+
+```bash
+cd /tmp
+tar -czf gazelle-perf-evidence.tgz live-metrics.json tco-result.json live-lt
+```
+
+If `live-lt` or `tco-result.json` does not exist yet, omit those names or create them first. Then download `/tmp/gazelle-perf-evidence.tgz` from the VM (for example Google Cloud browser SSH: use the **Download file** action and enter that path).
+
+From a machine with the Google Cloud SDK installed:
+gcloud compute scp INSTANCE_NAME:/tmp/gazelle-perf-evidence.tgz . --zone YOUR_ZONE
+```
+
+**Option B — individual files with `gcloud compute scp`**
+
+```bash
+gcloud compute scp INSTANCE_NAME:/tmp/live-metrics.json ./gazelle-evidence/ --zone YOUR_ZONE
+gcloud compute scp --recurse INSTANCE_NAME:/tmp/live-lt ./gazelle-evidence/live-lt --zone YOUR_ZONE
+```
+
+Keep evidence outside the git tree (for example a local `gazelle-evidence/` directory that is gitignored) unless maintainers ask for artifacts attached to an issue or PR.
 
 ---
 
