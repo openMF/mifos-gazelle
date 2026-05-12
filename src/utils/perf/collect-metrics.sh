@@ -78,7 +78,7 @@ parse_top_output() {
   local ns="$1"
   local raw="$2"
 
-  echo "$raw" | awk -v namespace="$ns" '
+  echo "$raw" | awk -v ns_name="$ns" '
     NF >= 3 {
       pod=$1; cpu=$2; mem=$3
 
@@ -93,7 +93,7 @@ parse_top_output() {
       else                              { mem_mib = mem_val / 1048576 }
 
       printf "{\"namespace\":\"%s\",\"pod\":\"%s\",\"cpu_millicores\":%d,\"memory_mib\":%.1f}\n",
-             namespace, pod, cpu_m, mem_mib
+             ns_name, pod, cpu_m, mem_mib
     }
   '
 }
