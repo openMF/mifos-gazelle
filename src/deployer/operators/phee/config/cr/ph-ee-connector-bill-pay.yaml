@@ -1,0 +1,42 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: ph-ee-connector-bill-pay
+  namespace: paymenthub
+spec:
+  enabled: false
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  image: docker.io/openmf/ph-ee-bill-pay:v1.1.0
+  containerPort: 8080
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512M
+    requests:
+      cpu: 100m
+      memory: 256M
+  services:
+    - name: ph-ee-connector-bill-pay
+      ports:
+        - name: port
+          port: 8080
+          targetPort: 8080
+          protocol: TCP
+      selector:
+        app: ph-ee-connector-bill-pay
+      sessionAffinity: None
+      type: ClusterIP
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb,tenants"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "phee-infra-zeebe-gateway:26500"
+    - name: DFSPIDS
+      value: "greenbank,redbank,bluebank"

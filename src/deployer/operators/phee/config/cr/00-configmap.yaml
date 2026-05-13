@@ -1,0 +1,182 @@
+# =============================================================================
+# PaymentHub EE — Shared config + Custom Resource instances
+#
+# The ph-ee-config ConfigMap is defined first so it exists before the operator
+# reconciles any PaymentHubDeployment CRs that mount it.
+#
+# Enabled (11 core components managed by the operator):
+#   ph-ee-importer-rdbms, ph-ee-connector-channel, ph-ee-operations-app,
+#   ph-ee-connector-mojaloop-java, ph-ee-connector-notifications, ph-ee-zeebe-ops,
+#   ph-ee-connector-bulk, ph-ee-bulk-processor,
+#   ph-ee-connector-mock-payment-schema, ph-ee-identity-account-mapper,
+#   ph-ee-connector-ams-mifos
+#
+# Disabled (operator can enable via CR toggle when needed):
+#   ph-ee-connector-gsma (image openmf/ph-ee-connector-gsma:v1.3.0-gazelle-1.1.0 not on Docker Hub),
+#   ph-ee-importer-es, message-gateway, ph-ee-connector-crm,
+#   ph-ee-connector-bill-pay, ph-ee-vouchers,
+#   ph-ee-operations-web
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ph-ee-config
+  namespace: paymenthub
+data:
+  application-bb.properties: |
+    # Building Block mode configuration
+    # Used by: connector-mojaloop, connector-channel
+
+    # DFSP IDs for Zeebe worker registration
+    # greenbank = Mojaloop payer, redbank = closedloop payer, bluebank = payee
+    dfspids=greenbank, redbank, bluebank
+
+    # Zeebe broker connection
+    zeebe.broker.contactpoint=phee-infra-zeebe-gateway:26500
+
+    # OAuth2 security configuration
+    security.oauth2.resource.jwt.key-uri=http://ops-bk.GAZELLE_DOMAIN/oauth/token_key
+
+    # REST authorization
+    rest.authorization.enabled=false
+    rest.authorization.host=http://ops-bk.GAZELLE_DOMAIN
+
+  application-fin12.properties: |
+    # FIN12 / AMS (Account Management System) configuration
+    # Used by: connector-ams-mifos
+
+    # Enable AMS local integration
+    ams.local.enabled=true
+
+    # Zeebe broker connection
+    zeebe.broker.contactpoint=phee-infra-zeebe-gateway:26500
+
+    # DFSP IDs for AMS connector
+    # greenbank = Mojaloop payer, redbank = closedloop payer, bluebank = payee
+    gazelle.ph-ee-engine.ph_ee_connector_ams_mifos.dfspids=greenbank,redbank,bluebank
+
+    # Tenant credentials for Fineract party/account lookup.
+    # The v1.7.0 jar embeds old tenant names (gorilla/wakanda etc.); these override them.
+    ams.local.tenants[0].name=greenbank
+    ams.local.tenants[0].user=mifos
+    ams.local.tenants[0].password=password
+    ams.local.tenants[0].authtype=basic
+    ams.local.tenants[0].fspId=payerfsp
+    ams.local.tenants[1].name=redbank
+    ams.local.tenants[1].user=mifos
+    ams.local.tenants[1].password=password
+    ams.local.tenants[1].authtype=basic
+    ams.local.tenants[1].fspId=payerfsp
+    ams.local.tenants[2].name=bluebank
+    ams.local.tenants[2].user=mifos
+    ams.local.tenants[2].password=password
+    ams.local.tenants[2].authtype=basic
+    ams.local.tenants[2].fspId=payeefsp
+
+  application-tenants.properties: |
+    # Greenbank - Payer using Mojaloop switch
+    bpmns.tenants[0].id=greenbank
+    bpmns.tenants[0].flows.payment-transfer=PayerFundTransfer-{dfspid}
+    bpmns.tenants[0].flows.outbound-transfer-request=minimal_mock_transfer_request-{dfspid}
+    bpmns.tenants[0].flows.batch-transactions=bulk_processor-{dfspid}
+    bpmns.tenants[0].flows.batch-transactions-govstack=bulk_processor_account_lookup-{dfspid}
+
+    # Redbank - Payer using closedloop (direct Fineract)
+    bpmns.tenants[1].id=redbank
+    bpmns.tenants[1].flows.payment-transfer=minimal_mock_fund_transfer-{dfspid}
+    bpmns.tenants[1].flows.outbound-transfer-request=minimal_mock_transfer_request-{dfspid}
+    bpmns.tenants[1].flows.batch-transactions=bulk_processor-{dfspid}
+    bpmns.tenants[1].flows.batch-transactions-govstack=bulk_processor_account_lookup-{dfspid}
+
+    # Bluebank - Payee FSP (receives funds)
+    bpmns.tenants[2].id=bluebank
+    bpmns.tenants[2].flows.payment-transfer=minimal_mock_fund_transfer-{dfspid}
+    bpmns.tenants[2].flows.batch-transactions=bulk_processor-{dfspid}
+
+  application-tenantsConnection.properties: |
+    # Tenant database connection pool configurations
+    # Used by: Operations app and services requiring direct tenant database access
+
+    # Greenbank tenant database connection (Mojaloop payer)
+    tenants.connections[0].name=greenbank
+    tenants.connections[0].schema_name=greenbank
+    tenants.connections[0].schema_server=operationsmysql
+    tenants.connections[0].schema_server_port=3306
+    tenants.connections[0].schema_username=mifos
+    tenants.connections[0].schema_password=password
+    tenants.connections[0].driver_class=com.mysql.cj.jdbc.Driver
+    tenants.connections[0].jdbcProtocol=jdbc
+    tenants.connections[0].jdbcSubProtocol=mysql
+    tenants.connections[0].auto_update=true
+    tenants.connections[0].deadlock_max_retries=0
+    tenants.connections[0].deadlock_max_retry_interval=1
+    tenants.connections[0].pool_abandon_when_percentage_full=50
+    tenants.connections[0].pool_initial_size=5
+    tenants.connections[0].pool_log_abandoned=1
+    tenants.connections[0].pool_max_active=40
+    tenants.connections[0].pool_max_idle=10
+    tenants.connections[0].pool_min_evictable_idle_time_millis=60000
+    tenants.connections[0].pool_min_idle=20
+    tenants.connections[0].pool_remove_abandoned=1
+    tenants.connections[0].pool_remove_abandoned_timeout=60
+    tenants.connections[0].pool_suspect_timeout=60
+    tenants.connections[0].pool_test_on_borrow=1
+    tenants.connections[0].pool_time_between_eviction_runs_millis=34000
+    tenants.connections[0].pool_validation_interval=30000
+    tenants.connections[0].schema_connection_parameters=null
+
+    # Bluebank tenant database connection (payee FSP)
+    tenants.connections[1].name=bluebank
+    tenants.connections[1].schema_name=bluebank
+    tenants.connections[1].schema_server=operationsmysql
+    tenants.connections[1].schema_server_port=3306
+    tenants.connections[1].schema_username=mifos
+    tenants.connections[1].schema_password=password
+    tenants.connections[1].driver_class=com.mysql.cj.jdbc.Driver
+    tenants.connections[1].jdbcProtocol=jdbc
+    tenants.connections[1].jdbcSubProtocol=mysql
+    tenants.connections[1].auto_update=true
+    tenants.connections[1].deadlock_max_retries=0
+    tenants.connections[1].deadlock_max_retry_interval=1
+    tenants.connections[1].pool_abandon_when_percentage_full=50
+    tenants.connections[1].pool_initial_size=5
+    tenants.connections[1].pool_log_abandoned=1
+    tenants.connections[1].pool_max_active=40
+    tenants.connections[1].pool_max_idle=10
+    tenants.connections[1].pool_min_evictable_idle_time_millis=60000
+    tenants.connections[1].pool_min_idle=20
+    tenants.connections[1].pool_remove_abandoned=1
+    tenants.connections[1].pool_remove_abandoned_timeout=60
+    tenants.connections[1].pool_suspect_timeout=60
+    tenants.connections[1].pool_test_on_borrow=1
+    tenants.connections[1].pool_time_between_eviction_runs_millis=34000
+    tenants.connections[1].pool_validation_interval=30000
+    tenants.connections[1].schema_connection_parameters=null
+
+    # Redbank tenant database connection (closedloop payer)
+    tenants.connections[2].name=redbank
+    tenants.connections[2].schema_name=redbank
+    tenants.connections[2].schema_server=operationsmysql
+    tenants.connections[2].schema_server_port=3306
+    tenants.connections[2].schema_username=mifos
+    tenants.connections[2].schema_password=password
+    tenants.connections[2].driver_class=com.mysql.cj.jdbc.Driver
+    tenants.connections[2].jdbcProtocol=jdbc
+    tenants.connections[2].jdbcSubProtocol=mysql
+    tenants.connections[2].auto_update=true
+    tenants.connections[2].deadlock_max_retries=0
+    tenants.connections[2].deadlock_max_retry_interval=1
+    tenants.connections[2].pool_abandon_when_percentage_full=50
+    tenants.connections[2].pool_initial_size=5
+    tenants.connections[2].pool_log_abandoned=1
+    tenants.connections[2].pool_max_active=40
+    tenants.connections[2].pool_max_idle=10
+    tenants.connections[2].pool_min_evictable_idle_time_millis=60000
+    tenants.connections[2].pool_min_idle=20
+    tenants.connections[2].pool_remove_abandoned=1
+    tenants.connections[2].pool_remove_abandoned_timeout=60
+    tenants.connections[2].pool_suspect_timeout=60
+    tenants.connections[2].pool_test_on_borrow=1
+    tenants.connections[2].pool_time_between_eviction_runs_millis=34000
+    tenants.connections[2].pool_validation_interval=30000
+    tenants.connections[2].schema_connection_parameters=null

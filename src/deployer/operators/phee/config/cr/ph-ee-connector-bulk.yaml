@@ -1,0 +1,111 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: ph-ee-connector-bulk
+  namespace: paymenthub
+spec:
+  enabled: true
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  image: docker.io/openmf/ph-ee-connector-bulk:mifos-v2.0.0
+  containerPort: 5000
+  resources:
+    limits:
+      cpu: 256m
+      memory: 384M
+    requests:
+      cpu: 100m
+      memory: 256M
+  rbacEnabled: false
+  secretEnabled: true
+  configMapEnabled: false
+  ingressEnabled: true
+  ingress:
+    className: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    tls:
+      - secretName: sandbox-secret
+    rules:
+      - host: connector.local
+        paths:
+          - path: "/"
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ph-ee-connector-bulk
+                port:
+                  number: 8443
+  services:
+    - name: ph-ee-connector-bulk
+      ports:
+        - name: port
+          port: 8443
+          targetPort: 8443
+          protocol: TCP
+      selector:
+        app: ph-ee-connector-bulk
+      sessionAffinity: None
+      type: ClusterIP
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 5000
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 5000
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb"
+    - name: CAMEL_DISABLE-SSL
+      value: "true"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "phee-infra-zeebe-gateway:26500"
+    - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
+      value: "50"
+    - name: ZEEBE_CLIENT_POLL-INTERVAL
+      value: "10"
+    - name: TENANTS
+      value: "greenbank,bluebank,redbank"
+    - name: APPLICATION_BUCKET-NAME
+      value: "paymenthub-ee"
+    - name: CLOUD_AWS_S3BASEURL
+      value: "http://minio:9000"
+    - name: CLOUD_AWS_REGION_STATIC
+      valueFrom:
+        secretKeyRef:
+          name: ph-ee-connector-bulk-secret
+          key: aws-region
+    - name: AWS_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: ph-ee-connector-bulk-secret
+          key: aws-access-key
+    - name: AWS_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: ph-ee-connector-bulk-secret
+          key: aws-secret-key
+    - name: OPERATIONS-APP_CONTACTPOINT
+      value: "http://ph-ee-operations-app:80"
+    - name: OPERATIONS-APP_ENDPOINTS_BATCH-TRANSACTION
+      value: "/api/v1/batch/transactions"
+    - name: IDENTITY_MAPPER_CONTACTPOINT
+      value: "http://ph-ee-identity-account-mapper:80"
+    - name: CHANNEL_CONTACTPOINT
+      value: "http://ph-ee-connector-channel:8443"
+    - name: CHANNEL_ENDPOINTS_BATCH-TRANSACTION
+      value: "/channel/transfer"
+    - name: BULK-PROCESSOR_ENDPOINTS_BATCH-EXECUTION
+      value: "/batchtransactions/execution"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms64m -Xmx192m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=96m"

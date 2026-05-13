@@ -219,6 +219,14 @@ spec:
                 initContainerEnabled:
                   type: boolean
                   default: false
+                tlsKeystoreEnabled:
+                  type: boolean
+                  default: false
+                  description: "When true, adds a create-tls-keystore init container (eclipse-temurin:17) that generates /tls/keystore.p12 before the main container starts. Required by ph-ee-connector-ams-mifos."
+                waitForGatewayEnabled:
+                  type: boolean
+                  default: false
+                  description: "When true, adds a wait-for-gateway init container that polls phee-infra-zeebe-gateway before the main container starts"
                 rbacEnabled:  # Toggle for RBACs
                   type: boolean
                   default: false # Indicates if RBAC resources should be created

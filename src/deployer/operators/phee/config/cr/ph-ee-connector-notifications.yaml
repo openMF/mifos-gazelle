@@ -1,0 +1,74 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: ph-ee-connector-notifications
+  namespace: paymenthub
+spec:
+  enabled: true
+  waitForGatewayEnabled: true
+  volMount:
+    enabled: false
+  replicas: 1
+  image: docker.io/openmf/ph-ee-notifications:v1.4.0-gazelle-1.1.0
+  containerPort: 5000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1G
+    requests:
+      cpu: 100m
+      memory: 512M
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  services:
+    - name: ph-ee-connector-notifications
+      ports:
+        - name: port
+          port: 80
+          targetPort: 5000
+          protocol: TCP
+        - name: actuator
+          port: 8080
+          targetPort: 8080
+          protocol: TCP
+      selector:
+        app: ph-ee-connector-notifications
+      sessionAffinity: None
+      type: ClusterIP
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 5000
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 5000
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: ""
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "phee-infra-zeebe-gateway:26500"
+    - name: HOSTCONFIG_HOST
+      value: "message-gateway"
+    - name: HOSTCONFIG_PORT
+      value: "80"
+    - name: MESSAGEGATEWAYCONFIG_HOST
+      value: "message-gateway"
+    - name: NOTIFICATION_LOCAL_HOST
+      value: "connector-notifications"
+    - name: NOTIFICATION_SUCCESS_ENABLED
+      value: "false"
+    - name: NOTIFICATION_FAILURE_ENABLED
+      value: "false"
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx512m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"

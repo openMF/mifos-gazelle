@@ -261,7 +261,7 @@ write_operator_deployment_image() {
 
 #------------------------------------------------------------------------------
 deploy_ph_operator() {
-  local deploy_dir="$RUN_DIR/src/deployer/operators/newphee"
+  local deploy_dir="$RUN_DIR/src/deployer/operators/phee"
   local jar_name="ph-ee-operator-1.0.0.jar"
 
   log_step "Applying PHEE CRD"
@@ -331,15 +331,17 @@ deploy_ph_operator() {
 #              Reads the CR file and replaces .local hostnames with real domain.
 #------------------------------------------------------------------------------
 generate_phee_crs() {
-  local cr_file="$RUN_DIR/src/deployer/operators/newphee/config/samples/ph-ee-CustomResource.yaml"
-  # Replace placeholder .local host suffixes and GAZELLE_DOMAIN token with the real Gazelle domain.
-  # CR hosts follow the pattern "<prefix>.local" at end-of-line — swap .local → .$GAZELLE_DOMAIN.
-  # The $ anchor ensures cluster.local:9200 internal DNS refs are not touched.
-  # GAZELLE_DOMAIN token is used for the spec.domain field so the operator ConfigMap
-  # for operations-web gets the correct ops-bk.<domain> URL.
-  sed -e "s/\\.local$/.${GAZELLE_DOMAIN}/g" \
-      -e "s/: GAZELLE_DOMAIN$/: ${GAZELLE_DOMAIN}/" \
-      "$cr_file"
+  local cr_dir="$RUN_DIR/src/deployer/operators/phee/config/cr"
+  # Two substitutions per file:
+  # 1. Replace "<prefix>.local" at end-of-line with "<prefix>.$GAZELLE_DOMAIN" for Ingress hosts.
+  #    The $ anchor ensures cluster.local:9200 internal DNS refs are not touched.
+  # 2. Replace bare GAZELLE_DOMAIN token anywhere (spec.domain field, ConfigMap property values).
+  for f in "$cr_dir"/*.yaml; do
+    echo "---"
+    sed -e "s/\\.local$/.${GAZELLE_DOMAIN}/g" \
+        -e "s/GAZELLE_DOMAIN/${GAZELLE_DOMAIN}/g" \
+        "$f"
+  done
 }
 
 #------------------------------------------------------------------------------
@@ -405,30 +407,21 @@ deploy_bpmns() {
     return 0
   fi
 
-  # The operator sets CR status.ready when resources are created, but the Spring
-  # Boot app inside zeebe-ops needs additional time to start. Poll until the
-  # ingress returns a non-502/503 response before attempting uploads.
-  local zeebe_ops_root="https://zeebeops.$GAZELLE_DOMAIN"
-  local startup_timeout=180
-  local elapsed=0
-  log_with_verbose_check "$debug" "$DEBUG" "Waiting for zeebe-ops to be responsive..."
-  while [ "$elapsed" -lt "$startup_timeout" ]; do
-    local probe_code
-    probe_code=$(curl --insecure --silent --output /dev/null \
-      --write-out "%{http_code}" "$zeebe_ops_root/" 2>/dev/null)
-    if [ "$probe_code" != "000" ] && [ "$probe_code" != "502" ] && [ "$probe_code" != "503" ]; then
-      break
-    fi
-    sleep 10
-    elapsed=$((elapsed + 10))
-  done
-  if [ "$elapsed" -ge "$startup_timeout" ]; then
-    log_warn "zeebe-ops did not become responsive after ${startup_timeout}s — upload may fail"
+  # The operator marks the CR ready when K8s resources are created, not when the
+  # Spring Boot pod passes its readiness probe. Wait for the pod to be genuinely
+  # ready (readiness probe passes) before attempting uploads.
+  log_with_verbose_check "$debug" "$DEBUG" "Waiting for zeebe-ops pod to be ready..."
+  if ! kubectl wait pod \
+      --for=condition=ready \
+      --selector=app=ph-ee-zeebe-ops \
+      --namespace=paymenthub \
+      --timeout=300s 2>/dev/null; then
+    log_warn "zeebe-ops pod did not become ready after 300s — upload may fail"
   fi
 
   for file in "${files[@]}"; do
     local response http_code
-    local retries=3
+    local retries=6
     local attempt=0
     while [ "$attempt" -lt "$retries" ]; do
       response=$(curl --insecure --location --request POST "$host" \
@@ -438,7 +431,7 @@ deploy_bpmns() {
       http_code=$(echo "$response" | tail -1)
       [ "$http_code" = "200" ] || [ "$http_code" = "201" ] && break
       attempt=$((attempt + 1))
-      [ "$attempt" -lt "$retries" ] && sleep 10
+      [ "$attempt" -lt "$retries" ] && sleep 15
     done
     if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
       log_warn "BPMN upload failed (HTTP $http_code): $(basename "$file")"

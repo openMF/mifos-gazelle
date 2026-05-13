@@ -150,6 +150,8 @@ load_config_from_file() {
     # if [[ -n "$config_k8s_current_release_list" ]]; then k8s_current_release_list="$config_k8s_current_release_list"; fi
     local config_min_ram=$(crudini --get "$config_path" kubernetes min_ram 2>/dev/null)
     if [[ -n "$config_min_ram" ]]; then min_ram="$config_min_ram"; fi
+    local config_colima_cpu=$(crudini --get "$config_path" kubernetes colima_cpu 2>/dev/null)
+    if [[ -n "$config_colima_cpu" ]]; then colima_cpu="$config_colima_cpu"; fi
     local config_min_free_space=$(crudini --get "$config_path" kubernetes min_free_space 2>/dev/null)
     if [[ -n "$config_min_free_space" ]]; then min_free_space="$config_min_free_space"; fi
     local config_linux_os_list=$(crudini --get "$config_path" kubernetes linux_os_list 2>/dev/null)
@@ -468,6 +470,7 @@ redeploy="true"
 kubeconfig_path=""
 #helm_version=""
 # min_ram=6
+# colima_cpu = 4
 # min_free_space=30
 # linux_os_list="Ubuntu"
 #ubuntu_ok_versions_list=""

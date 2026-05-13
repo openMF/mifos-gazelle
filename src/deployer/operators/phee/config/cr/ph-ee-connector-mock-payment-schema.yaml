@@ -1,0 +1,67 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: ph-ee-connector-mock-payment-schema
+  namespace: paymenthub
+spec:
+  enabled: true
+  waitForGatewayEnabled: true
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  image: docker.io/openmf/ph-ee-connector-mock-payment-schema:mifos-v2.0.0
+  containerPort: 8080
+  resources:
+    limits:
+      cpu: 500m
+      memory: 768M
+    requests:
+      cpu: 100m
+      memory: 256M
+  services:
+    - name: ph-ee-connector-mock-payment-schema
+      ports:
+        - name: port
+          port: 8080
+          targetPort: 8080
+          protocol: TCP
+      selector:
+        app: ph-ee-connector-mock-payment-schema
+      type: ClusterIP
+      sessionAffinity: None
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8080
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb"
+    - name: DFSPIDS
+      value: "greenbank,redbank,bluebank"
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "phee-infra-zeebe-gateway:26500"
+    - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
+      value: "50"
+    - name: ZEEBE_CLIENT_POLL-INTERVAL
+      value: "10"
+    - name: mockFailure_percentage
+      value: "0"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx384m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"

@@ -1,0 +1,97 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: ph-ee-connector-mojaloop-java
+  namespace: paymenthub
+spec:
+  enabled: true
+  waitForGatewayEnabled: true
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  image: docker.io/openmf/ph-ee-connector-mojaloop-java:mifos-v2.0.0
+  containerPort: 5000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 384M
+    requests:
+      cpu: 100m
+      memory: 256M
+  services:
+    - name: ph-ee-connector-mojaloop-java
+      ports:
+        - name: port
+          port: 80
+          targetPort: 5000
+          protocol: TCP
+        - name: actuator
+          protocol: TCP
+          port: 8080
+          targetPort: 8080
+      selector:
+        app: ph-ee-connector-mojaloop-java
+      sessionAffinity: None
+      type: ClusterIP
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb"
+    - name: DFSPIDS
+      value: "greenbank,redbank,bluebank"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "phee-infra-zeebe-gateway:26500"
+    - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
+      value: "50"
+    - name: ZEEBE_CLIENT_POLL-INTERVAL
+      value: "10"
+    - name: SWITCH_quotes-host
+      value: ""
+    - name: SWITCH_quote-service
+      value: ""
+    - name: SWITCH_als-host
+      value: "vnextadmin.mifos.gazelle.test/_interop"
+    - name: SWITCH_account-lookup-service
+      value: ""
+    - name: SWITCH_transfers-host
+      value: ""
+    - name: SWITCH_transfers-service
+      value: ""
+    - name: SWITCH_transactions-host
+      value: ""
+    - name: SWITCH_transaction-request-service
+      value: ""
+    - name: SWITCH_oracle-host
+      value: ""
+    - name: parties_0_domain
+      value: "ph-ee-connector-mojaloop-java.paymenthub.svc.cluster.local"
+    - name: parties_1_domain
+      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
+    - name: parties_0_tenantId
+      value: "greenbank"
+    - name: parties_1_tenantId
+      value: "bluebank"
+    - name: parties_0_fspId
+      value: "greenbank"
+    - name: parties_1_fspId
+      value: "bluebank"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms64m -Xmx192m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=96m"

@@ -257,8 +257,8 @@ start_colima() {
         --kubernetes \
         --kubernetes-version "v1.30.0+k3s1" \
         --runtime docker \
-        --memory 16 \
-        --cpu 4 \
+        --memory "$colima_mem" \
+        --cpu "$colima_cpu" \
         --network-address
 }
 
