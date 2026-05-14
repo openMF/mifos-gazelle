@@ -74,11 +74,11 @@ deploy_ph(){
 clean_phee() {
   # Remove finalizers from all PaymentHubDeployment CRs first — if the operator
   # is stopped before this, those finalizers are never processed and the namespace
-  # hangs in Terminating indefinitely.
-  run_as_user "kubectl get paymenthubdeployments -n $PH_NAMESPACE -o name" 2>/dev/null \
-    | while read -r cr; do
-        run_as_user "kubectl patch $cr -n $PH_NAMESPACE --type=json -p='[{\"op\":\"remove\",\"path\":\"/metadata/finalizers\"}]'" > /dev/null 2>&1 || true
-      done
+  # hangs in Terminating indefinitely.  Run entirely inside one su -c shell so
+  # the pipe and xargs don't lose the run_as_user context.
+  run_as_user "kubectl get paymenthubdeployments -n $PH_NAMESPACE -o name 2>/dev/null \
+    | xargs -r -I{} kubectl patch {} -n $PH_NAMESPACE --type=merge -p '{\"metadata\":{\"finalizers\":[]}}'" \
+    > /dev/null 2>&1 || true
 
   run_as_user "kubectl scale deployment/ph-ee-operator --replicas=0 -n $PH_NAMESPACE" > /dev/null 2>&1 || true
 
@@ -130,21 +130,15 @@ cleanup_phee_cluster_rbac() {
 #              App-layer components are disabled in values — operator owns them.
 #------------------------------------------------------------------------------
 deploy_ph_infra_helm() {
-  local pheeEngineChartPath="$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/ph-ee-engine"
-  local gazelleChartPath="$APPS_DIR/$PH_EE_ENV_TEMPLATE_REPO_DIR/helm/gazelle"
+  local pheeInfraChartPath="$RUN_DIR/src/deployer/helm/phee-infra"
 
-  # Clone the repo and apply domain substitution
-  clone_repo "$PH_EE_ENV_TEMPLATE_REPO_BRANCH" "$PH_EE_ENV_TEMPLATE_REPO_LINK" "$APPS_DIR" "$PH_EE_ENV_TEMPLATE_REPO_DIR"
-
-  log_step "Updating FQDNs in Helm chart values and manifests"
+  log_step "Updating FQDNs in Helm override values"
   apply_domain_to_file "$PH_VALUES_FILE" "$GAZELLE_DOMAIN"
-  apply_domain_to_dir "$APPS_DIR/ph_template" "$GAZELLE_DOMAIN"
   log_ok
 
-  ensure_helm_dependencies "$pheeEngineChartPath"
-  ensure_helm_dependencies "$gazelleChartPath"
+  ensure_helm_dependencies "$pheeInfraChartPath"
 
-  local helm_cmd="helm upgrade --install $PH_INFRA_RELEASE_NAME $gazelleChartPath -n $PH_NAMESPACE --wait --timeout 1200s"
+  local helm_cmd="helm upgrade --install $PH_INFRA_RELEASE_NAME $pheeInfraChartPath -n $PH_NAMESPACE --wait --timeout 1200s"
   if [ -n "$PH_VALUES_FILE" ]; then
     helm_cmd="$helm_cmd -f $PH_VALUES_FILE"
   fi

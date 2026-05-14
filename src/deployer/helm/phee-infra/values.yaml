@@ -1,0 +1,275 @@
+############################################################
+# PaymentHub EE infrastructure chart defaults
+# All settings here are stable across Gazelle deployments.
+# Domain-specific overrides (hostnames) belong in config/ph_values.yaml.
+############################################################
+
+############################################################
+# Kafka — PHEE's own Kafka in the paymenthub namespace.
+# Uses Kraft mode (no Zookeeper). bitnamilegacy image pinned
+# to match the ph-ee-engine chart dependency version.
+############################################################
+kafka:
+  enabled: true
+  fullnameOverride: kafka
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/kafka
+    tag: 3.5.1-debian-11-r25
+
+  controller:
+    replicaCount: 1
+    heapOpts: "-Xms128m -Xmx256m"
+    resources:
+      requests:
+        memory: 500Mi
+        cpu: 200m
+      limits:
+        memory: 1Gi
+        cpu: 500m
+
+  kraft:
+    clusterId: spDnn4oSr6DLKPx3cEheLp
+
+  listeners:
+    client:
+      protocol: PLAINTEXT
+    controller:
+      protocol: PLAINTEXT
+    interbroker:
+      protocol: PLAINTEXT
+    external:
+      protocol: PLAINTEXT
+
+  extraConfig: |
+    offsets.topic.replication.factor=1
+    transaction.state.log.replication.factor=1
+
+  # Pre-create the Zeebe export topic so Zeebe starts cleanly.
+  provisioning:
+    enabled: true
+    topics:
+      - name: zeebe-export
+        partitions: 1
+        replicationFactor: 1
+
+############################################################
+# Redis — single replica, no auth, local-path storage.
+############################################################
+redis:
+  enabled: true
+  image:
+    repository: bitnamilegacy/redis
+  replica:
+    replicaCount: 1
+  volumeClaimTemplate:
+    storageClassName: "local-path"
+
+############################################################
+# operationsmysql — PHEE database server.
+# Creates all required databases and grants on first start.
+# Aliased as "operationsmysql" in Chart.yaml.
+############################################################
+operationsmysql:
+  enabled: true
+  fullnameOverride: "operationsmysql"
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/mysql
+    tag: "5.7"
+    debug: false
+  auth:
+    database: "tenants"
+    username: "mifos"
+    password: "password"
+    rootPassword: "ethieTieCh8ahv"
+  initdbScripts:
+    setup.sql: |-
+      CREATE DATABASE IF NOT EXISTS tenants;
+      CREATE DATABASE IF NOT EXISTS phdefault;
+      CREATE DATABASE IF NOT EXISTS messagegateway;
+      CREATE DATABASE IF NOT EXISTS voucher_management;
+      CREATE DATABASE IF NOT EXISTS identity_account_mapper;
+      CREATE DATABASE IF NOT EXISTS greenbank;
+      CREATE DATABASE IF NOT EXISTS bluebank;
+      CREATE DATABASE IF NOT EXISTS redbank;
+      GRANT ALL ON *.* TO 'root'@'%';
+      GRANT ALL PRIVILEGES ON tenants.* to 'mifos';
+      GRANT ALL PRIVILEGES ON messagegateway.* TO 'mifos';
+      GRANT ALL PRIVILEGES ON phdefault.* TO 'mifos';
+      GRANT ALL PRIVILEGES ON voucher_management.* TO 'mifos';
+      GRANT ALL PRIVILEGES ON identity_account_mapper.* TO 'mifos';
+      GRANT ALL PRIVILEGES ON `greenbank`.* TO 'mifos';
+      GRANT ALL PRIVILEGES ON `bluebank`.* TO 'mifos';
+      GRANT ALL PRIVILEGES ON `redbank`.* TO 'mifos';
+  volumeClaimTemplate:
+    storageClassName: "local-path"
+
+############################################################
+# MinIO — standalone object store for bulk payment files.
+# Ingress hosts are domain-specific and must be set in
+# config/ph_values.yaml (substituted by apply_domain_to_file).
+############################################################
+minio:
+  enabled: true
+  fullnameOverride: "minio"
+  replicas: 1
+  mode: standalone
+  rootUser: root
+  rootPassword: password
+  persistence:
+    enabled: true
+    size: 10Gi
+  buckets:
+    - name: paymenthub-ee
+      policy: public
+  resources:
+    requests:
+      memory: 128Mi
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts: []    # override in ph_values.yaml with domain-specific hostname
+  consoleIngress:
+    enabled: true
+    ingressClassName: nginx
+    path: /
+    labels: {}
+    annotations: {}
+    hosts: []    # override in ph_values.yaml with domain-specific hostname
+
+############################################################
+# camunda-platform — Zeebe workflow engine + Operate UI.
+# Elasticsearch is disabled here; the shared infra ES
+# (infra-elasticsearch.infra.svc.cluster.local) is used instead.
+############################################################
+camunda-platform:
+  global:
+    zeebe: "{{ .Release.Name }}-zeebe"
+    elasticsearch:
+      # disableExporter=false: Zeebe exports records to ES so Operate can display them.
+      disableExporter: false
+      host: "infra-elasticsearch.infra.svc.cluster.local"
+      port: 9200
+      clusterName: "fred"
+    identity:
+      auth:
+        enabled: false
+
+  zeebe:
+    enabled: true
+    image:
+      tag: 8.2.12
+    imagePullPolicy: IfNotPresent
+    clusterSize: "1"
+    partitionCount: "1"
+    replicationFactor: "1"
+    cpuThreadCount: "1"
+    ioThreadCount: "1"
+    logLevel: info
+    env:
+      - name: ZEEBE_BROKER_DATA_LOGSEGMENTSIZE
+        value: "64MB"
+      - name: ZEEBE_BROKER_DATA_SNAPSHOTPERIOD
+        value: "2m"
+      - name: ZEEBE_BROKER_BACKPRESSURE_ENABLED
+        value: "false"
+      - name: ZEEBE_BROKER_EXECUTION_METRICS_EXPORTER_ENABLED
+        value: "true"
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_JARPATH
+        value: "/exporters/ph-ee-kafka-exporter.jar"
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_CLASSNAME
+        value: "hu.dpc.rt.kafkastreamer.exporter.KafkaExporter"
+      - name: ZEEBE_BROKER_BACKPRESSURE_VEGAS_INITIALLIMIT
+        value: "1000"
+      - name: ZEEBE_BROKER_BACKPRESSURE_VEGAS_ALPHA
+        value: "2"
+      - name: ZEEBE_BROKER_BACKPRESSURE_VEGAS_BETA
+        value: "8"
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_EVENT
+        value: 'true'
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_VARIABLE
+        value: 'true'
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_PROCESSINSTANCE
+        value: 'true'
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_PROCESS
+        value: 'true'
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_INCIDENT
+        value: 'true'
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_DEPLOYMENT
+        value: 'false'
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_ERROR
+        value: 'false'
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_JOB
+        value: 'false'
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_VARIABLEDOCUMENT
+        value: 'false'
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_WORKFLOWINSTANCE
+        value: 'false'
+      - name: ZEEBE_BROKER_EXPORTERS_KAFKA_ARGS_INDEX_CREATETEMPLATE
+        value: 'false'
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1200Mi
+      limits:
+        cpu: 960m
+        memory: 1920Mi
+    affinity: {}
+    # extraInitContainers: set in ph_values.yaml — downloads the kafka exporter JAR
+    # from JFrog at deploy time; URL/version changes with each release.
+    volumeClaimTemplate:
+      storageClassName: "local-path"
+
+  zeebe-gateway:
+    enabled: false
+    replicas: 1
+    logLevel: info
+    resources:
+      requests:
+        cpu: 100m
+        memory: 450Mi
+      limits:
+        memory: 600Mi
+    affinity: {}
+    ingress:
+      enabled: true
+      host: ""    # override in ph_values.yaml
+
+  operate:
+    enabled: true
+    replicas: 1
+    logging:
+      level:
+        ROOT: INFO
+        io.camunda.operate: INFO
+    resources:
+      requests:
+        cpu: 200m
+        memory: 300Mi
+      limits:
+        cpu: 1000m
+        memory: 800Mi
+    affinity: {}
+    ingress:
+      enabled: true
+      host: ""    # override in ph_values.yaml
+
+  tasklist:
+    enabled: false
+
+  optimize:
+    enabled: false
+
+  identity:
+    enabled: false
+
+  connectors:
+    enabled: false
+
+  # Use the shared infra Elasticsearch — do not deploy a Zeebe-local ES.
+  elasticsearch:
+    enabled: false
+
+  kibana:
+    enabled: false

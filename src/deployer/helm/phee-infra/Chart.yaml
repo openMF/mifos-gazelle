@@ -1,0 +1,34 @@
+apiVersion: v2
+name: phee-infra
+description: PaymentHub EE infrastructure services (Zeebe, Kafka, Redis, MySQL, MinIO)
+type: application
+version: 1.0.0
+appVersion: "zeebe:8.2.12; kafka:3.5.1; redis:17.9.3; mysql:5.7; minio:5.0.14"
+home: https://github.com/openMF/mifos-gazelle
+sources:
+  - https://github.com/openMF/mifos-gazelle
+maintainers:
+  - name: Tom Daly
+    email: tdaly61@gmail.com
+dependencies:
+  - name: camunda-platform
+    repository: https://helm.camunda.io
+    version: 8.2.12
+    condition: camunda-platform.zeebe.enabled
+  - name: kafka
+    repository: https://charts.bitnami.com/bitnami
+    version: 25.0.0
+    condition: kafka.enabled
+  - name: redis
+    repository: https://charts.bitnami.com/bitnami
+    version: 17.9.3
+    condition: redis.enabled
+  - name: mysql
+    alias: operationsmysql
+    repository: https://charts.bitnami.com/bitnami
+    version: 9.4.5
+    condition: operationsmysql.enabled
+  - name: minio
+    repository: https://charts.min.io/
+    version: 5.0.14
+    condition: minio.enabled
