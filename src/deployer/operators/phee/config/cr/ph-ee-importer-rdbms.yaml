@@ -25,20 +25,6 @@ spec:
     requests:
       cpu: 100m
       memory: 256M
-  livenessProbe:
-    path: /actuator/health/liveness
-    port: 8000
-    initialDelaySeconds: 60
-    periodSeconds: 30
-    failureThreshold: 3
-    timeoutSeconds: 5
-  readinessProbe:
-    path: /actuator/health/readiness
-    port: 8000
-    initialDelaySeconds: 45
-    periodSeconds: 30
-    failureThreshold: 3
-    timeoutSeconds: 5
   environment:
     - name: SPRING_PROFILES_ACTIVE
       value: local,tenantsConnection

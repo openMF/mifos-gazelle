@@ -56,18 +56,11 @@ spec:
         app: ph-ee-operations-app
       sessionAffinity: None
       type: ClusterIP
-  livenessProbe:
-    path: /actuator/health/liveness
-    port: 5000
-    initialDelaySeconds: 60
-    periodSeconds: 30
-    failureThreshold: 3
-    timeoutSeconds: 5
   readinessProbe:
-    path: /actuator/health/readiness
+    path: /oauth/token_key
     port: 5000
     initialDelaySeconds: 45
-    periodSeconds: 30
+    periodSeconds: 180
     failureThreshold: 3
     timeoutSeconds: 5
   environment:

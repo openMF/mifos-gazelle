@@ -61,20 +61,6 @@ spec:
         app: ph-ee-bulk-processor
       sessionAffinity: None
       type: ClusterIP
-  livenessProbe:
-    path: /actuator/health/liveness
-    port: 8080
-    initialDelaySeconds: 60
-    periodSeconds: 30
-    failureThreshold: 3
-    timeoutSeconds: 5
-  readinessProbe:
-    path: /actuator/health/readiness
-    port: 8080
-    initialDelaySeconds: 45
-    periodSeconds: 30
-    failureThreshold: 3
-    timeoutSeconds: 5
   environment:
     - name: SPRING_PROFILES_ACTIVE
       value: "bb"
@@ -82,6 +68,16 @@ spec:
       value: "phee-infra-zeebe-gateway:26500"
     - name: TENANTS
       value: "greenbank,bluebank,redbank"
+    - name: SERVER_SSL_ENABLED
+      value: "false"
+    - name: CAMEL_DISABLE-SSL
+      value: "true"
+    - name: OPERATIONS-APP_CONTACTPOINT
+      value: "http://ph-ee-operations-app:80"
+    - name: OPERATIONS-APP_ENDPOINTS_BATCH-TRANSACTION
+      value: "/api/v1/batch/transactions"
+    - name: IDENTITY_MAPPER_CONTACTPOINT
+      value: ""
     - name: APPLICATION_BUCKET-NAME
       value: "paymenthub-ee"
     - name: CLOUD_AWS_S3BASEURL
@@ -114,27 +110,29 @@ spec:
       value: "3306"
     - name: BULK_PROCESSOR_CALLBACK_URL
       value: "http://ph-ee-bulk-processor:80/authorization/callback"
-    - name: PARTYLOOKUP_ENABLE
+    - name: CONFIG_PARTYLOOKUP_ENABLE
       value: "true"
-    - name: APPROVAL_ENABLE
+    - name: CONFIG_APPROVAL_ENABLE
       value: "true"
-    - name: ORDERING_ENABLE
+    - name: CONFIG_ORDERING_ENABLE
       value: "true"
-    - name: ORDERING_FIELD
+    - name: CONFIG_ORDERING_FIELD
       value: "payeeIdentifier"
-    - name: SPLITTING_ENABLE
+    - name: CONFIG_SPLITTING_ENABLE
       value: "true"
-    - name: SPLITTING_SUB_BATCH_SIZE
+    - name: CONFIG_SPLITTING_SUB_BATCH_SIZE
       value: "5"
-    - name: FORMATTING_ENABLE
+    - name: CONFIG_FORMATTING_ENABLE
       value: "false"
-    - name: MERGEBACK_ENABLE
+    - name: CONFIG_FORMATTING_STANDARD
+      value: "DEFAULT"
+    - name: CONFIG_MERGEBACK_ENABLE
       value: "true"
-    - name: BACKPRESSURE_ENABLE
+    - name: CONFIG_BACKPRESSURE_ENABLE
       value: "false"
-    - name: COMPLETION_THRESHOLD_CHECK_ENABLE
+    - name: CONFIG_COMPLETION-THRESHOLD-CHECK_ENABLE
       value: "true"
-    - name: COMPLETION_THRESHOLD_CHECK_COMPLETION_RATE
+    - name: CONFIG_COMPLETION-THRESHOLD-CHECK_COMPLETION-RATE
       value: "95"
     - name: DEDUPLICATION_ENABLED
       value: "true"

@@ -61,14 +61,14 @@ spec:
       type: ClusterIP
   livenessProbe:
     path: /actuator/health/liveness
-    port: 5000
+    port: 8080
     initialDelaySeconds: 60
     periodSeconds: 30
     failureThreshold: 3
     timeoutSeconds: 5
   readinessProbe:
     path: /actuator/health/readiness
-    port: 5000
+    port: 8080
     initialDelaySeconds: 45
     periodSeconds: 30
     failureThreshold: 3
