@@ -24,9 +24,9 @@ deploy_ph(){
   fi
 
   log_step "Removing existing Payment Hub resources"
-  delete_resources_in_namespace_matching_pattern "$PH_NAMESPACE"
-  cleanup_phee_cluster_rbac
+  clean_phee
   manage_elastic_secrets delete "$INFRA_NAMESPACE"
+  run_as_user "kubectl wait --for=delete namespace/$PH_NAMESPACE --timeout=300s" > /dev/null 2>&1 || true
   log_ok
 
   run_as_user "kubectl wait --for=condition=ready pod --all -n $VNEXT_NAMESPACE --timeout=600s" > /dev/null 2>&1
@@ -61,6 +61,34 @@ deploy_ph(){
   deploy_bpmns
 
   log_banner "Payment Hub EE Deployed"
+}
+
+#------------------------------------------------------------------------------
+# Function : clean_phee
+# Description: Orderly PHEE teardown for cleanapps mode.
+#   1. Scale operator to 0 — stops reconciliation immediately.
+#   2. helm uninstall — sends orderly SIGTERM to Zeebe/Kafka/Redis/MinIO/MySQL pods.
+#   3. cleanup_phee_cluster_rbac — removes orphaned cluster-scoped RBAC.
+#   4. kubectl delete ns --wait=false — fire-and-forget; Kubernetes drains in background.
+#------------------------------------------------------------------------------
+clean_phee() {
+  # Remove finalizers from all PaymentHubDeployment CRs first — if the operator
+  # is stopped before this, those finalizers are never processed and the namespace
+  # hangs in Terminating indefinitely.
+  run_as_user "kubectl get paymenthubdeployments -n $PH_NAMESPACE -o name" 2>/dev/null \
+    | while read -r cr; do
+        run_as_user "kubectl patch $cr -n $PH_NAMESPACE --type=json -p='[{\"op\":\"remove\",\"path\":\"/metadata/finalizers\"}]'" > /dev/null 2>&1 || true
+      done
+
+  run_as_user "kubectl scale deployment/ph-ee-operator --replicas=0 -n $PH_NAMESPACE" > /dev/null 2>&1 || true
+
+  if run_as_user "helm status $PH_INFRA_RELEASE_NAME -n $PH_NAMESPACE" > /dev/null 2>&1; then
+    run_as_user "helm uninstall $PH_INFRA_RELEASE_NAME -n $PH_NAMESPACE" > /dev/null 2>&1 || true
+  fi
+
+  cleanup_phee_cluster_rbac
+
+  run_as_user "kubectl delete ns $PH_NAMESPACE --ignore-not-found=true --wait=false" > /dev/null 2>&1 || true
 }
 
 #------------------------------------------------------------------------------

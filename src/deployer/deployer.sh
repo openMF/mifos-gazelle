@@ -304,7 +304,7 @@ delete_apps() {
         ;;
       "phee")
         log_step "Removing Payment Hub EE"
-        delete_resources_in_namespace_matching_pattern "$PH_NAMESPACE"
+        clean_phee
         log_ok
         ;;
       "infra")
