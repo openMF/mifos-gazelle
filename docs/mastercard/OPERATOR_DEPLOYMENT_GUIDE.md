@@ -39,10 +39,10 @@ MASTERCARD_ENCRYPTION_ENABLED = false
 
 ```bash
 # Deploy with all other apps
-sudo ./run.sh -u $USER -m deploy -a all
+./run.sh -m deploy -a all
 
 # Or deploy Mastercard connector only (Payment Hub must already be running)
-sudo ./run.sh -u $USER -m deploy -a mastercard-demo
+./run.sh -m deploy -a mastercard-demo
 ```
 
 The deploy sequence (`src/deployer/mastercard.sh`):
@@ -184,7 +184,7 @@ kubectl patch mastercardcbsconnector mastercard-cbs -n mastercard-demo \
 ### Remove
 ```bash
 # Via run.sh
-sudo ./run.sh -u $USER -m cleanapps -a mastercard-demo
+./run.sh -m cleanapps -a mastercard-demo
 
 # Manually
 kubectl delete mastercardcbsconnector mastercard-cbs -n mastercard-demo

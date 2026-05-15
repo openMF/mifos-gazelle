@@ -1,0 +1,203 @@
+#!/bin/bash
+# setup-env.sh -- Privileged environment setup and teardown for Mifos Gazelle.
+#
+# Run with sudo once per machine to install k3s/Colima, OS packages,
+# tools (/usr/local/bin), /etc/hosts entries, and the Python venv.
+# Run with sudo -m cleanall to fully decommission the environment.
+#
+# Usage:
+#   sudo ./setup-env.sh [-e local|mac|remote] [-u user] [-d true|false] [-f config]
+#   sudo ./setup-env.sh -m cleanall [-e local|mac|remote] [-u user]
+
+# macOS ships bash 3.2 which lacks associative arrays (declare -A) and
+# name references (local -n). Re-exec with Homebrew bash 5 when needed.
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+    for _brew_bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        if [[ -x "$_brew_bash" ]]; then
+            exec "$_brew_bash" "$0" "$@"
+        fi
+    done
+    _brew_bin=""
+    for _candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        [[ -x "$_candidate" ]] && _brew_bin="$_candidate" && break
+    done
+    if [[ -z "$_brew_bin" ]]; then
+        echo "ERROR: bash 4+ and Homebrew are both required on macOS." >&2
+        echo "       Install Homebrew from https://brew.sh then re-run." >&2
+        exit 1
+    fi
+    _brew_user="${SUDO_USER:-}"
+    if [[ -z "$_brew_user" || "$_brew_user" == "root" ]]; then
+        _brew_user=$(stat -f '%Su' /dev/console 2>/dev/null || echo "")
+    fi
+    if [[ -z "$_brew_user" || "$_brew_user" == "root" ]]; then
+        echo "ERROR: Cannot determine a non-root user to run 'brew install bash'." >&2
+        echo "       Please run: brew install bash" >&2
+        exit 1
+    fi
+    echo "INFO   bash 4+ not found. Installing via Homebrew (this may take a moment)..."
+    if ! sudo -u "$_brew_user" "$_brew_bin" install bash; then
+        echo "ERROR: 'brew install bash' failed. Please install it manually and re-run." >&2
+        exit 1
+    fi
+    for _brew_bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        if [[ -x "$_brew_bash" ]]; then
+            exec "$_brew_bash" "$0" "$@"
+        fi
+    done
+    echo "ERROR: bash 4+ still not found after install. Please check your Homebrew setup." >&2
+    exit 1
+fi
+
+RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+export RUN_DIR
+
+# On macOS, sudo strips PATH so Homebrew binaries are not found.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+fi
+
+########################################################################
+# GLOBAL VARS (subset of run.sh — only what env setup needs)
+########################################################################
+BASE_DIR=$( cd $(dirname "$0") ; pwd )
+APPS_DIR="$BASE_DIR/repos"
+CONFIG_DIR="$BASE_DIR/config"
+UTILS_DIR="$BASE_DIR/src/utils"
+DATA_LOADING_DIR="$UTILS_DIR/data-loading"
+export UTILS_DIR DATA_LOADING_DIR
+
+INFRA_CHART_DIR="$BASE_DIR/src/deployer/helm/infra"
+NGINX_VALUES_FILE="$CONFIG_DIR/nginx_values.yaml"
+
+# Source all modules (via commandline.sh which sources the rest)
+source "$RUN_DIR/src/commandline/commandline.sh" || { echo "FATAL: Could not source commandline.sh"; exit 1; }
+
+## Dependency versioning (must match run.sh) ##
+KUBECTL_VERSION="v1.30.0"
+HELM_VERSION="v3.14.4"
+
+#------------------------------------------------------------------------------
+# Function: show_setup_env_usage
+#------------------------------------------------------------------------------
+show_setup_env_usage() {
+    echo "
+    USAGE: sudo $0 [-e environment] [-u user] [-m mode] [-f config_file] [-d true|false]
+
+    Privileged environment setup and teardown (run before ./run.sh).
+
+    Example 1 : sudo $0                          # first-time setup, local k3s, user from config
+    Example 2 : sudo $0 -e mac -u \$USER         # first-time setup on macOS (Colima)
+    Example 3 : sudo $0 -e remote -u \$USER      # /etc/hosts only for a remote cluster
+    Example 4 : sudo $0 -m cleanall              # full environment teardown (local k3s)
+    Example 5 : sudo $0 -m cleanall -e mac       # full environment teardown (macOS Colima)
+
+    Options:
+    -m mode .............. setup (default) | cleanall
+    -e environment ....... local (default) | mac | remote
+    -u user .............. non-root user for k8s operations (defaults to invoking user)
+    -f config_file ....... path to config.ini (optional, defaults to config/config.ini)
+    -d debug ............. true|false (optional, default=false)
+    -h ................... display this message
+    "
+}
+
+#------------------------------------------------------------------------------
+# Function: main_setup_env
+#------------------------------------------------------------------------------
+main_setup_env() {
+    # Early config detection for logging setup
+    local _early_config="$DEFAULT_CONFIG_FILE"
+    local _args=("$@")
+    for ((i=0; i<${#_args[@]}; i++)); do
+        if [[ "${_args[i]}" == "-f" && $((i+1)) -lt ${#_args[@]} ]]; then
+            _early_config="${_args[$((i+1))]}"
+            break
+        fi
+    done
+    setup_logging "$_early_config"
+
+    welcome
+
+    # Must be run with sudo from a non-root user
+    check_sudo
+
+    install_crudini
+
+    declare -A cmd_args
+    OPTIND=1
+    while getopts "f:m:e:u:d:hH" OPT; do
+        case "$OPT" in
+            f) cmd_args["config_file_path"]="${OPTARG}" ;;
+            m) cmd_args["mode"]="${OPTARG}" ;;
+            e) cmd_args["environment"]="${OPTARG}" ;;
+            u) cmd_args["k8s_user"]="${OPTARG}" ;;
+            d) cmd_args["debug"]="${OPTARG}" ;;
+            h|H) show_setup_env_usage; exit 0 ;;
+            *) show_setup_env_usage; exit 1 ;;
+        esac
+    done
+
+    if [[ -n "${cmd_args["config_file_path"]}" ]]; then
+        CONFIG_FILE_PATH="${cmd_args["config_file_path"]}"
+    fi
+    log_with_level "$INFO" "Using config file: $CONFIG_FILE_PATH"
+
+    load_config_from_file "$CONFIG_FILE_PATH"
+
+    # CLI flags override config
+    if [[ -n "${cmd_args["mode"]}" ]];        then mode="${cmd_args["mode"]}"; fi
+    if [[ -n "${cmd_args["k8s_user"]}" ]];    then k8s_user="${cmd_args["k8s_user"]}"; fi
+    if [[ -n "${cmd_args["debug"]}" ]];       then debug="${cmd_args["debug"]}"; fi
+    if [[ -n "${cmd_args["environment"]}" ]]; then environment="${cmd_args["environment"]}"; fi
+
+    # Defaults
+    mode="${mode:-setup}"
+    debug="${debug:-false}"
+    environment="${environment:-local}"
+
+    # If k8s_user still unset (not in config, not via -u), derive from SUDO_USER
+    if [[ -z "$k8s_user" ]]; then
+        k8s_user="$(resolve_invoker_user)"
+    fi
+
+    # Validate
+    if [[ "$mode" != "setup" && "$mode" != "cleanall" ]]; then
+        log_error "Invalid mode '$mode'. setup-env.sh accepts: setup (default) | cleanall"
+        show_setup_env_usage
+        exit 1
+    fi
+    if [[ "$k8s_user" == "root" ]]; then
+        log_error "The specified user cannot be root. Please specify a non-root user."
+        exit 1
+    fi
+    if [[ "$environment" != "local" && "$environment" != "remote" && "$environment" != "mac" ]]; then
+        log_error "Invalid environment '$environment'. Must be: local | mac | remote"
+        exit 1
+    fi
+
+    # Resolve user home and kubeconfig
+    k8s_user_home=$(eval echo "~$k8s_user")
+    if [[ -z "$kubeconfig_path" ]]; then
+        kubeconfig_path="$k8s_user_home/.kube/config"
+    fi
+    export KUBECONFIG="$kubeconfig_path"
+
+    if [[ "$mode" == "setup" ]]; then
+        env_setup_main
+    elif [[ "$mode" == "cleanall" ]]; then
+        if [[ "$environment" == "mac" ]]; then
+            printf "\n*** WARNING: cleanall will delete the Colima VM, all deployed\n"
+            printf "*** applications, and ALL local state (including ~/.colima).\n"
+            printf "*** This cannot be undone. Continue? [y/N] "
+            read -r _confirm
+            if [[ "$_confirm" != "y" && "$_confirm" != "Y" ]]; then
+                printf "Aborted.\n"
+                exit 0
+            fi
+        fi
+        env_cleanall_main
+    fi
+}
+
+main_setup_env "$@"

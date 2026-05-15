@@ -16,8 +16,11 @@ git clone --branch dev https://github.com/openMF/mifos-gazelle.git
 # Enter the project directory
 cd mifos-gazelle
 
+# Set up environment (one-time)
+sudo ./setup-env.sh -e local -u $USER
+
 # Deploy only vNext and the underlying infrastructure services 
-sudo ./run.sh -u $USER -m deploy -d true -a vNext 
+./run.sh -m deploy -d true -a vnext
 ```
 
 > **Reminder**: currently Mifos Gazelle deployments including those of vNext Beta1 are  not intended for production use.
@@ -58,7 +61,7 @@ cd mifos-gazelle
 sudo ./ttk-interim-fix.sh
 
 # Deploy vNext only 
-sudo ./run.sh -u $USER -m deploy -d true -a vnext 
+./run.sh -m deploy -d true -a vnext
 ```
 
 ## Accessing vNext Services

@@ -302,7 +302,7 @@ How a single command deploys the full stack.
 
 ```mermaid
 flowchart TD
-    RunSH["sudo ./run.sh -u \$USER\n-m deploy -a all"]
+    RunSH["./run.sh -m deploy -a all"]
 
     subgraph CommandLine["commandline.sh\n(CLI + config parsing)"]
         ParseArgs["Parse flags\n(-m, -a, -u, -d, -t)"]

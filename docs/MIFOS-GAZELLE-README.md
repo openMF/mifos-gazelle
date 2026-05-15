@@ -71,7 +71,7 @@ Colima's `socket_vmnet` network backend gives the VM a dedicated routable IP add
 - macOS 13 Ventura or later (Apple Silicon M-series or Intel)
 - 16 GB RAM (12 GB allocatable to the Colima VM)
 - 50 GB+ free disk space — all images and k3s state live inside the Colima VM disk image; a full 3-DPG deployment uses roughly 25–30 GB inside the VM
-- Non-root user — run `sudo ./run.sh -u $USER …`
+- Non-root user — run `sudo ./setup-env.sh -e mac -u $USER` once, then `./run.sh -m deploy -a all`
 
 **First run** installs everything automatically:
 - Homebrew (if absent)
@@ -81,7 +81,8 @@ Colima's `socket_vmnet` network backend gives the VM a dedicated routable IP add
 ```bash
 git clone --branch main https://github.com/openMF/mifos-gazelle.git
 cd mifos-gazelle
-sudo ./run.sh -u $USER -m deploy -a all
+sudo ./setup-env.sh -e mac -u $USER   # one-time: Homebrew, Colima, /etc/hosts
+./run.sh -m deploy -a all             # deploy (no sudo needed)
 ```
 
 **After deployment — browser notes**
@@ -97,7 +98,8 @@ sudo ./run.sh -u $USER -m deploy -a all
 cd $HOME
 git clone --branch main https://github.com/openMF/mifos-gazelle.git
 cd mifos-gazelle
-sudo ./run.sh -u $USER -m deploy -a all
+sudo ./setup-env.sh -e local -u $USER   # Ubuntu/Linux: k3s, tools, /etc/hosts
+./run.sh -m deploy -a all               # deploy all components (no sudo)
 ```
 
 The deployment takes 10–20 minutes.  See [Deployment times out](#deployment-times-out-waiting-for-pods) in the FAQ if deployments time out on slower hardware.
@@ -106,13 +108,25 @@ The deployment takes 10–20 minutes.  See [Deployment times out](#deployment-ti
 
 ## Deployment Options
 
+**`setup-env.sh` flags** (run with sudo — one-time environment setup):
+
 | Flag | Description | Values | Default |
 |------|-------------|--------|---------|
 | `-f` | Config file path | path to `.ini` | `config/config.ini` |
-| `-m` | Mode (required) | `deploy`, `cleanapps`, `cleanall` | — |
+| `-m` | Mode | `setup`, `cleanall` | `setup` |
+| `-e` | Cluster environment (required) | `local`, `mac`, `remote` | `local` |
 | `-u` | Non-root user (required) | `$USER` | — |
-| `-a` | Components to deploy | `all`, `infra`, `vnext`, `phee`, `mifosx`, `mastercard-demo`, `setup-data` | `all` |
-| `-e` | Cluster environment | `local`, `remote` | `local` |
+| `-d` | Debug output | `true`, `false` | `false` |
+| `-h` | Show help | — | — |
+
+**`run.sh` flags** (no sudo required — cluster operations):
+
+| Flag | Description | Values | Default |
+|------|-------------|--------|---------|
+| `-f` | Config file path | path to `.ini` | `config/config.ini` |
+| `-m` | Mode (required) | `deploy`, `cleanapps` | — |
+| `-a` | Components | `all`, `infra`, `vnext`, `paymenthub`, `mifosx`, `mastercard-demo`, `setup-data` | `all` |
+| `-e` | Cluster environment | `local`, `remote`, `mac` | `local` |
 | `-d` | Debug output | `true`, `false` | `false` |
 | `-r` | Force redeploy | `true`, `false` | `true` |
 | `-h` | Show help | — | — |
@@ -196,9 +210,9 @@ To view the resulting transaction history across all tenants:
 ## Application Deployment Modes
 
 ```bash
-sudo ./run.sh -u $USER -m deploy -a vnext   # Mojaloop vNext only
-sudo ./run.sh -u $USER -m deploy -a mifosx  # MifosX only
-sudo ./run.sh -u $USER -m deploy -a phee    # Payment Hub EE only
+./run.sh -m deploy -a vnext       # Mojaloop vNext only
+./run.sh -m deploy -a mifosx      # MifosX only
+./run.sh -m deploy -a paymenthub  # Payment Hub EE only
 ```
 
 ---
@@ -206,11 +220,15 @@ sudo ./run.sh -u $USER -m deploy -a phee    # Payment Hub EE only
 ## Cleanup
 
 ```bash
-sudo ./run.sh -u $USER -m cleanall           # Remove everything including k3s
-sudo ./run.sh -u $USER -m cleanapps          # Remove all apps, keep k3s AND IMAGES !
-sudo ./run.sh -u $USER -m cleanapps -a mifosx
-sudo ./run.sh -u $USER -m cleanapps -a phee
-sudo ./run.sh -u $USER -m cleanapps -a vnext
+# Remove all cluster apps (keep k3s and images)
+./run.sh -m cleanapps -a all
+./run.sh -m cleanapps -a mifosx
+./run.sh -m cleanapps -a paymenthub
+./run.sh -m cleanapps -a vnext
+
+# Full environment teardown including k3s (requires sudo)
+sudo ./setup-env.sh -m cleanall -e local   # Ubuntu: uninstall k3s, revert /etc/hosts
+sudo ./setup-env.sh -m cleanall -e mac     # macOS: delete Colima VM, revert /etc/hosts
 ```
 
 ---
@@ -425,7 +443,7 @@ The test payment script requires that demonstration data (clients, accounts, and
 
 **Re-run data generation:**
 ```bash
-sudo ./run.sh -u $USER -m deploy -a setup-data
+./run.sh -m deploy -a setup-data
 ```
 
 This reruns only the data generation and loading step — it does not redeploy any components. After it completes, retry `./src/utils/make-payment.sh`.

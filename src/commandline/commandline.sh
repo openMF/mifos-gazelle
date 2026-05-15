@@ -9,19 +9,13 @@ DEFAULT_CONFIG_FILE="$RUN_DIR/config/config.ini"
 
 #------------------------------------------------------------------------------
 # function: resolve_invoker_user
-# Description: Resolves the username of the user who invoked the script,
-#              handling cases where sudo is used.
+# Description: Resolves the username of the user who invoked the script.
+#              In setup-env.sh (sudo context) checks SUDO_USER first.
+#              In run.sh (no sudo) whoami is always correct.
 #------------------------------------------------------------------------------
 resolve_invoker_user() {
   if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
     printf '%s\n' "$SUDO_USER"
-    return
-  fi
-  if invoker="$(logname 2>/dev/null)"; then
-    [[ -n "$invoker" ]] && printf '%s\n' "$invoker" && return
-  fi
-  if [[ -n "${LOGNAME:-}" && "${LOGNAME}" != "root" ]]; then
-    printf '%s\n' "$LOGNAME"
     return
   fi
   whoami
@@ -224,25 +218,32 @@ welcome() {
 #------------------------------------------------------------------------------
 show_usage() {
     echo "
-    USAGE: $0 [-f <config_file_path>] -m [mode] -u [user] -a [apps] -e [environment] -d [true/false] -r [true/false]
-    Example 1 : sudo $0                                          # deploy all apps enabled in config.ini and user \$USER from config.ini
-    Example 2 : sudo $0 -m cleanapps -d true                     # delete all apps enabled in config.init,  debug mode \$USER from config.ini
-    Example 3 : sudo $0 -m cleanall                              # delete all apps, all local Kubernetes artifacts, and local kubernetes server
-    Example 4 : sudo $0 -a paymenthub                            # deploy PaymentHub only, user \$USER from config.ini
-    Example 6 : sudo $0 -a \"mifosx,vnext\"                        # deploy MifosX and vNext only
-    Example 7 : sudo $0 -f /opt/my_config.ini                    # Use a custom config file
-    Example 8 : sudo $0 -a \"paymenthub,mifosx\" -e remote -d true # deploy PaymentHub and MifosX on remote cluster with debug mode
-    Example 9 : sudo $0 -a setup-data                            # re-run data generation after a slow first boot
+    USAGE: $0 [-f <config_file_path>] -m [mode] -a [apps] -e [environment] -d [true/false] -r [true/false]
+
+    Deploys or removes Mifos Gazelle applications on an already-configured cluster.
+    Run 'sudo ./setup-env.sh' first to set up the environment (k3s, /etc/hosts, tools).
+
+    Example 1 : $0 -m deploy                                  # deploy all apps enabled in config.ini
+    Example 2 : $0 -m deploy -a paymenthub                    # deploy PaymentHub only
+    Example 3 : $0 -m deploy -a \"mifosx,vnext\"                # deploy MifosX and vNext only
+    Example 4 : $0 -m deploy -e remote -d true                # deploy on remote cluster with debug
+    Example 5 : $0 -m cleanapps                               # delete all deployed apps
+    Example 6 : $0 -m cleanapps -a paymenthub                 # delete PaymentHub only
+    Example 7 : $0 -f /opt/my_config.ini -m deploy            # use a custom config file
+    Example 8 : $0 -m deploy -a setup-data                    # re-run data generation
 
     Options:
     -f config_file_path .. Specify an alternative config.ini file path (optional)
-    -m mode .............. deploy|cleanapps|cleanall (required)
-    -u user .............. (non root) user that the process will use for execution (required)
-    -a apps .............. Comma-separated list of apps (vnext,paymenthub,mifosx,infra,mastercard-demo,setup-data) or 'all' (optional)
-    -e environment ....... Cluster environment (local or remote, optional, default=local)
-    -d debug ............. Enable debug mode (true|false, optional, default=false)
-    -r redeploy .......... Force redeployment of apps (true|false, optional, default=true)
-    -h|H ................. Display this message
+    -m mode .............. deploy|cleanapps (required)
+    -u user .............. non-root user for k8s operations (optional, defaults to \$USER)
+    -a apps .............. Comma-separated list of apps or 'all' (optional)
+                           Valid: vnext paymenthub mifosx infra mastercard-demo setup-data all
+    -e environment ....... local (default) | mac | remote
+    -d debug ............. true|false (optional, default=false)
+    -r redeploy .......... true|false (optional, default=true)
+    -h|H ................. display this message
+
+    For environment setup and teardown use sudo ./setup-env.sh (see --help).
     "
 }
 
@@ -283,8 +284,9 @@ validate_inputs() {
         exit 1
     fi
 
-    if [[ "$mode" != "deploy" && "$mode" != "cleanapps" && "$mode" != "cleanall" ]]; then
-        log_error "Invalid mode '$mode'. Must be one of: deploy, cleanapps, cleanall."
+    if [[ "$mode" != "deploy" && "$mode" != "cleanapps" ]]; then
+        log_error "Invalid mode '$mode'. run.sh accepts: deploy | cleanapps"
+        log_error "For environment setup and teardown use: sudo ./setup-env.sh [-m cleanall]"
         show_usage
         exit 1
     fi
@@ -474,7 +476,6 @@ kubeconfig_path=""
 # min_free_space=30
 # linux_os_list="Ubuntu"
 #ubuntu_ok_versions_list=""
-export KUBECONFIG=$kubeconfig_path
 CONFIG_FILE_PATH="$DEFAULT_CONFIG_FILE"
 
 main() {
@@ -537,35 +538,16 @@ main() {
 
     validate_inputs
 
+    # Set KUBECONFIG now that kubeconfig_path is fully resolved (config + defaults applied)
+    export KUBECONFIG="$kubeconfig_path"
+
     if [ "$mode" == "deploy" ]; then
         echo -e "${YELLOW}WARN${RESET}   This deployment is recommended for demo, test and educational purposes only."
         echo
-        env_setup_main "$mode"
         deploy_apps "$apps" "$redeploy"
     elif [ "$mode" == "cleanapps" ]; then
         log_with_verbose_check "$debug" "$INFO" "Cleaning up Mifos Gazelle applications only"
-        env_setup_main "$mode"
         delete_apps "$apps"
-    elif [ "$mode" == "cleanall" ]; then
-        if [[ "$environment" == "mac" ]]; then
-            printf "\n*** WARNING: cleanall will delete the Colima VM, all deployed\n"
-            printf "*** applications, and ALL local state (including ~/.colima).\n"
-            printf "*** This cannot be undone. Continue? [y/N] "
-            read -r _confirm
-            if [[ "$_confirm" != "y" && "$_confirm" != "Y" ]]; then
-                printf "Aborted.\n"
-                exit 0
-            fi
-        fi
-        # For mac/remote: delete app namespaces BEFORE env_setup_main deletes the
-        # cluster.  env_setup_mac_cluster's cleanall path calls colima delete
-        # at the end, making kubectl unreachable for any subsequent delete_apps call.
-        if [[ "$environment" == "mac" || "$environment" == "remote" ]]; then
-            if is_cluster_accessible; then
-                delete_apps "$apps"
-            fi
-        fi
-        env_setup_main "$mode"
     else
         show_usage
         exit 1

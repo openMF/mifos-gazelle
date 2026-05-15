@@ -21,7 +21,7 @@ deploy_mifosx_from_yaml() {
       fi
     fi
 
-    run_as_user "kubectl wait --for=condition=ready pod --all -n $PH_NAMESPACE --timeout=600s" > /dev/null 2>&1
+    kubectl wait --for=condition=ready pod --all -n "$PH_NAMESPACE" --timeout=600s > /dev/null 2>&1
 
     log_step "Removing existing MifosX resources"
     delete_resources_in_namespace_matching_pattern "$MIFOSX_NAMESPACE"
@@ -42,7 +42,7 @@ deploy_mifosx_from_yaml() {
     log_ok
 
     log_step "Restoring MifosX database dump"
-    run_as_user "$DATA_LOADING_DIR/dump-restore-fineract-db.sh -r" > /dev/null
+    "$DATA_LOADING_DIR/dump-restore-fineract-db.sh" -r > /dev/null
     log_ok
 
     log_step "Applying manifests"
@@ -132,7 +132,7 @@ generate_mifosx_and_vnext_data() {
   local start_time
   start_time=$(date +%s)
   local elapsed=0
-  local retry_cmd="sudo $RUN_DIR/run.sh -a setup-data -f \"$CONFIG_FILE_PATH\""
+  local retry_cmd="$RUN_DIR/run.sh -m deploy -a setup-data -f \"$CONFIG_FILE_PATH\""
 
   while [[ $elapsed -lt $timeout ]]; do
     is_app_running "vnext"
@@ -149,7 +149,7 @@ generate_mifosx_and_vnext_data() {
 
       log_step "Generating MifosX clients and registering vNext Oracle associations"
       echo
-      run_as_user "\"$PYTHON3\" \"$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py\" -c \"$CONFIG_FILE_PATH\" 2>&1"
+      "$PYTHON3" "$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py" -c "$CONFIG_FILE_PATH" 2>&1
       local data_gen_exit=$?
 
       if [[ $data_gen_exit -ne 0 ]]; then

@@ -13,26 +13,43 @@ The tool is written primarily in Bash (requires bash 4+) with Python 3 utilities
 
 ## Key Commands
 
-### Deploy
+### First time / new machine
+```bash
+# Ubuntu/Linux (default — k3s, apt packages, /etc/hosts, tools)
+sudo ./setup-env.sh -e local -u $USER
+
+# macOS (Homebrew, Colima, /etc/hosts, tools)
+sudo ./setup-env.sh -e mac -u $USER
+
+# Remote / pre-existing cluster (/etc/hosts only)
+sudo ./setup-env.sh -e remote -u $USER
+```
+
+### Deploy (no sudo required after setup)
 ```bash
 # Full deployment
-sudo ./run.sh -u $USER -m deploy -a all
+./run.sh -m deploy -a all
 
 # Deploy specific component(s)
-sudo ./run.sh -u $USER -m deploy -a mifosx
-sudo ./run.sh -u $USER -m deploy -a paymenthub
-sudo ./run.sh -u $USER -m deploy -a vnext
+./run.sh -m deploy -a mifosx
+./run.sh -m deploy -a paymenthub
+./run.sh -m deploy -a vnext
 
 # With debug output
-sudo ./run.sh -u $USER -m deploy -a all -d true
+./run.sh -m deploy -a all -d true
 
 # With custom timeout (seconds)
-sudo ./run.sh -u $USER -m deploy -a all -t 900
+./run.sh -m deploy -a all -t 900
 ```
 
 ### Teardown
 ```bash
-sudo ./run.sh -u $USER -m cleanall -a all
+# Remove cluster apps only (no sudo)
+./run.sh -m cleanapps -a all
+
+# Full environment teardown (requires sudo)
+sudo ./setup-env.sh -m cleanall -e local   # Ubuntu: uninstall k3s, revert /etc/hosts
+sudo ./setup-env.sh -m cleanall -e mac     # macOS: delete Colima VM, revert /etc/hosts
 ```
 
 ### Python Utilities (from `.venv/`)
@@ -72,16 +89,25 @@ Set `logging = true` in `config/config.ini` to write a full run log to `/tmp/gaz
 
 ### Script Execution Flow
 ```
-run.sh  →  src/commandline/commandline.sh  →  src/deployer/deployer.sh
-                                          →  src/environmentSetup/environmentSetup.sh
+setup-env.sh  →  src/commandline/commandline.sh  →  src/environmentSetup/environmentSetup.sh
+                                                 (sudo required; handles OS, k3s, /etc/hosts)
+
+run.sh        →  src/commandline/commandline.sh  →  src/deployer/deployer.sh
+                                                 (no sudo; handles helm/kubectl cluster ops)
 ```
 
-`run.sh` is the sole entry point. On macOS it re-execs itself with Homebrew bash 4+ if the system bash is 3.2. It sources `commandline.sh`, which sources all other modules and parses CLI flags + `config/config.ini`.
+Two entry points own different concerns:
+- `setup-env.sh` — privileged; runs once per machine to install OS prereqs, k3s, Colima, /etc/hosts, tools. Modes: `setup` (default), `cleanall`.
+- `run.sh` — unprivileged; orchestrates all cluster operations (helm/kubectl). Modes: `deploy`, `cleanapps`.
+
+Both source `commandline.sh` which sources all other modules and parses CLI flags + `config/config.ini`. On macOS, both re-exec themselves with Homebrew bash 4+ if the system bash is 3.2.
 
 ### Key Source Files
 
 | File | Role |
 |------|------|
+| `setup-env.sh` | Entry point for privileged env setup/teardown (k3s, OS packages, /etc/hosts) |
+| `run.sh` | Entry point for cluster operations — no sudo required |
 | `src/commandline/commandline.sh` | CLI parsing, config loading (`crudini`), top-level dispatch |
 | `src/deployer/deployer.sh` | Orchestrates component deployments in dependency order |
 | `src/deployer/core.sh` | Shared K8s functions: pod readiness waits, TLS secrets, Helm deploy wrappers |
@@ -89,7 +115,7 @@ run.sh  →  src/commandline/commandline.sh  →  src/deployer/deployer.sh
 | `src/deployer/paymenthub.sh` | PaymentHub deployment logic |
 | `src/deployer/vnext.sh` | Mojaloop vNext deployment logic |
 | `src/deployer/mastercard.sh` | Mastercard CBS connector deployment |
-| `src/environmentSetup/environmentSetup.sh` | OS prereqs, k3s setup, `/etc/hosts`, Python venv |
+| `src/environmentSetup/environmentSetup.sh` | OS prereqs, k3s setup, `/etc/hosts`, Python venv; `env_cleanall_main()` for teardown |
 | `src/utils/logger.sh` | Logging framework (INFO/WARNING/ERROR levels) |
 | `src/utils/helpers.sh` | Common helper functions shared across modules |
 
@@ -141,4 +167,8 @@ Infrastructure (NGINX, MySQL, Kafka, Redis, MongoDB, Elasticsearch) must be up b
 
 ## CI/CD
 
-CircleCI (`.circleci/config.yml`) runs `sudo ./run.sh -m deploy -u $USER -a all -d true` on both amd64 and arm64 instances, then verifies pod readiness and health-check endpoints for all three DPGs.
+CircleCI (`.circleci/config.yml`) runs the two-step workflow on both amd64 and arm64 instances:
+1. `sudo ./setup-env.sh -e local -u "$USER" -d true` — installs k3s and OS prereqs
+2. `./run.sh -m deploy -a all -d true` — deploys all components without sudo
+
+After deployment, CI verifies pod readiness and health-check endpoints for all three DPGs.

@@ -392,7 +392,7 @@ env_setup_mac_cluster() {
                 : # app deletion handled by delete_apps called from commandline.sh
             else
                 log_step "Removing ingress-nginx"
-                run_as_user "helm uninstall ingress-nginx -n default" >/dev/null 2>&1 || true
+                helm uninstall ingress-nginx -n default >/dev/null 2>&1 || true
                 log_ok
             fi
         else

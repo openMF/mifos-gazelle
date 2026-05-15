@@ -26,10 +26,10 @@ deploy_ph(){
   log_step "Removing existing Payment Hub resources"
   clean_phee
   manage_elastic_secrets delete "$INFRA_NAMESPACE"
-  run_as_user "kubectl wait --for=delete namespace/$PH_NAMESPACE --timeout=300s" > /dev/null 2>&1 || true
+  kubectl wait --for=delete namespace/$PH_NAMESPACE --timeout=300s > /dev/null 2>&1 || true
   log_ok
 
-  run_as_user "kubectl wait --for=condition=ready pod --all -n $VNEXT_NAMESPACE --timeout=600s" > /dev/null 2>&1
+  kubectl wait --for=condition=ready pod --all -n $VNEXT_NAMESPACE --timeout=600s > /dev/null 2>&1
 
   log_step "Creating namespace $PH_NAMESPACE"
   create_namespace "$PH_NAMESPACE"
@@ -52,7 +52,7 @@ deploy_ph(){
     "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,ph-ee-connector-channel,ph-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
 
   # Step 3 — operator reconciles app component Deployments, Services, Ingresses
-  deploy_ph_operator
+  deploy_ph_operator || { log_failed "PaymentHub operator deployment failed"; return 1; }
 
   # Step 4 — wait for all CRs to reach ready; zeebe-ops pod confirmed running
   wait_for_phee_crs_ready
@@ -74,21 +74,20 @@ deploy_ph(){
 clean_phee() {
   # Remove finalizers from all PaymentHubDeployment CRs first — if the operator
   # is stopped before this, those finalizers are never processed and the namespace
-  # hangs in Terminating indefinitely.  Run entirely inside one su -c shell so
-  # the pipe and xargs don't lose the run_as_user context.
-  run_as_user "kubectl get paymenthubdeployments -n $PH_NAMESPACE -o name 2>/dev/null \
-    | xargs -r -I{} kubectl patch {} -n $PH_NAMESPACE --type=merge -p '{\"metadata\":{\"finalizers\":[]}}'" \
+  # hangs in Terminating indefinitely.
+  kubectl get paymenthubdeployments -n $PH_NAMESPACE -o name 2>/dev/null \
+    | xargs -r -I{} kubectl patch {} -n $PH_NAMESPACE --type=merge -p '{"metadata":{"finalizers":[]}}' \
     > /dev/null 2>&1 || true
 
-  run_as_user "kubectl scale deployment/ph-ee-operator --replicas=0 -n $PH_NAMESPACE" > /dev/null 2>&1 || true
+  kubectl scale deployment/ph-ee-operator --replicas=0 -n $PH_NAMESPACE > /dev/null 2>&1 || true
 
-  if run_as_user "helm status $PH_INFRA_RELEASE_NAME -n $PH_NAMESPACE" > /dev/null 2>&1; then
-    run_as_user "helm uninstall $PH_INFRA_RELEASE_NAME -n $PH_NAMESPACE" > /dev/null 2>&1 || true
+  if helm status $PH_INFRA_RELEASE_NAME -n $PH_NAMESPACE > /dev/null 2>&1; then
+    helm uninstall $PH_INFRA_RELEASE_NAME -n $PH_NAMESPACE > /dev/null 2>&1 || true
   fi
 
   cleanup_phee_cluster_rbac
 
-  run_as_user "kubectl delete ns $PH_NAMESPACE --ignore-not-found=true --wait=false" > /dev/null 2>&1 || true
+  kubectl delete ns $PH_NAMESPACE --ignore-not-found=true --wait=false > /dev/null 2>&1 || true
 }
 
 #------------------------------------------------------------------------------
@@ -100,7 +99,7 @@ clean_phee() {
 #------------------------------------------------------------------------------
 cleanup_phee_cluster_rbac() {
   local resources
-  resources=$(run_as_user "kubectl get clusterrole,clusterrolebinding -o json" 2>/dev/null \
+  resources=$(kubectl get clusterrole,clusterrolebinding -o json 2>/dev/null \
     | jq -r '.items[]
         | select(
             .metadata.annotations["meta.helm.sh/release-name"] != null and
@@ -119,7 +118,7 @@ cleanup_phee_cluster_rbac() {
     local kind name
     kind=$(echo "$line" | awk '{print $1}')
     name=$(echo "$line" | awk '{print $2}')
-    run_as_user "kubectl delete $kind $name --ignore-not-found" > /dev/null 2>&1
+    kubectl delete $kind $name --ignore-not-found > /dev/null 2>&1
   done <<< "$resources"
 }
 
@@ -147,20 +146,18 @@ deploy_ph_infra_helm() {
   log_with_verbose_check "$debug" "$DEBUG" "→ $helm_cmd"
 
   if [ "$debug" = true ]; then
-    su - "$k8s_user" -c "bash -c '$helm_cmd'"
+    $helm_cmd
     install_exit_code=$?
   else
-    output=$(su - "$k8s_user" -c "bash -c '$helm_cmd'" 2>&1)
+    output=$($helm_cmd 2>&1)
     install_exit_code=$?
   fi
 
-  su - "$k8s_user" -c "helm status $PH_INFRA_RELEASE_NAME -n $PH_NAMESPACE" > /tmp/helm_status_output 2>&1
-
-  if grep -q "^STATUS: deployed" /tmp/helm_status_output; then
+  if [[ $install_exit_code -eq 0 ]]; then
     log_ok
     return 0
   else
-    log_failed "Helm release '$PH_INFRA_RELEASE_NAME' did not reach deployed status"
+    log_failed "Helm install of '$PH_INFRA_RELEASE_NAME' failed (exit $install_exit_code)"
     return 1
   fi
 }
@@ -287,8 +284,8 @@ deploy_ph_operator() {
   local jar_name="paymenthub-operator-1.0.0.jar"
 
   log_step "Applying PaymentHub operator CRD"
-  run_as_user "kubectl apply -f $deploy_dir/config/crd/ph-ee-CustomResourceDefinition.yaml" || { log_failed "CRD apply failed"; return 1; }
-  run_as_user "kubectl wait --for=condition=Established crd/paymenthubdeployments.gazelle.mifos.io --timeout=60s"
+  kubectl apply -f $deploy_dir/config/crd/ph-ee-CustomResourceDefinition.yaml || { log_failed "CRD apply failed"; return 1; }
+  kubectl wait --for=condition=Established crd/paymenthubdeployments.gazelle.mifos.io --timeout=60s
   log_ok
 
   # Resolve local operator source dir — expand $HOME / ~ to the actual user home
@@ -301,12 +298,14 @@ deploy_ph_operator() {
   # Apply RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding, Role, RoleBinding).
   # Deployment is applied separately below based on mode — never applied here.
   log_step "Applying PaymentHub operator RBAC"
-  run_as_user "kubectl apply -f $deploy_dir/operator_rbac.yaml -n $PH_NAMESPACE" || { log_failed "Operator RBAC apply failed"; return 1; }
+  kubectl apply -f $deploy_dir/operator_rbac.yaml -n $PH_NAMESPACE || { log_failed "Operator RBAC apply failed"; return 1; }
   log_ok
 
   # Determine deployment mode and generate the correct Deployment manifest.
   local dep_manifest
-  dep_manifest=$(mktemp /tmp/ph-op-dep.XXXXXX.yaml)
+  dep_manifest=$(mktemp /tmp/ph-op-dep.XXXXXX)
+  mv "$dep_manifest" "${dep_manifest}.yaml"
+  dep_manifest="${dep_manifest}.yaml"
   chmod 644 "$dep_manifest"
 
   if [ -n "$operator_src_dir" ] && [ -d "$operator_src_dir" ]; then
@@ -325,10 +324,10 @@ deploy_ph_operator() {
     write_operator_deployment_image "$PH_OPERATOR_IMAGE" > "$dep_manifest"
   fi
 
-  run_as_user "kubectl apply -f $dep_manifest" || { log_failed "Operator Deployment apply failed"; rm -f "$dep_manifest"; return 1; }
+  kubectl apply -f $dep_manifest || { log_failed "Operator Deployment apply failed"; rm -f "$dep_manifest"; return 1; }
   rm -f "$dep_manifest"
 
-  if ! run_as_user "kubectl rollout status deployment/ph-ee-operator -n $PH_NAMESPACE --timeout=300s"; then
+  if ! kubectl rollout status deployment/ph-ee-operator -n $PH_NAMESPACE --timeout=300s; then
     log_warn "Operator pod did not start — check: kubectl logs deployment/ph-ee-operator -n $PH_NAMESPACE"
   else
     log_ok
@@ -337,10 +336,12 @@ deploy_ph_operator() {
   # Apply CRs — the operator reconciles them once running.
   log_step "Applying PaymentHubDeployment CRs"
   local cr_rendered
-  cr_rendered=$(mktemp /tmp/ph-crs.XXXXXX.yaml)
+  cr_rendered=$(mktemp /tmp/ph-crs.XXXXXX)
+  mv "$cr_rendered" "${cr_rendered}.yaml"
+  cr_rendered="${cr_rendered}.yaml"
   chmod 644 "$cr_rendered"
   generate_phee_crs > "$cr_rendered"
-  run_as_user "kubectl apply -f $cr_rendered" || { log_failed "CR apply failed"; rm -f "$cr_rendered"; return 1; }
+  kubectl apply -f $cr_rendered || { log_failed "CR apply failed"; rm -f "$cr_rendered"; return 1; }
   rm -f "$cr_rendered"
   log_ok
 }
@@ -372,7 +373,7 @@ generate_phee_crs() {
 #              namespace report status.ready == true, or until STARTUP_TIMEOUT.
 #------------------------------------------------------------------------------
 wait_for_phee_crs_ready() {
-  local timeout="${STARTUP_TIMEOUT:-600}"
+  local timeout="${startup_timeout:-600}"
   local elapsed=0
   local interval=30
 
@@ -380,8 +381,8 @@ wait_for_phee_crs_ready() {
 
   while [ "$elapsed" -lt "$timeout" ]; do
     local cr_output
-    cr_output=$(run_as_user "kubectl get paymenthubdeployments -n $PH_NAMESPACE \
-      -o jsonpath='{range .items[?(@.spec.enabled==true)]}{.metadata.name}:{.status.ready} {end}'" 2>/dev/null \
+    cr_output=$(kubectl get paymenthubdeployments -n $PH_NAMESPACE \
+      -o jsonpath='{range .items[?(@.spec.enabled==true)]}{.metadata.name}:{.status.ready} {end}' 2>/dev/null \
       | tr ' ' '\n' | grep -v '^$')
 
     # Count enabled CRs that have been reconciled (status.ready is set to true or false)
@@ -526,11 +527,11 @@ generate_sample_csvs() {
 
     local csv_exit=0
     if [ "$debug" == "true" ]; then
-        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/ph-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
-        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/ph-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
+        "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode closedloop --num-rows 4 --output-dir "$output_dir" 2>&1 | tee -a /tmp/ph-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
+        "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode mojaloop --num-rows 4 --output-dir "$output_dir" 2>&1 | tee -a /tmp/ph-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
     else
-        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/ph-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
-        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/ph-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
+        "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode closedloop --num-rows 4 --output-dir "$output_dir" >> /tmp/ph-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
+        "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode mojaloop --num-rows 4 --output-dir "$output_dir" >> /tmp/ph-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
     fi
 
     if [ "$csv_exit" -ne 0 ]; then

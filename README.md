@@ -6,11 +6,12 @@
 
 ## Quick Start
 
-Latest Stable Release:
+Latest Stable Release (Ubuntu/Linux):
 ```bash
 git clone --branch main https://github.com/openMF/mifos-gazelle.git
 cd mifos-gazelle
-sudo ./run.sh -u $USER -m deploy -a all
+sudo ./setup-env.sh -e local -u $USER   # one-time: k3s, tools, /etc/hosts
+./run.sh -m deploy -a all               # deploy (no sudo needed)
 ```
 
 See [Deployment Guide](docs/MIFOS-GAZELLE-README.md) for prerequisites and full instructions.
@@ -19,7 +20,8 @@ For Latest Development Release (May not be stable):
 ```bash
 git clone --branch dev https://github.com/openMF/mifos-gazelle.git
 cd mifos-gazelle
-sudo ./run.sh -u $USER -m deploy -a all
+sudo ./setup-env.sh -e local -u $USER
+./run.sh -m deploy -a all
 ```
 
 ## Documentation

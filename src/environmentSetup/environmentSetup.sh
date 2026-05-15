@@ -68,9 +68,10 @@ ensure_python_venv() {
 
     log_step "Python virtualenv for data-loading scripts"
 
-    # Create the venv as the k8s_user so they can run scripts without sudo
+    # Create the venv as the k8s_user so they can run scripts without sudo.
+    # Uses sudo -u because this function runs from setup-env.sh (root context).
     if [[ ! -x "$venv_dir/bin/python3" ]]; then
-        run_as_user "python3 -m venv \"$venv_dir\"" >/dev/null
+        sudo -u "$k8s_user" python3 -m venv "$venv_dir" >/dev/null
         if [[ $? -ne 0 ]]; then
             log_error "Failed to create Python venv at $venv_dir"
             exit 1
@@ -78,8 +79,8 @@ ensure_python_venv() {
     fi
 
     # Install/upgrade requirements (pip will skip packages already at the right version)
-    run_as_user "\"$venv_dir/bin/pip\" install --quiet --upgrade pip" >/dev/null
-    run_as_user "\"$venv_dir/bin/pip\" install --quiet -r \"$requirements\"" >/dev/null
+    sudo -u "$k8s_user" "$venv_dir/bin/pip" install --quiet --upgrade pip >/dev/null
+    sudo -u "$k8s_user" "$venv_dir/bin/pip" install --quiet -r "$requirements" >/dev/null
     if [[ $? -ne 0 ]]; then
         log_error "Failed to install Python requirements"
         exit 1
@@ -385,10 +386,9 @@ env_setup_local_cluster() {
 env_setup_main() {
     local mode="$1"
 
-    check_sudo
     check_arch_ok
     verify_user
-    check_os_ok  
+    check_os_ok
     install_os_prerequisites
     install_k8s_tools
     configure_k8s_user_env
@@ -404,5 +404,59 @@ env_setup_main() {
         printf "** Error: Invalid environment type specified: %s. Must be 'local', 'remote', or 'mac'. **\n" "$environment"
         exit 1
     fi
-} 
+}
+
+#------------------------------------------------------------------------------
+# Function: env_cleanall_main
+# Description: Full environment teardown — called by setup-env.sh -m cleanall.
+#              Removes k3s/Colima, /etc/hosts entries, and shell config added
+#              by setup-env.sh. Does NOT delete application namespaces (use
+#              ./run.sh -m cleanapps first on a live cluster).
+#------------------------------------------------------------------------------
+env_cleanall_main() {
+    check_arch_ok
+    verify_user
+
+    if [[ "$environment" == "local" ]]; then
+        if ! is_local_cluster_installed; then
+            log_warn "Local kubernetes cluster is NOT installed — nothing to delete."
+            print_end_message_delete
+            return 0
+        fi
+        delete_k8s_local_cluster
+        remove_hosts
+        print_end_message_delete
+
+    elif [[ "$environment" == "mac" ]]; then
+        # Remove nginx ingress before wiping the VM so helm state is cleaned
+        if is_cluster_accessible; then
+            log_step "Removing ingress-nginx"
+            helm uninstall ingress-nginx -n default >/dev/null 2>&1 || true
+            log_ok
+        else
+            log_warn "Kubernetes cluster is not accessible — skipping nginx cleanup"
+        fi
+        remove_hosts
+        local colima
+        if colima=$(find_colima); then
+            log_step "Deleting Colima VM (full cleanall)"
+            sudo -u "$k8s_user" "$colima" stop 2>/dev/null || true
+            sudo -u "$k8s_user" "$colima" delete --yes 2>/dev/null || true
+            rm -rf "$k8s_user_home/.colima" 2>/dev/null || true
+            log_ok
+            # Clean up stale kubeconfig/docker context entries
+            kubectl config delete-context colima >/dev/null 2>&1 || true
+            sudo -u "$k8s_user" docker context rm colima >/dev/null 2>&1 || true
+        fi
+        print_end_message_delete
+
+    elif [[ "$environment" == "remote" ]]; then
+        remove_hosts
+        print_end_message_delete
+
+    else
+        log_error "Invalid environment '$environment'. Must be 'local', 'remote', or 'mac'."
+        exit 1
+    fi
+}
 

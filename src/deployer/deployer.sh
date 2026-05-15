@@ -22,7 +22,7 @@ delete_resources_in_namespace_matching_pattern() {
         
     # Get all namespaces and filter them locally
     local all_namespaces_output matching_namespaces
-    all_namespaces_output=$(run_as_user "kubectl get namespaces -o name" 2>&1)
+    all_namespaces_output=$(kubectl get namespaces -o name 2>&1)
     check_command_execution $? "kubectl get namespaces -o name"
     
     # Filter the output for namespaces matching the pattern, stripping the "namespace/" prefix
@@ -42,7 +42,7 @@ delete_resources_in_namespace_matching_pattern() {
         fi
 
         # Delete the namespace (this removes all resources within it)
-        if ! run_as_user "kubectl delete ns \"$namespace\" --ignore-not-found=true" >> /dev/null 2>&1 ; then
+        if ! kubectl delete ns "$namespace" --ignore-not-found=true >> /dev/null 2>&1 ; then
             log_failed "Failed to delete namespace $namespace"
             exit_code=1
         fi
@@ -84,7 +84,7 @@ deploy_helm_chart_from_dir() {
   # mode to suppress verbose output.  Any exit called inside that suppressed
   # block would terminate the whole script silently — returning lets the
   # caller's check_command_execution show a visible error instead.
-  run_as_user "$helm_cmd"
+  $helm_cmd
   local helm_exit=$?
   if [[ $helm_exit -ne 0 ]]; then
     return $helm_exit
@@ -108,20 +108,20 @@ create_namespace() {
   local namespace=$1
 
   # Check if the namespace already exists
-  if ! run_as_user "kubectl get namespace \"$namespace\"" >> /dev/null 2>&1; then
-    # Create the namespace
-    run_as_user "kubectl create namespace \"$namespace\"" >> /dev/null 2>&1
+  if ! kubectl get namespace "$namespace" >> /dev/null 2>&1; then
+    kubectl create namespace "$namespace" >> /dev/null 2>&1
     check_command_execution $? "kubectl create namespace $namespace"
   fi
 
   # Configure Docker Hub authentication for this namespace
   # Script exits silently if DOCKERHUB_USERNAME/PASSWORD not set
   if [[ -f "$UTILS_DIR/k3s-docker-login.sh" ]]; then
-    local docker_cmd="export DOCKERHUB_USERNAME='${DOCKERHUB_USERNAME:-}' DOCKERHUB_PASSWORD='${DOCKERHUB_PASSWORD:-}' DOCKERHUB_EMAIL='${DOCKERHUB_EMAIL:-}'; $UTILS_DIR/k3s-docker-login.sh \"$namespace\""
     if [ "$debug" = true ]; then
-      run_as_user "$docker_cmd"
+      DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}" DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD:-}" DOCKERHUB_EMAIL="${DOCKERHUB_EMAIL:-}" \
+        "$UTILS_DIR/k3s-docker-login.sh" "$namespace"
     else
-      run_as_user "$docker_cmd" > /dev/null 2>&1
+      DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}" DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD:-}" DOCKERHUB_EMAIL="${DOCKERHUB_EMAIL:-}" \
+        "$UTILS_DIR/k3s-docker-login.sh" "$namespace" > /dev/null 2>&1
     fi
   fi
 }
@@ -191,7 +191,7 @@ apply_kube_manifests() {
     # Apply persistence-related manifests first
     for file in "$directory"/*persistence*.yaml; do
       if [ -f "$file" ]; then
-        run_as_user "kubectl apply -f $file -n $namespace" >> /dev/null 2>&1
+        kubectl apply -f "$file" -n "$namespace" >> /dev/null 2>&1
         check_command_execution $? "kubectl apply -f $file -n $namespace"
       fi
   done
@@ -199,7 +199,7 @@ apply_kube_manifests() {
     # Apply other manifests
     for file in "$directory"/*.yaml; do
       if [[ "$file" != *persistence*.yaml && -f "$file" ]]; then
-        run_as_user "kubectl apply -f $file -n $namespace" >> /dev/null 2>&1
+        kubectl apply -f "$file" -n "$namespace" >> /dev/null 2>&1
         check_command_execution $? "kubectl apply -f $file -n $namespace"
       fi
     done
@@ -232,7 +232,7 @@ print_deployment_end_message() {
   echo
   if [[ "$data_gen_failed" == "true" ]]; then
     log_warn "Data generation did not complete — test payments and batch submissions will not work."
-    log_warn "Once the cluster is stable, re-run:  sudo $RUN_DIR/run.sh -a setup-data -f \"$CONFIG_FILE_PATH\""
+    log_warn "Once the cluster is stable, re-run:  $RUN_DIR/run.sh -m deploy -a setup-data -f \"$CONFIG_FILE_PATH\""
     echo
   fi
 }
@@ -329,7 +329,7 @@ deploy_apps() {
         if [[ "$redeploy" == "true" ]]; then
           delete_apps "mastercard-demo"
         fi
-        if ! run_as_user "kubectl get namespace \"$PH_NAMESPACE\"" &> /dev/null; then
+        if ! kubectl get namespace "$PH_NAMESPACE" &> /dev/null; then
           log_error "Payment Hub namespace not found. Deploy paymenthub first: ./run.sh -a paymenthub"
           exit 1
         fi

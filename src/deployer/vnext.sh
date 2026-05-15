@@ -75,40 +75,27 @@ vnext_restore_demo_data() {
         return 1
     fi
 
-    if ! su - "$k8s_user" -c "test -r '$mongo_data_dir/$mongo_dump_file'" 2>/dev/null; then
-        local temp_dir
-        temp_dir=$(mktemp -d -p "/tmp" "mongo_restore_XXXXXX") || { log_error "Failed to create temporary directory"; return 1; }
-        cp "$mongo_data_dir/$mongo_dump_file" "$temp_dir/$mongo_dump_file" || { log_error "Failed to copy $mongo_dump_file to temp dir"; rm -rf "$temp_dir"; return 1; }
-        chown "$k8s_user":"$k8s_user" "$temp_dir/$mongo_dump_file" || { log_error "Failed to change ownership of dump file"; rm -rf "$temp_dir"; return 1; }
-        chmod 600 "$temp_dir/$mongo_dump_file" || { log_error "Failed to set permissions on dump file"; rm -rf "$temp_dir"; return 1; }
-        mongo_data_dir="$temp_dir"
-    fi
-
     local mongopod
-    mongopod=$(run_as_user "kubectl get pods --namespace \"$namespace\" | grep -i mongodb | cut -d \" \" -f1") || { log_failed "Failed to retrieve MongoDB pod name"; rm -rf "${temp_dir:-}"; return 1; }
+    mongopod=$(kubectl get pods --namespace "$namespace" 2>/dev/null | grep -i mongodb | cut -d " " -f1) || { log_failed "Failed to retrieve MongoDB pod name"; return 1; }
     if [ -z "$mongopod" ]; then
         log_failed "No MongoDB pod found in namespace '$namespace'"
-        rm -rf "${temp_dir:-}"
         return 1
     fi
 
     local mongo_root_pw
-    mongo_root_pw=$(run_as_user "kubectl get secret --namespace \"$namespace\" mongodb -o jsonpath='{.data.MONGO_INITDB_ROOT_PASSWORD}' | base64 -d") || { log_failed "Failed to retrieve MongoDB root password"; rm -rf "${temp_dir:-}"; return 1; }
+    mongo_root_pw=$(kubectl get secret --namespace "$namespace" mongodb -o jsonpath='{.data.MONGO_INITDB_ROOT_PASSWORD}' 2>/dev/null | base64 -d) || { log_failed "Failed to retrieve MongoDB root password"; return 1; }
     if [ -z "$mongo_root_pw" ]; then
         log_failed "MongoDB root password is empty in namespace '$namespace'"
-        rm -rf "${temp_dir:-}"
         return 1
     fi
 
-    if ! su - "$k8s_user" -c "kubectl cp \"$mongo_data_dir/$mongo_dump_file\" \"$namespace/$mongopod:/tmp/mongodump.gz\"" > /dev/null 2>&1; then
+    if ! kubectl cp "$mongo_data_dir/$mongo_dump_file" "$namespace/$mongopod:/tmp/mongodump.gz" > /dev/null 2>&1; then
         log_failed "Failed to copy $mongo_dump_file to pod $mongopod"
-        rm -rf "${temp_dir:-}"
         return 1
     fi
 
-    if ! run_as_user "kubectl exec --namespace \"$namespace\" \"$mongopod\" -- mongorestore -u root -p \"$mongo_root_pw\" --gzip --archive=/tmp/mongodump.gz --authenticationDatabase admin" > /dev/null 2>&1; then
+    if ! kubectl exec --namespace "$namespace" "$mongopod" -- mongorestore -u root -p "$mongo_root_pw" --gzip --archive=/tmp/mongodump.gz --authenticationDatabase admin > /dev/null 2>&1; then
         log_failed "mongorestore failed"
-        rm -rf "${temp_dir:-}"
         return 1
     fi
 

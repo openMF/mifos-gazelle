@@ -44,6 +44,13 @@ if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
     exit 1
 fi
 
+if [[ "$(id -u)" -eq 0 ]]; then
+    echo "ERROR: run.sh must not be run as root or with sudo." >&2
+    echo "       Use: ./run.sh -m deploy -a all" >&2
+    echo "       For environment setup (k3s, /etc/hosts), use: sudo ./setup-env.sh" >&2
+    exit 1
+fi
+
 RUN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )" # the directory that this script is in
 export RUN_DIR
 

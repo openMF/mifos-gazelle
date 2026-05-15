@@ -65,11 +65,11 @@ EOF
 # Description: Returns 0 if the NGINX ingress pod is running, 1 otherwise.
 #------------------------------------------------------------------------------
 check_nginx_running() {
-    nginx_pod_name=$(run_as_user "kubectl get pods -n default --no-headers -o custom-columns=\":metadata.name\"" | grep nginx | head -n 1)
+    nginx_pod_name=$(kubectl get pods -n default --no-headers -o custom-columns=":metadata.name" 2>/dev/null | grep nginx | head -n 1)
     if [ -z "$nginx_pod_name" ]; then
         return 1
     fi
-    pod_status=$(run_as_user "kubectl get pod -n default \"$nginx_pod_name\" -o jsonpath='{.status.phase}'")
+    pod_status=$(kubectl get pod -n default "$nginx_pod_name" -o jsonpath='{.status.phase}' 2>/dev/null)
     if [ "$pod_status" == "Running" ]; then
         return 0
     else
@@ -131,7 +131,7 @@ log_step "Check and load Helm repositories"
     # Extract existing URL from cached YAML
     existing_url=$(echo "$repo_list_yaml" | grep -A1 "^- name: $repo_name" | grep "url:" | awk '{print $2}')
     if [[ -z "$existing_url" ]]; then
-      if ! run_as_user "helm repo add $repo_name $repo_url" >/dev/null 2>&1; then
+      if ! helm repo add "$repo_name" "$repo_url" >/dev/null 2>&1; then
         echo "  ** Error: Failed to add Helm repo '$repo_name' ($repo_url)" >&2
         exit 1
       fi
@@ -142,12 +142,12 @@ log_step "Check and load Helm repositories"
       echo "     Found: $existing_url" >&2
       echo "     Expected: $repo_url" >&2
 
-      if ! run_as_user "helm repo remove $repo_name" >/dev/null 2>&1; then
+      if ! helm repo remove "$repo_name" >/dev/null 2>&1; then
         echo "  ** Error: Failed to remove mismatched Helm repo '$repo_name'" >&2
         return 1
       fi
 
-      if ! run_as_user "helm repo add $repo_name $repo_url" >/dev/null 2>&1; then
+      if ! helm repo add "$repo_name" "$repo_url" >/dev/null 2>&1; then
         echo "  ** Error: Failed to re-add Helm repo '$repo_name' ($repo_url)" >&2
         return 1
       fi
@@ -157,7 +157,7 @@ log_step "Check and load Helm repositories"
 
   # Refresh all repos once if needed
   if [[ "$updated" == true ]]; then
-    if ! run_as_user "helm repo update" >/dev/null 2>&1; then
+    if ! helm repo update >/dev/null 2>&1; then
       echo "  ** Error: Failed to update Helm repos" >&2
       exit 1
     fi
@@ -171,12 +171,12 @@ log_step "Check and load Helm repositories"
 #------------------------------------------------------------------------------ 
 install_nginx_local_cluster() {
     log_step "Installing NGINX ingress controller"
-    if ! check_nginx_running; then 
-        run_as_user  "helm delete ingress-nginx -n default " > /dev/null 2>&1
-        run_as_user  "helm install --wait --timeout 1200s ingress-nginx ingress-nginx \
-                            --repo https://kubernetes.github.io/ingress-nginx \
-                            -n default -f $NGINX_VALUES_FILE"  > /dev/null 2>&1
-    fi 
+    if ! check_nginx_running; then
+        helm delete ingress-nginx -n default > /dev/null 2>&1 || true
+        helm install --wait --timeout 1200s ingress-nginx ingress-nginx \
+            --repo https://kubernetes.github.io/ingress-nginx \
+            -n default -f "$NGINX_VALUES_FILE" > /dev/null 2>&1
+    fi
     if check_nginx_running; then 
         log_ok
     else
