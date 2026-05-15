@@ -31,7 +31,10 @@ deploy_mifosx_from_yaml() {
     create_namespace "$MIFOSX_NAMESPACE"
     log_ok
 
-    clone_repo "$MIFOSX_BRANCH" "$MIFOSX_REPO_LINK" "$APPS_DIR" "$MIFOSX_REPO_DIR"
+    log_step "Copying vendored MifosX manifests to working directory"
+    mkdir -p "$APPS_DIR/mifosx/kubernetes/manifests"
+    cp -r "$BASE_DIR/src/deployer/manifests/mifosx/." "$APPS_DIR/mifosx/kubernetes/manifests/"
+    log_ok
 
     log_step "Updating FQDNs in manifests"
     apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/web-app-deployment.yaml" "$GAZELLE_DOMAIN"
@@ -63,9 +66,10 @@ deploy_mifosx_from_yaml() {
 # Returns:    0 if all tenants ready, 1 on timeout
 #------------------------------------------------------------------------------
 wait_for_fineract_api_ready() {
-  local tenants=("greenbank" "bluebank" "redbank")
+  IFS=' ' read -ra tenants <<< "${FINERACT_TENANTS:-greenbank bluebank redbank}"
   local base_url="https://mifos.${GAZELLE_DOMAIN}/fineract-provider/api/v1"
-  local auth="Basic bWlmb3M6cGFzc3dvcmQ="   # mifos:password
+  local auth
+  auth="Basic $(printf '%s:%s' "${FINERACT_USERNAME:-mifos}" "${FINERACT_PASSWORD:-password}" | base64)"
   local timeout=${startup_timeout:-600}
   local retry_interval=10
   local global_start

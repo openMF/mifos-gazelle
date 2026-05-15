@@ -9,50 +9,6 @@ source "$RUN_DIR/src/deployer/mastercard.sh" || { echo "FATAL: Could not source 
 source "$RUN_DIR/src/utils/helpers.sh" || { echo "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 
 #------------------------------------------------------------
-# Description : Clones/updates a Git repo. Reclones only if repo or branch missing.
-# Usage : clone_repo <branch> <repo_link> <target_dir> <dir_name>
-# Example: clone_repo main link target-dir repo-name
-#------------------------------------------------------------
-clone_repo() {
-  if [ "$#" -ne 4 ]; then
-    echo "Usage: clone_repo <branch> <repo_link> <target_directory> <cloned_directory_name>"
-    return 1
-  fi
-
-  local branch="$1"
-  local repo_link="$2"
-  local target_directory="$3"
-  local cloned_directory_name="$4"
-  local repo_path="$target_directory/$cloned_directory_name"
-
-  # Create target directory if it doesn't exist
-  run_as_user "mkdir -p \"$target_directory\" " >/dev/null 2>&1
-
-  # Check if repository and branch exist
-  if [ -d "$repo_path" ]; then
-    cd "$repo_path" || return 1
-    # Accept if branch exists as local ref, remote-tracking ref, or is currently checked out
-    if git show-ref --verify --quiet "refs/heads/$branch" \
-        || git show-ref --verify --quiet "refs/remotes/origin/$branch" \
-        || [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$branch" ]; then
-      return 0
-    fi
-    # Remove repo if branch doesn't exist anywhere
-    echo "Branch $branch not found in $repo_path. Recloning..."
-    rm -rf "$repo_path"
-  fi
-
-  # Clone the repository
-  run_as_user "git clone -b \"$branch\" \"$repo_link\" \"$repo_path\" " >/dev/null 2>&1
-  if [ $? -eq 0 ]; then
-    log_with_verbose_check "$debug" "$DEBUG" "Cloned $repo_link → $repo_path"
-  else
-    log_error "Failed to clone $repo_link to $repo_path"
-    return 1
-  fi
-}
-
-#------------------------------------------------------------
 # Description : Deletes K8s namespaces matching a regex pattern.
 # Usage : delete_resources_in_namespace_matching_pattern <regex_pattern>
 # Example: delete_resources_in_namespace_matching_pattern "app-.*"

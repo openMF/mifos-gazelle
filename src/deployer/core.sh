@@ -73,8 +73,8 @@ wait_for_pods_ready() {
     STABLE_COUNT=0
     while [ $STABLE_COUNT -lt 3 ]; do
       if [ "$elapsed" -ge "$timeout" ]; then
-        log_warn "Timed out after ${timeout}s waiting for $namespace pods — continuing anyway"
-        return 0
+        log_warn "Timed out after ${timeout}s waiting for $namespace pods"
+        return 1
       fi
       NOT_READY=$(run_as_user "kubectl get pods -n \"$namespace\" --no-headers" | awk '{split($2,a,"/"); if(a[1]!=a[2] || a[1]==0) print}')
 
