@@ -4,7 +4,7 @@
 source "$RUN_DIR/src/deployer/core.sh" || { echo "FATAL: Could not source core.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/vnext.sh" || { echo "FATAL: Could not source vnext.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/mifosx.sh" || { echo "FATAL: Could not source mifosx.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
-source "$RUN_DIR/src/deployer/phee.sh"   || { echo "FATAL: Could not source phee.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/deployer/paymenthub.sh" || { echo "FATAL: Could not source paymenthub.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/mastercard.sh" || { echo "FATAL: Could not source mastercard.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/utils/helpers.sh" || { echo "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 
@@ -258,7 +258,7 @@ delete_apps() {
         delete_resources_in_namespace_matching_pattern "$MIFOSX_NAMESPACE"
         log_ok
         ;;
-      "phee")
+      "paymenthub")
         log_step "Removing Payment Hub EE"
         clean_phee
         log_ok
@@ -322,7 +322,7 @@ deploy_apps() {
           data_gen_failed=true
         fi
         ;;
-      "phee")
+      "paymenthub")
         deploy_ph
         ;;
       "mastercard-demo")
@@ -330,7 +330,7 @@ deploy_apps() {
           delete_apps "mastercard-demo"
         fi
         if ! run_as_user "kubectl get namespace \"$PH_NAMESPACE\"" &> /dev/null; then
-          log_error "Payment Hub namespace not found. Deploy phee first: ./run.sh -a phee"
+          log_error "Payment Hub namespace not found. Deploy paymenthub first: ./run.sh -a paymenthub"
           exit 1
         fi
         log_with_verbose_check "$debug" "$DEBUG" "MASTERCARD_CBS_HOME=$MASTERCARD_CBS_HOME"

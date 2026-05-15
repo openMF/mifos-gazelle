@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# phee.sh -- Mifos Gazelle deployer script for PaymentHub EE
+# paymenthub.sh -- Mifos Gazelle deployer script for PaymentHub EE
 #
 # Deployment sequence:
 #   1. deploy_ph_infra_helm  -- Helm --wait: Zeebe, operationsmysql, Redis, MinIO, Kafka into paymenthub ns
@@ -94,9 +94,9 @@ clean_phee() {
 #------------------------------------------------------------------------------
 # Function : cleanup_phee_cluster_rbac
 # Description: Removes cluster-scoped ClusterRoles and ClusterRoleBindings
-#              left over from any previous PHEE Helm release (e.g. release-name
-#              "phee"). These are not namespace-scoped so they survive namespace
-#              deletion and block re-install under a different release name.
+#              left over from any previous PaymentHub Helm release. These are
+#              not namespace-scoped so they survive namespace deletion and block
+#              re-install under a different release name.
 #------------------------------------------------------------------------------
 cleanup_phee_cluster_rbac() {
   local resources
@@ -113,7 +113,7 @@ cleanup_phee_cluster_rbac() {
     return 0
   fi
 
-  log_with_verbose_check "$debug" "$DEBUG" "Removing stale PHEE cluster RBAC from previous Helm release"
+  log_with_verbose_check "$debug" "$DEBUG" "Removing stale PaymentHub cluster RBAC from previous Helm release"
   while IFS= read -r line; do
     [ -z "$line" ] && continue
     local kind name
@@ -130,7 +130,7 @@ cleanup_phee_cluster_rbac() {
 #              App-layer components are disabled in values — operator owns them.
 #------------------------------------------------------------------------------
 deploy_ph_infra_helm() {
-  local pheeInfraChartPath="$RUN_DIR/src/deployer/helm/phee-infra"
+  local pheeInfraChartPath="$RUN_DIR/src/deployer/helm/paymenthub-infra"
 
   log_step "Updating FQDNs in Helm override values"
   apply_domain_to_file "$PH_VALUES_FILE" "$GAZELLE_DOMAIN"
@@ -143,7 +143,7 @@ deploy_ph_infra_helm() {
     helm_cmd="$helm_cmd -f $PH_VALUES_FILE"
   fi
 
-  log_step "Helm install ($PH_INFRA_RELEASE_NAME) — PHEE infra services"
+  log_step "Helm install ($PH_INFRA_RELEASE_NAME) — PaymentHub infra services"
   log_with_verbose_check "$debug" "$DEBUG" "→ $helm_cmd"
 
   if [ "$debug" = true ]; then
@@ -237,7 +237,7 @@ write_operator_deployment_local() {
 # Description: Outputs a complete Deployment YAML for the operator in image
 #              mode — uses the published Docker image with its own ENTRYPOINT.
 # Parameters:
-#   $1 - operator Docker image (e.g. openmf/phee-operator:1.0.0)
+#   $1 - operator Docker image (e.g. openmf/paymenthub-operator:1.0.0)
 #------------------------------------------------------------------------------
 write_operator_deployment_image() {
   local image="$1"
@@ -283,46 +283,46 @@ write_operator_deployment_image() {
 
 #------------------------------------------------------------------------------
 deploy_ph_operator() {
-  local deploy_dir="$RUN_DIR/src/deployer/operators/phee"
-  local jar_name="ph-ee-operator-1.0.0.jar"
+  local deploy_dir="$RUN_DIR/src/deployer/operators/paymenthub"
+  local jar_name="paymenthub-operator-1.0.0.jar"
 
-  log_step "Applying PHEE CRD"
+  log_step "Applying PaymentHub operator CRD"
   run_as_user "kubectl apply -f $deploy_dir/config/crd/ph-ee-CustomResourceDefinition.yaml" || { log_failed "CRD apply failed"; return 1; }
   run_as_user "kubectl wait --for=condition=Established crd/paymenthubdeployments.gazelle.mifos.io --timeout=60s"
   log_ok
 
   # Resolve local operator source dir — expand $HOME / ~ to the actual user home
   local operator_src_dir=""
-  if [ -n "$PHEE_OPERATOR_SOURCE_DIR" ]; then
-    operator_src_dir="${PHEE_OPERATOR_SOURCE_DIR/\$HOME/$k8s_user_home}"
+  if [ -n "$PH_OPERATOR_SOURCE_DIR" ]; then
+    operator_src_dir="${PH_OPERATOR_SOURCE_DIR/\$HOME/$k8s_user_home}"
     operator_src_dir="${operator_src_dir/#\~/$k8s_user_home}"
   fi
 
   # Apply RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding, Role, RoleBinding).
   # Deployment is applied separately below based on mode — never applied here.
-  log_step "Applying PHEE operator RBAC"
+  log_step "Applying PaymentHub operator RBAC"
   run_as_user "kubectl apply -f $deploy_dir/operator_rbac.yaml -n $PH_NAMESPACE" || { log_failed "Operator RBAC apply failed"; return 1; }
   log_ok
 
   # Determine deployment mode and generate the correct Deployment manifest.
   local dep_manifest
-  dep_manifest=$(mktemp /tmp/phee-op-dep.XXXXXX.yaml)
+  dep_manifest=$(mktemp /tmp/ph-op-dep.XXXXXX.yaml)
   chmod 644 "$dep_manifest"
 
   if [ -n "$operator_src_dir" ] && [ -d "$operator_src_dir" ]; then
-    # Local mode selected (PHEE_OPERATOR_SOURCE_DIR set and directory exists).
+    # Local mode selected (PH_OPERATOR_SOURCE_DIR set and directory exists).
     # Fat JAR (Shadow) must be built before running deploy.
     if [ ! -f "$operator_src_dir/build/libs/$jar_name" ]; then
       log_failed "Local operator JAR not found: $operator_src_dir/build/libs/$jar_name"
       log_failed "Build it first:  cd $operator_src_dir && ./gradlew build -x test"
       rm -f "$dep_manifest"; return 1
     fi
-    log_step "Deploying PHEE operator (local JAR + hostPath)"
+    log_step "Deploying PaymentHub operator (local JAR + hostPath)"
     write_operator_deployment_local "$operator_src_dir" "$jar_name" > "$dep_manifest"
   else
-    # Image mode — PHEE_OPERATOR_SOURCE_DIR not set or directory absent.
-    log_step "Deploying PHEE operator ($PHEE_OPERATOR_IMAGE)"
-    write_operator_deployment_image "$PHEE_OPERATOR_IMAGE" > "$dep_manifest"
+    # Image mode — PH_OPERATOR_SOURCE_DIR not set or directory absent.
+    log_step "Deploying PaymentHub operator ($PH_OPERATOR_IMAGE)"
+    write_operator_deployment_image "$PH_OPERATOR_IMAGE" > "$dep_manifest"
   fi
 
   run_as_user "kubectl apply -f $dep_manifest" || { log_failed "Operator Deployment apply failed"; rm -f "$dep_manifest"; return 1; }
@@ -337,7 +337,7 @@ deploy_ph_operator() {
   # Apply CRs — the operator reconciles them once running.
   log_step "Applying PaymentHubDeployment CRs"
   local cr_rendered
-  cr_rendered=$(mktemp /tmp/phee-crs.XXXXXX.yaml)
+  cr_rendered=$(mktemp /tmp/ph-crs.XXXXXX.yaml)
   chmod 644 "$cr_rendered"
   generate_phee_crs > "$cr_rendered"
   run_as_user "kubectl apply -f $cr_rendered" || { log_failed "CR apply failed"; rm -f "$cr_rendered"; return 1; }
@@ -353,7 +353,7 @@ deploy_ph_operator() {
 #              Reads the CR file and replaces .local hostnames with real domain.
 #------------------------------------------------------------------------------
 generate_phee_crs() {
-  local cr_dir="$RUN_DIR/src/deployer/operators/phee/config/cr"
+  local cr_dir="$RUN_DIR/src/deployer/operators/paymenthub/config/cr"
   # Two substitutions per file:
   # 1. Replace "<prefix>.local" at end-of-line with "<prefix>.$GAZELLE_DOMAIN" for Ingress hosts.
   #    The $ anchor ensures cluster.local:9200 internal DNS refs are not touched.
@@ -376,7 +376,7 @@ wait_for_phee_crs_ready() {
   local elapsed=0
   local interval=30
 
-  log_step "Waiting for all PHEE CRs to become ready"
+  log_step "Waiting for all PaymentHub CRs to become ready"
 
   while [ "$elapsed" -lt "$timeout" ]; do
     local cr_output
@@ -404,7 +404,7 @@ wait_for_phee_crs_ready() {
     elapsed=$((elapsed + interval))
   done
 
-  log_failed "Timed out after ${timeout}s waiting for PHEE CRs. Check: kubectl get paymenthubdeployments -n $PH_NAMESPACE"
+  log_failed "Timed out after ${timeout}s waiting for PaymentHub CRs. Check: kubectl get paymenthubdeployments -n $PH_NAMESPACE"
   return 1
 }
 
@@ -522,19 +522,19 @@ generate_sample_csvs() {
 
     log_step "Generating sample CSV files"
 
-    > /tmp/phee-csv-gen.log
+    > /tmp/ph-csv-gen.log
 
     local csv_exit=0
     if [ "$debug" == "true" ]; then
-        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/phee-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
-        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/phee-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/ph-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" 2>&1 | tee -a /tmp/ph-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
     else
-        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
-        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/phee-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode closedloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/ph-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
+        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$CONFIG_FILE_PATH\" --mode mojaloop --num-rows 4 --output-dir \"$output_dir\"" >> /tmp/ph-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
     fi
 
     if [ "$csv_exit" -ne 0 ]; then
-        log_warn "CSV generation failed — see /tmp/phee-csv-gen.log"
+        log_warn "CSV generation failed — see /tmp/ph-csv-gen.log"
     else
         log_ok
     fi

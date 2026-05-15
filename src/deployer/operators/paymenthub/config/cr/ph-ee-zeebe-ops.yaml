@@ -1,21 +1,19 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-channel
+  name: ph-ee-zeebe-ops
   namespace: paymenthub
 spec:
   enabled: true
-  waitForGatewayEnabled: true
   rbacEnabled: false
   secretEnabled: false
   configMapEnabled: false
   ingressEnabled: true
   volMount:
-    enabled: true
-    name: ph-ee-config
+    enabled: false
   replicas: 1
-  image: docker.io/openmf/ph-ee-connector-channel:mifos-v2.0.0
-  containerPort: 8443
+  image: docker.io/openmf/ph-ee-zeebe-ops:mifos-v2.0.0
+  containerPort: 5000
   resources:
     limits:
       cpu: 500m
@@ -37,28 +35,28 @@ spec:
     tls:
       - secretName: sandbox-secret
     rules:
-      - host: channel.local
+      - host: zeebeops.local
         paths:
           - path: "/"
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-connector-channel
+                name: ph-ee-zeebe-ops
                 port:
-                  number: 8443
+                  number: 80
   services:
-    - name: ph-ee-connector-channel
+    - name: ph-ee-zeebe-ops
       ports:
         - name: port
-          port: 8443
-          targetPort: 8443
+          port: 80
+          targetPort: 5000
           protocol: TCP
-        - name: http
-          port: 82
-          targetPort: 8443
+        - name: actuator
           protocol: TCP
+          port: 8080
+          targetPort: 8080
       selector:
-        app: ph-ee-connector-channel
+        app: ph-ee-zeebe-ops
       sessionAffinity: None
       type: ClusterIP
   livenessProbe:
@@ -76,58 +74,31 @@ spec:
     failureThreshold: 3
     timeoutSeconds: 5
   environment:
-    - name: SPRING_PROFILES_ACTIVE
-      value: "bb,tenants"
     - name: ZEEBE_BROKER_CONTACTPOINT
-      value: "phee-infra-zeebe-gateway:26500"
+      value: "paymenthub-infra-zeebe-gateway:26500"
+    - name: TENANTS
+      value: "greenbank,bluebank,redbank"
     - name: DFSPIDS
       value: "greenbank,redbank,bluebank"
-    - name: TRANSACTION-ID-LENGTH
-      value: "20"
-    - name: MPESA_NOTIFICATION_SUCCESS_ENABLED
+    - name: ELASTICSEARCH_URL
+      value: "http://infra-elasticsearch.infra.svc.cluster.local:9200/"
+    - name: SPRING_DATA_ELASTICSEARCH_CLIENT_REACTIVE_ENDPOINTS
+      value: "infra-elasticsearch.infra.svc.cluster.local:9200"
+    - name: ELASTICSEARCH_SECURITY_ENABLED
       value: "false"
-    - name: MPESA_NOTIFICATION_FAILURE_ENABLED
+    - name: ELASTICSEARCH_SSLVERIFICATION
       value: "false"
-    - name: LOGGING_LEVEL_ROOT
-      value: "INFO"
-    - name: LOGGING_PATTERN_CONSOLE
-      value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
-    - name: operations_url
-      value: "http://ph-ee-operations-app:80/api/v1"
-    - name: operations_auth-enabled
-      value: "false"
-    - name: CHANNEL_TENANTPRIMARY_CLIENTID
-      value: "mifos"
-    - name: CHANNEL_TENANTPRIMARY_CLIENTSECRET
-      value: "password"
-    - name: CHANNEL_TENANTPRIMARY_TENANT
-      value: "greenbank"
-    - name: CHANNEL_TENANTSECONDARY_CLIENTID
-      value: "mifos"
-    - name: CHANNEL_TENANTSECONDARY_CLIENTSECRET
-      value: "password"
-    - name: CHANNEL_TENANTSECONDARY_TENANT
-      value: "bluebank"
-    - name: AMS
-      value: ""
-    - name: gsma_payee_tenant
-      value: "bluebank"
-    - name: redis_idempotency_enabled
-      value: "true"
-    - name: redis_idempotency_keyFormat
-      value: "clientCorrelationId_tenant_api"
-    - name: redis_idempotency_apiList
-      value: "/channel/transfer,/channel/collection,/channel/gsma/transaction,/channel/transactionRequest"
-    - name: redis_host
-      value: "phee-infra-redis-master"
-    - name: redis_port
-      value: "6379"
-    - name: redis_password
+    - name: ELASTICSEARCH_USERNAME
       valueFrom:
         secretKeyRef:
-          name: phee-infra-redis
-          key: redis-password
-    - name: server_ssl_enabled
-      value: "false"
+          name: elastic-credentials
+          key: username
+    - name: ELASTICSEARCH_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: elastic-credentials
+          key: password
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
     - name: JAVA_TOOL_OPTIONS
       value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"

@@ -20,7 +20,7 @@ sudo ./run.sh -u $USER -m deploy -a all
 
 # Deploy specific component(s)
 sudo ./run.sh -u $USER -m deploy -a mifosx
-sudo ./run.sh -u $USER -m deploy -a phee
+sudo ./run.sh -u $USER -m deploy -a paymenthub
 sudo ./run.sh -u $USER -m deploy -a vnext
 
 # With debug output
@@ -86,7 +86,7 @@ run.sh  →  src/commandline/commandline.sh  →  src/deployer/deployer.sh
 | `src/deployer/deployer.sh` | Orchestrates component deployments in dependency order |
 | `src/deployer/core.sh` | Shared K8s functions: pod readiness waits, TLS secrets, Helm deploy wrappers |
 | `src/deployer/mifosx.sh` | MifosX/Fineract deployment logic |
-| `src/deployer/phee.sh` | Payment Hub EE deployment logic |
+| `src/deployer/paymenthub.sh` | PaymentHub deployment logic |
 | `src/deployer/vnext.sh` | Mojaloop vNext deployment logic |
 | `src/deployer/mastercard.sh` | Mastercard CBS connector deployment |
 | `src/environmentSetup/environmentSetup.sh` | OS prereqs, k3s setup, `/etc/hosts`, Python venv |
@@ -99,7 +99,7 @@ All deployment settings live in `config/config.ini` (INI format, parsed with `cr
 - `[general]` — mode, domain, version, startup timeout, logging
 - `[kubernetes]` — environment type (`local`/`remote`/`mac`), k3s version, resource minimums
 - `[dockerhub]` — optional credentials to raise Docker Hub pull rate limits
-- `[infra]` / `[mifosx]` / `[vnext]` / `[phee]` / `[mastercard-demo]` — per-component `enabled` flag, namespace, repo, branch
+- `[infra]` / `[mifosx]` / `[vnext]` / `[paymenthub]` / `[mastercard-demo]` — per-component `enabled` flag, namespace, repo, branch
 
 Config values are loaded into shell variables via `crudini --get`. CLI flags override config file values. `$USER` in the config is expanded to the invoking (non-root) user at runtime.
 
@@ -111,7 +111,7 @@ Config values are loaded into shell variables via `crudini --get`. CLI flags ove
 
 ### Deployment Dependencies
 
-Infrastructure (NGINX, MySQL, Kafka, Redis, MongoDB, Elasticsearch) must be up before any DPG. Deployment order: `infra` → `mifosx` / `phee` / `vnext` (these three are independent of each other).
+Infrastructure (NGINX, MySQL, Kafka, Redis, MongoDB, Elasticsearch) must be up before any DPG. Deployment order: `infra` → `mifosx` / `paymenthub` / `vnext` (these three are independent of each other).
 
 ### Submodule Repos
 

@@ -226,7 +226,7 @@ spec:
                 waitForGatewayEnabled:
                   type: boolean
                   default: false
-                  description: "When true, adds a wait-for-gateway init container that polls phee-infra-zeebe-gateway before the main container starts"
+                  description: "When true, adds a wait-for-gateway init container that polls paymenthub-infra-zeebe-gateway before the main container starts"
                 rbacEnabled:  # Toggle for RBACs
                   type: boolean
                   default: false # Indicates if RBAC resources should be created

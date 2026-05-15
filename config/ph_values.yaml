@@ -1,7 +1,7 @@
 ############################################################
-# PHEE infrastructure override values for config/ph_values.yaml
+# PaymentHub infrastructure override values for config/ph_values.yaml
 #
-# All stable defaults are baked into src/deployer/helm/phee-infra/values.yaml.
+# All stable defaults are baked into src/deployer/helm/paymenthub-infra/values.yaml.
 # Only domain-specific hostnames and version-pinned artifacts belong here.
 #
 # Hostnames referencing "mifos.gazelle.test" are substituted at deploy time

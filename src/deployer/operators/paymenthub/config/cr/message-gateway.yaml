@@ -40,7 +40,7 @@ spec:
     - name: MYSQL_USERNAME
       value: "mifos"
     - name: ZEEBE_BROKER_CONTACTPOINT
-      value: "phee-infra-zeebe-gateway:26500"
+      value: "paymenthub-infra-zeebe-gateway:26500"
     - name: MYSQL_PASSWORD
       valueFrom:
         secretKeyRef:

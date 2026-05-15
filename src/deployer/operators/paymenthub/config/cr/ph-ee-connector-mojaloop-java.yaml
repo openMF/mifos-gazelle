@@ -58,7 +58,7 @@ spec:
     - name: DFSPIDS
       value: "greenbank,redbank,bluebank"
     - name: ZEEBE_BROKER_CONTACTPOINT
-      value: "phee-infra-zeebe-gateway:26500"
+      value: "paymenthub-infra-zeebe-gateway:26500"
     - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
       value: "50"
     - name: ZEEBE_CLIENT_POLL-INTERVAL

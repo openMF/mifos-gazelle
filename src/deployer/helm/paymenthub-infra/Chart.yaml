@@ -1,6 +1,6 @@
 apiVersion: v2
-name: phee-infra
-description: PaymentHub EE infrastructure services (Zeebe, Kafka, Redis, MySQL, MinIO)
+name: paymenthub-infra
+description: PaymentHub infrastructure services (Zeebe, Kafka, Redis, MySQL, MinIO)
 type: application
 version: 1.0.0
 appVersion: "zeebe:8.2.12; kafka:3.5.1; redis:17.9.3; mysql:5.7; minio:5.0.14"

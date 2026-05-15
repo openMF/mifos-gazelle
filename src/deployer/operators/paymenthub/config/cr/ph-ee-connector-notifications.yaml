@@ -41,7 +41,7 @@ spec:
     - name: SPRING_PROFILES_ACTIVE
       value: ""
     - name: ZEEBE_BROKER_CONTACTPOINT
-      value: "phee-infra-zeebe-gateway:26500"
+      value: "paymenthub-infra-zeebe-gateway:26500"
     - name: HOSTCONFIG_HOST
       value: "message-gateway"
     - name: HOSTCONFIG_PORT

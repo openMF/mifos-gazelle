@@ -6,7 +6,7 @@
 #       helm dependency build or update and then repeat the same thing for the gazelle chart
 #
 # Usage:
-#   ./phee-helm-upgrade-tool.sh
+#   ./paymenthub-helm-upgrade-tool.sh
 #
 # Assumptions:
 #   - The script is located in mifos-gazelle/src/utils/localdev.

@@ -1,20 +1,21 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-bulk
+  name: ph-ee-bulk-processor
   namespace: paymenthub
 spec:
   enabled: true
+  waitForGatewayEnabled: true
   volMount:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-connector-bulk:mifos-v2.0.0
-  containerPort: 8080
+  image: docker.io/openmf/ph-ee-bulk-processor:mifos-v2.0.0
+  containerPort: 5000
   resources:
     limits:
-      cpu: 256m
-      memory: 384M
+      cpu: 500m
+      memory: 512M
     requests:
       cpu: 100m
       memory: 256M
@@ -36,40 +37,48 @@ spec:
     tls:
       - secretName: sandbox-secret
     rules:
-      - host: connector.local
+      - host: bulk-processor.local
         paths:
-          - path: "/"
+          - path: "/batchtransactions"
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-connector-bulk
+                name: ph-ee-bulk-processor
                 port:
                   number: 80
   services:
-    - name: ph-ee-connector-bulk
+    - name: ph-ee-bulk-processor
       ports:
         - name: port
           port: 80
+          targetPort: 5000
+          protocol: TCP
+        - name: actuator
+          port: 8080
           targetPort: 8080
           protocol: TCP
       selector:
-        app: ph-ee-connector-bulk
+        app: ph-ee-bulk-processor
       sessionAffinity: None
       type: ClusterIP
   environment:
     - name: SPRING_PROFILES_ACTIVE
       value: "bb"
-    - name: CAMEL_DISABLE-SSL
-      value: "true"
     - name: ZEEBE_BROKER_CONTACTPOINT
-      value: "phee-infra-zeebe-gateway:26500"
-    - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
-      value: "50"
-    - name: ZEEBE_CLIENT_POLL-INTERVAL
-      value: "10"
+      value: "paymenthub-infra-zeebe-gateway:26500"
     - name: TENANTS
       value: "greenbank,bluebank,redbank"
-    - name: CLOUD_AWS_BUCKET-NAME
+    - name: SERVER_SSL_ENABLED
+      value: "false"
+    - name: CAMEL_DISABLE-SSL
+      value: "true"
+    - name: OPERATIONS-APP_CONTACTPOINT
+      value: "http://ph-ee-operations-app:80"
+    - name: OPERATIONS-APP_ENDPOINTS_BATCH-TRANSACTION
+      value: "/api/v1/batch/transactions"
+    - name: IDENTITY_MAPPER_CONTACTPOINT
+      value: ""
+    - name: APPLICATION_BUCKET-NAME
       value: "paymenthub-ee"
     - name: CLOUD_AWS_S3BASEURL
       value: "http://minio:9000"
@@ -88,29 +97,46 @@ spec:
         secretKeyRef:
           name: ph-ee-connector-bulk-secret
           key: aws-secret-key
-    - name: OPERATIONS-APP_CONTACTPOINT
-      value: "http://ph-ee-operations-app:80"
-    - name: OPERATIONS-APP_ENDPOINTS_BATCH-SUMMARY
-      value: "/api/v1/batch"
-    - name: OPERATIONS-APP_ENDPOINTS_BATCH-DETAIL
-      value: "/api/v1/batch/detail"
-    - name: MOCK-PAYMENT-SCHEMA_CONTACTPOINT
-      value: "http://ph-ee-connector-mock-payment-schema:8080"
-    - name: MOCK-PAYMENT-SCHEMA_ENDPOINTS_BATCH-SUMMARY
-      value: "/mockapi/v1/batch"
-    - name: MOCK-PAYMENT-SCHEMA_ENDPOINTS_BATCH-DETAIL
-      value: "/mockapi/v1/batch/detail"
-    - name: BULK-PROCESSOR_CONTACTPOINT
-      value: "http://ph-ee-bulk-processor:80"
-    - name: BULK-PROCESSOR_ENDPOINTS_BATCH-TRANSACTION
-      value: "/batchtransactions"
-    - name: IDENTITY_MAPPER_CONTACTPOINT
-      value: "http://ph-ee-identity-account-mapper:80"
-    - name: CHANNEL_CONTACTPOINT
-      value: "http://ph-ee-connector-channel:8443"
-    - name: CHANNEL_ENDPOINTS_BATCH-TRANSACTION
-      value: "/channel/transfer"
-    - name: BULK-PROCESSOR_ENDPOINTS_BATCH-EXECUTION
-      value: "/batchtransactions/execution"
+    - name: FINERACT_DATASOURCE_CORE_USERNAME
+      value: "mifos"
+    - name: FINERACT_DATASOURCE_CORE_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: ph-ee-operations-app-secret
+          key: database-password
+    - name: FINERACT_DATASOURCE_CORE_HOST
+      value: "operationsmysql"
+    - name: FINERACT_DATASOURCE_CORE_PORT
+      value: "3306"
+    - name: BULK_PROCESSOR_CALLBACK_URL
+      value: "http://ph-ee-bulk-processor:80/authorization/callback"
+    - name: CONFIG_PARTYLOOKUP_ENABLE
+      value: "true"
+    - name: CONFIG_APPROVAL_ENABLE
+      value: "true"
+    - name: CONFIG_ORDERING_ENABLE
+      value: "true"
+    - name: CONFIG_ORDERING_FIELD
+      value: "payeeIdentifier"
+    - name: CONFIG_SPLITTING_ENABLE
+      value: "true"
+    - name: CONFIG_SPLITTING_SUB_BATCH_SIZE
+      value: "5"
+    - name: CONFIG_FORMATTING_ENABLE
+      value: "false"
+    - name: CONFIG_FORMATTING_STANDARD
+      value: "DEFAULT"
+    - name: CONFIG_MERGEBACK_ENABLE
+      value: "true"
+    - name: CONFIG_BACKPRESSURE_ENABLE
+      value: "false"
+    - name: CONFIG_COMPLETION-THRESHOLD-CHECK_ENABLE
+      value: "true"
+    - name: CONFIG_COMPLETION-THRESHOLD-CHECK_COMPLETION-RATE
+      value: "95"
+    - name: DEDUPLICATION_ENABLED
+      value: "true"
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
     - name: JAVA_TOOL_OPTIONS
-      value: "-Xms64m -Xmx192m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=96m"
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"

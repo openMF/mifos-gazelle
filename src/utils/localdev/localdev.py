@@ -67,22 +67,22 @@ class LocalDevPatcher:
             return False
 
     def run_operator(self) -> None:
-        """Run the PHEE operator locally against the cluster via ./gradlew run."""
-        if 'phee-operator' not in self.config:
-            print("❌ [phee-operator] section not found in localdev.ini")
+        """Run the PaymentHub operator locally against the cluster via ./gradlew run."""
+        if 'paymenthub-operator' not in self.config:
+            print("❌ [paymenthub-operator] section not found in localdev.ini")
             return
 
-        comp_config = self.config['phee-operator']
+        comp_config = self.config['paymenthub-operator']
         operator_dir_str = comp_config.get('operator_dir', '')
         if not operator_dir_str:
-            print("❌ 'operator_dir' not set in [phee-operator]")
+            print("❌ 'operator_dir' not set in [paymenthub-operator]")
             return
 
         operator_dir = Path(self._expand_vars(operator_dir_str))
 
         if not operator_dir.exists():
             print(f"❌ Operator directory not found: {operator_dir}")
-            print("  Run first:  ./localdev.py --checkout --component phee-operator")
+            print("  Run first:  ./localdev.py --checkout --component paymenthub-operator")
             return
 
         if not (operator_dir / 'gradlew').exists():
@@ -92,13 +92,13 @@ class LocalDevPatcher:
         kubeconfig = os.environ.get('KUBECONFIG', str(Path.home() / '.kube' / 'config'))
 
         print(f"\n{'═' * 60}")
-        print(f"  Running PHEE Operator locally")
+        print(f"  Running PaymentHub Operator locally")
         print(f"{'═' * 60}")
         print(f"  Directory : {operator_dir}")
         print(f"  KUBECONFIG: {kubeconfig}")
         print()
         print("  ⚠️  Scale down the in-cluster operator first to avoid dual reconcilers:")
-        print("     kubectl scale deployment phee-operator -n paymenthub --replicas=0")
+        print("     kubectl scale deployment paymenthub-operator -n paymenthub --replicas=0")
         print()
 
         # Apply CRD if not already installed

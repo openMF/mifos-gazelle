@@ -1,26 +1,30 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-zeebe-ops
+  name: ph-ee-connector-ams-mifos
   namespace: paymenthub
 spec:
   enabled: true
+  waitForGatewayEnabled: true
+  tlsKeystoreEnabled: true
   rbacEnabled: false
   secretEnabled: false
   configMapEnabled: false
   ingressEnabled: true
+  initContainerEnabled: true
   volMount:
-    enabled: false
+    enabled: true
+    name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-zeebe-ops:mifos-v2.0.0
+  image: docker.io/openmf/ph-ee-connector-ams-mifos:mifos-v2.0.0
   containerPort: 5000
   resources:
     limits:
       cpu: 500m
-      memory: 512M
+      memory: 768Mi
     requests:
       cpu: 100m
-      memory: 256M
+      memory: 384Mi
   ingress:
     className: nginx
     annotations:
@@ -35,70 +39,48 @@ spec:
     tls:
       - secretName: sandbox-secret
     rules:
-      - host: zeebeops.local
+      - host: ams-mifos.local
         paths:
           - path: "/"
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-zeebe-ops
+                name: ph-ee-connector-ams-mifos
                 port:
                   number: 80
   services:
-    - name: ph-ee-zeebe-ops
+    - name: ph-ee-connector-ams-mifos
       ports:
         - name: port
           port: 80
           targetPort: 5000
           protocol: TCP
-        - name: actuator
+        - name: http
+          port: 70
+          targetPort: 7070
           protocol: TCP
-          port: 8080
-          targetPort: 8080
       selector:
-        app: ph-ee-zeebe-ops
+        app: ph-ee-connector-ams-mifos
       sessionAffinity: None
       type: ClusterIP
-  livenessProbe:
-    path: /actuator/health/liveness
-    port: 8080
-    initialDelaySeconds: 60
-    periodSeconds: 30
-    failureThreshold: 3
-    timeoutSeconds: 5
-  readinessProbe:
-    path: /actuator/health/readiness
-    port: 8080
-    initialDelaySeconds: 45
-    periodSeconds: 30
-    failureThreshold: 3
-    timeoutSeconds: 5
   environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "fin12,bb"
     - name: ZEEBE_BROKER_CONTACTPOINT
-      value: "phee-infra-zeebe-gateway:26500"
-    - name: TENANTS
-      value: "greenbank,bluebank,redbank"
+      value: "paymenthub-infra-zeebe-gateway:26500"
     - name: DFSPIDS
       value: "greenbank,redbank,bluebank"
-    - name: ELASTICSEARCH_URL
-      value: "http://infra-elasticsearch.infra.svc.cluster.local:9200/"
-    - name: SPRING_DATA_ELASTICSEARCH_CLIENT_REACTIVE_ENDPOINTS
-      value: "infra-elasticsearch.infra.svc.cluster.local:9200"
-    - name: ELASTICSEARCH_SECURITY_ENABLED
-      value: "false"
-    - name: ELASTICSEARCH_SSLVERIFICATION
-      value: "false"
-    - name: ELASTICSEARCH_USERNAME
-      valueFrom:
-        secretKeyRef:
-          name: elastic-credentials
-          key: username
-    - name: ELASTICSEARCH_PASSWORD
-      valueFrom:
-        secretKeyRef:
-          name: elastic-credentials
-          key: password
-    - name: LOGGING_LEVEL_ROOT
-      value: "INFO"
+    - name: ams_local_enabled
+      value: "true"
+    - name: ams_local_interop_host
+      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
+    - name: ams_local_account_host
+      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
+    - name: ams_local_customer_host
+      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
+    - name: ams_local_auth_host
+      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
+    - name: ams_local_loan_host
+      value: ""
     - name: JAVA_TOOL_OPTIONS
       value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
