@@ -226,10 +226,11 @@ show_usage() {
     Example 1 : sudo $0                                          # deploy all apps enabled in config.ini and user \$USER from config.ini
     Example 2 : sudo $0 -m cleanapps -d true                     # delete all apps enabled in config.init,  debug mode \$USER from config.ini
     Example 3 : sudo $0 -m cleanall                              # delete all apps, all local Kubernetes artifacts, and local kubernetes server
-    Example 4 : sudo $0 -a phee                                  # deploy PHEE only, user \$USER from config.ini
-    Example 6 : sudo $0 -a \"mifosx,vnext\"                        # deploy MifosX and vNext only 
+    Example 4 : sudo $0 -a phee                                  # deploy PHEE only, user $USER from config.ini
+    Example 5 : sudo $0 -a infra                                 # deploy infrastructure only
+    Example 6 : sudo $0 -a "mifosx,vnext"                        # deploy MifosX and vNext only
     Example 7 : sudo $0 -f /opt/my_config.ini                    # Use a custom config file
-    Example 8 : sudo $0 -a \"phee,mifosx\" -e remote -d true       # deploy PHEE and MifosX on remote cluster with debug mode
+    Example 8 : sudo $0 -a "phee,mifosx" -e remote -d true       # deploy PHEE and MifosX on remote cluster with debug mode
     Example 9 : sudo $0 -a setup-data                            # re-run data generation after a slow first boot
 
     Options:
@@ -238,6 +239,8 @@ show_usage() {
     -u user .............. (non root) user that the process will use for execution (required)
     -a apps .............. Comma-separated list of apps (vnext,phee,mifosx,infra,mastercard-demo,setup-data) or 'all' (optional)
     -e environment ....... Cluster environment (local or remote, optional, default=local)
+    -k k8s_version ....... Override Kubernetes version (optional)
+    -v gazelle_version ... Override Gazelle version (optional)
     -d debug ............. Enable debug mode (true|false, optional, default=false)
     -r redeploy .......... Force redeployment of apps (true|false, optional, default=true)
     -h|H ................. Display this message
@@ -425,6 +428,8 @@ get_options() {
             d) options_map["debug"]="${OPTARG}" ;;
             a) options_map["apps"]="${OPTARG}" ;;
             u) options_map["k8s_user"]="${OPTARG}" ;;
+            k) options_map["k8s_version"]="${OPTARG}" ;;
+            v) options_map["gazelle_version"]="${OPTARG}" ;;
             r) options_map["redeploy"]="${OPTARG}" ;;
             e) options_map["environment"]="${OPTARG}" ;;
             h|H) show_usage;
@@ -463,6 +468,8 @@ mode=""
 #k8s_user=""
 apps=""
 environment=""
+k8s_version=""
+GAZELLE_VERSION=""
 debug="false"
 redeploy="true"
 kubeconfig_path=""
@@ -531,6 +538,8 @@ main() {
     if [[ -n "${cmd_args_map["debug"]}" ]]; then debug="${cmd_args_map["debug"]}"; fi
     if [[ -n "${cmd_args_map["redeploy"]}" ]]; then redeploy="${cmd_args_map["redeploy"]}"; fi
     if [[ -n "${cmd_args_map["environment"]}" ]]; then environment="${cmd_args_map["environment"]}"; fi
+    if [[ -n "${cmd_args_map["k8s_version"]}" ]]; then k8s_version="${cmd_args_map["k8s_version"]}"; fi
+    if [[ -n "${cmd_args_map["gazelle_version"]}" ]]; then GAZELLE_VERSION="${cmd_args_map["gazelle_version"]}"; fi
 
     validate_inputs
 
