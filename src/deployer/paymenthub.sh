@@ -54,8 +54,12 @@ deploy_ph(){
   # Step 3 — operator reconciles app component Deployments, Services, Ingresses
   deploy_ph_operator || { log_failed "PaymentHub operator deployment failed"; return 1; }
 
-  # Step 4 — wait for all CRs to reach ready; zeebe-ops pod confirmed running
+  # Step 4 — wait for all CRs to reach ready (operator has created K8s resources)
   wait_for_phee_crs_ready
+
+  # Step 4b — wait for all operator-managed pods to pass their readiness probes
+  # (CRs become ready when Deployments are created, not when pods are Running)
+  wait_for_pods_ready "$PH_NAMESPACE" "${startup_timeout:-600}"
 
   # Step 5 — curl BPMN files directly to zeebe-ops via its ingress
   deploy_bpmns
@@ -428,18 +432,6 @@ deploy_bpmns() {
   if [ "${#files[@]}" -eq 0 ]; then
     log_warn "No BPMN files found in $bpmns_dir"
     return 0
-  fi
-
-  # The operator marks the CR ready when K8s resources are created, not when the
-  # Spring Boot pod passes its readiness probe. Wait for the pod to be genuinely
-  # ready (readiness probe passes) before attempting uploads.
-  log_with_verbose_check "$debug" "$DEBUG" "Waiting for zeebe-ops pod to be ready..."
-  if ! kubectl wait pod \
-      --for=condition=ready \
-      --selector=app=ph-ee-zeebe-ops \
-      --namespace=paymenthub \
-      --timeout=300s > /dev/null 2>&1; then
-    log_warn "zeebe-ops pod did not become ready after 300s — upload may fail"
   fi
 
   for file in "${files[@]}"; do

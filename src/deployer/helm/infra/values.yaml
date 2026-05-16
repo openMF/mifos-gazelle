@@ -188,7 +188,18 @@ mongodb:
   settings:
     rootUsername: root
     rootPassword: mongoDbPas42
-    
+
+  # Cap WiredTiger cache to 256MB — default is 50% of node RAM which starves
+  # other pods on a single-node dev cluster.
+  args:
+    - "--wiredTigerCacheSizeGB=0.25"
+
+  resources:
+    requests:
+      memory: "384Mi"
+    limits:
+      memory: "768Mi"
+
   extraEnv:
     - name: MONGO_INITDB_ROOT_USERNAME
       value: "root"
@@ -335,6 +346,44 @@ mysql:
     tag: "5.7"
     repository: bitnamilegacy/mysql
     debug: false
+  primary:
+    configuration: |-
+      [mysqld]
+      default_authentication_plugin=mysql_native_password
+      skip-name-resolve
+      explicit_defaults_for_timestamp
+      basedir=/opt/bitnami/mysql
+      plugin_dir=/opt/bitnami/mysql/lib/plugin
+      port=3306
+      socket=/opt/bitnami/mysql/tmp/mysql.sock
+      datadir=/bitnami/mysql/data
+      tmpdir=/opt/bitnami/mysql/tmp
+      max_allowed_packet=16M
+      bind-address=*
+      pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
+      log-error=/opt/bitnami/mysql/logs/mysqld.log
+      character-set-server=UTF8
+      collation-server=utf8_general_ci
+      slow_query_log=0
+      slow_query_log_file=/opt/bitnami/mysql/logs/mysqld.log
+      long_query_time=10.0
+      innodb_buffer_pool_size=128M
+
+      [client]
+      port=3306
+      socket=/opt/bitnami/mysql/tmp/mysql.sock
+      default-character-set=UTF8
+      plugin_dir=/opt/bitnami/mysql/lib/plugin
+
+      [manager]
+      port=3306
+      socket=/opt/bitnami/mysql/tmp/mysql.sock
+      pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
+    resources:
+      requests:
+        memory: "256Mi"
+      limits:
+        memory: "512Mi"
   initdbScripts:
     setup.sql: |-
       # CREATE DATABASE IF NOT EXISTS messagegateway;
