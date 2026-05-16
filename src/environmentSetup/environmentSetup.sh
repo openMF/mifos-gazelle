@@ -351,10 +351,101 @@ env_setup_local_cluster() {
 }
 
 
+#------------------------------------------------------------------------------
+# Function: show_planned_changes
+# Description: Prints a manifest of every file, directory, and system resource
+#              that setup-env.sh will touch, before any changes are made.
+#              Output is OS- and environment-aware.
+#------------------------------------------------------------------------------
+show_planned_changes() {
+    local os_type shell_rc shell_profile
+    [[ "$(uname -s)" == "Darwin" ]] && os_type="macOS" || os_type="Linux"
+
+    local user_home
+    user_home=$(eval echo "~$k8s_user")
+    if [[ "$os_type" == "macOS" ]]; then
+        shell_rc="~/.zshrc"; shell_profile="~/.zprofile"
+    else
+        shell_rc="~/.bashrc"; shell_profile="~/.bash_profile"
+    fi
+    local kc="${kubeconfig_path:-$user_home/.kube/config}"
+    kc="${kc/$user_home/\~}"
+
+    local W=40   # left-column width
+
+    printf "\n${CYAN}${BOLD}  ── Planned Changes  [%s / %s] %s${RESET}\n\n" \
+        "$environment" "$os_type" "────────────────────────────────"
+
+    printf "  ${BOLD}%-*s  %s${RESET}\n"  "$W" "Resource" "Change"
+    printf "  %-*s  %s\n"  "$W" "$(printf '%0.s─' {1..40})" "$(printf '%0.s─' {1..30})"
+
+    printf "  %-*s  %s\n"  "$W" "$shell_rc"    "kubectl aliases, completion, KUBECONFIG"
+    printf "  %-*s  %s\n"  "$W" "$shell_profile" "KUBECONFIG export"
+
+    if [[ "$environment" == "local" || "$environment" == "mac" ]]; then
+        printf "  %-*s  %s\n"  "$W" "/etc/hosts" \
+            "Add/replace Gazelle block (~30 hostnames)"
+    fi
+
+    if [[ "$os_type" == "macOS" ]]; then
+        printf "  %-*s  %s\n"  "$W" "/etc/sudoers.d/colima"  "socket_vmnet sudoers snippet"
+        printf "  %-*s  %s\n"  "$W" "Homebrew: colima docker helm k9s kubectx..." "Install if missing"
+        if [[ "$environment" == "mac" ]]; then
+            printf "  %-*s  %s\n"  "$W" "Colima Lima VM" \
+                "Create/start  [k3s v${k8s_version:-1.30.0}]"
+        fi
+    else
+        printf "  %-*s  %s\n"  "$W" "apt: docker-ce jq netcat..."  "Install if missing"
+        if [[ "$environment" == "local" ]]; then
+            printf "  %-*s  %s\n"  "$W" "/usr/local/bin  kubectl helm k9s kubens..." "Install if missing"
+            printf "  %-*s  %s\n"  "$W" "/etc/sysctl.d/99-k3s.conf"  "inotify/fd limits for Java workloads"
+            printf "  %-*s  %s\n"  "$W" "k3s v${k8s_version:-1.30}  (get.k3s.io)" \
+                "Install; kubeconfig → $kc"
+        fi
+    fi
+
+    if [[ "$environment" == "local" || "$environment" == "mac" ]]; then
+        printf "  %-*s  %s\n"  "$W" ".venv/"  "Project Python virtualenv"
+    fi
+
+    printf "\n"
+    if [[ "$os_type" == "macOS" ]]; then
+        printf "  ${YELLOW}${BOLD}%-*s${RESET}  %s\n"  "$W" "WARNING" \
+            "This is your desktop — changes are system-wide"
+        printf "  %-*s  %s\n"  "$W" "" "Reversible: sudo ./setup-env.sh -m cleanall"
+        printf "  %-*s  %s\n"  "$W" "" "Homebrew packages need manual brew uninstall"
+    fi
+    printf "\n"
+}
+
+#------------------------------------------------------------------------------
+# Function: confirm_planned_changes
+# Description: Prompts the user to confirm the planned changes listed by
+#              show_planned_changes.  Reads from /dev/tty so the prompt works
+#              even when stdin is a pipe.  Skipped when auto_yes=true (set via
+#              the -y flag for CI/pipeline runs).
+#------------------------------------------------------------------------------
+confirm_planned_changes() {
+    if [[ "${auto_yes:-false}" == "true" ]]; then
+        printf "  Auto-accepted via -y flag.\n\n"
+        return 0
+    fi
+    printf "\n  Proceed with these changes? [y/N] "
+    local _ans
+    read -r _ans </dev/tty
+    if [[ "$_ans" != "y" && "$_ans" != "Y" ]]; then
+        printf "  Aborted.\n"
+        exit 0
+    fi
+    printf "\n"
+}
+
 env_setup_main() {
     check_arch_ok
     verify_user
     check_os_ok
+    show_planned_changes
+    confirm_planned_changes
     install_os_prerequisites
     install_k8s_tools
     configure_k8s_user_env

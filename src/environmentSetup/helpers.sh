@@ -40,15 +40,15 @@ check_resources_ok() {
         total_ram=$(free -g | awk '/^Mem:/{print $2}')
         free_space=$(df -BG ~ | awk '{print $4}' | tail -n 1 | sed 's/G//')
     fi
-    if [[ "$total_ram" -lt "$MIN_RAM" ]]; then
-        printf " ** Error: mifos-gazelle currently requires $MIN_RAM GBs to run properly \n"
-        printf "    Please increase RAM available before trying to run mifos-gazelle \n"
+    local req_ram="${k8s_mem:-16}"
+    if [[ "$total_ram" -lt "$req_ram" ]]; then
+        printf " ** Error: mifos-gazelle requires %s GB RAM; found %s GB\n" "$req_ram" "$total_ram"
+        printf "    Please increase available RAM before running mifos-gazelle\n"
         exit 1
     fi
-    if [[ "$free_space" -lt "$MIN_FREE_SPACE" ]] ; then
-        printf " ** Warning: mifos-gazelle currently requires %sGBs free storage in %s home directory  \n" "$MIN_FREE_SPACE" "$k8s_user"
-        printf "    but only found %sGBs free storage \n" "$free_space"
-        printf "    mifos-gazelle installation will continue, but beware it might fail later due to insufficient storage \n"
+    if [[ "$free_space" -lt "${min_free_space:-30}" ]]; then
+        printf " ** Warning: mifos-gazelle requires %s GB free in %s's home directory\n" "${min_free_space:-30}" "$k8s_user"
+        printf "    but only found %s GB free — installation may fail due to insufficient storage\n" "$free_space"
     fi
 }
 

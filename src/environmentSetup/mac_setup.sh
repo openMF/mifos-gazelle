@@ -190,8 +190,8 @@ recover_mac_k8s() {
     fi
 
     log_error "Auto-recovery failed. Try:"
-    printf "   1. Run: colima stop && colima start --kubernetes --kubernetes-version v1.30.0+k3s1 --runtime containerd --memory 16 --cpu 4\n"
-    printf "   2. If the problem persists, run: colima delete && re-run ./run.sh\n"
+    printf "   1. colima stop && colima start --kubernetes\n"
+    printf "   2. If the problem persists: colima delete && re-run setup-env.sh\n"
     return 1
 }
 
@@ -252,13 +252,17 @@ start_colima() {
     fi
     # Pass Homebrew PATH explicitly — sudo strips PATH so colima's internal
     # kubectl dependency check fails without it.
+    # Colima requires full major.minor.patch; config stores major.minor for k3s channel use
+    local _kver="${k8s_version:-1.35.0}"
+    [[ "$_kver" =~ ^[0-9]+\.[0-9]+$ ]] && _kver="${_kver}.0"
+
     sudo -u "$k8s_user" env PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" \
         "$colima" start \
         --kubernetes \
-        --kubernetes-version "v1.30.0+k3s1" \
+        --kubernetes-version "v${_kver}+k3s1" \
         --runtime docker \
-        --memory "$colima_mem" \
-        --cpu "$colima_cpu" \
+        --memory "${k8s_mem:-16}" \
+        --cpu "${k8s_cpu:-4}" \
         --network-address
 }
 

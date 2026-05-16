@@ -90,6 +90,7 @@ show_setup_env_usage() {
     Example 2 : sudo $0 -u \$USER               # first-time setup with explicit user
     Example 3 : sudo $0 -e remote -u \$USER      # /etc/hosts only for a remote cluster
     Example 4 : sudo $0 -m cleanall              # full environment teardown
+    Example 5 : sudo $0 -y                       # non-interactive (CI/pipeline — auto-accept changes)
 
     Options:
     -m mode .............. setup (default) | cleanall
@@ -97,6 +98,7 @@ show_setup_env_usage() {
     -u user .............. non-root user for k8s operations (defaults to invoking user)
     -f config_file ....... path to config.ini (optional, defaults to config/config.ini)
     -d debug ............. true|false (optional, default=false)
+    -y ................... auto-accept planned changes without prompting (for CI/pipelines)
     -h ................... display this message
     "
 }
@@ -125,17 +127,19 @@ main_setup_env() {
 
     declare -A cmd_args
     OPTIND=1
-    while getopts "f:m:e:u:d:hH" OPT; do
+    while getopts "f:m:e:u:d:yhH" OPT; do
         case "$OPT" in
             f) cmd_args["config_file_path"]="${OPTARG}" ;;
             m) cmd_args["mode"]="${OPTARG}" ;;
             e) cmd_args["environment"]="${OPTARG}" ;;
             u) cmd_args["k8s_user"]="${OPTARG}" ;;
             d) cmd_args["debug"]="${OPTARG}" ;;
+            y) auto_yes="true" ;;
             h|H) show_setup_env_usage; exit 0 ;;
             *) show_setup_env_usage; exit 1 ;;
         esac
     done
+    export auto_yes
 
     if [[ -n "${cmd_args["config_file_path"]}" ]]; then
         CONFIG_FILE_PATH="${cmd_args["config_file_path"]}"
