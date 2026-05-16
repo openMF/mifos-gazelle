@@ -365,70 +365,20 @@ except Exception:
 
 #------------------------------------------------------------------------------
 # Function: env_setup_mac_cluster
-# Description: Sets up Gazelle on a macOS host using Colima (k3s) as the
-#              Kubernetes provider.
-# Parameters:
-#   $1 - Mode of operation: "deploy", "cleanapps", or "cleanall"
+# Description: Installs and configures a Colima k3s cluster on macOS.
+#              Teardown is handled by env_cleanall_main.
 #------------------------------------------------------------------------------
 env_setup_mac_cluster() {
-    local mode="$1"
-    if [[ "$mode" == "deploy" ]]; then
-        check_resources_ok
-        install_mac_k8s
-        configure_mac_vm_limits
-        # NOTE: configure_mac_k3s_node_ip is intentionally NOT called here.
-        # The default Colima k3s setup works correctly without explicit node-ip binding.
-        # The function exists and is updated for potential future use if needed.
-        ensure_python_venv
-        add_hosts
-        check_and_load_helm_repos
-        install_nginx_local_cluster
-        log_section "macOS kubernetes cluster configured for $k8s_user"
-        print_end_message
-    elif [[ "$mode" == "cleanapps" || "$mode" == "cleanall" ]]; then
-        if is_cluster_accessible; then
-            # Cluster is up — delete namespaces and helm releases cleanly
-            if [[ "$mode" == "cleanapps" ]]; then
-                : # app deletion handled by delete_apps called from commandline.sh
-            else
-                log_step "Removing ingress-nginx"
-                helm uninstall ingress-nginx -n default >/dev/null 2>&1 || true
-                log_ok
-            fi
-        else
-            if [[ "$mode" == "cleanapps" ]]; then
-                log_error "Kubernetes cluster is NOT accessible"
-                exit 1
-            else
-                log_warn "Kubernetes cluster is not accessible — skipping namespace cleanup"
-            fi
-        fi
-        remove_hosts
-        if [[ "$mode" == "cleanall" ]]; then
-            # Delete the Colima VM entirely — full wipe of k3s state and images.
-            # colima delete stops the VM first if running, then removes the disk.
-            local colima
-            if colima=$(find_colima); then
-                log_step "Deleting Colima VM (full cleanall)"
-                # --yes skips the interactive confirmation prompt.
-                # Stop first (ignoring errors if already stopped) so containerd
-                # shuts down cleanly before delete removes the disk; this avoids
-                # the ttrpc/JSON errors that occur when delete tries to stop a
-                # partially-running VM itself.
-                sudo -u "$k8s_user" "$colima" stop 2>/dev/null || true
-                sudo -u "$k8s_user" "$colima" delete --yes 2>/dev/null || true
-                # colima delete leaves behind ~/.colima (named disks, Lima config, SSH
-                # config) which can hold 20-30 GB of disk images. Remove the entire
-                # directory for a true cleanall — Colima recreates it on next start.
-                rm -rf "$k8s_user_home/.colima" 2>/dev/null || true
-                log_ok
-                # Remove stale kubeconfig and Docker contexts left by the deleted VM.
-                su - "$k8s_user" -c "kubectl config delete-context colima" >/dev/null 2>&1 || true
-                sudo -u "$k8s_user" docker context rm colima >/dev/null 2>&1 || true
-            fi
-        fi
-    else
-        show_usage
-        exit 1
-    fi
+    check_resources_ok
+    install_mac_k8s
+    configure_mac_vm_limits
+    # NOTE: configure_mac_k3s_node_ip is intentionally NOT called here.
+    # The default Colima k3s setup works correctly without explicit node-ip binding.
+    # The function exists and is updated for potential future use if needed.
+    ensure_python_venv
+    add_hosts
+    check_and_load_helm_repos
+    install_nginx_local_cluster
+    log_section "macOS kubernetes cluster configured for $k8s_user"
+    print_end_message
 }

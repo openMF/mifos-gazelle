@@ -145,7 +145,10 @@ main_setup_env() {
 
     load_config_from_file "$CONFIG_FILE_PATH"
 
-    # CLI flags override config
+    # config.ini's 'mode' is for run.sh (deploy/cleanapps) — ignore it here
+    mode=""
+
+    # CLI flags override
     if [[ -n "${cmd_args["mode"]}" ]];        then mode="${cmd_args["mode"]}"; fi
     if [[ -n "${cmd_args["k8s_user"]}" ]];    then k8s_user="${cmd_args["k8s_user"]}"; fi
     if [[ -n "${cmd_args["debug"]}" ]];       then debug="${cmd_args["debug"]}"; fi

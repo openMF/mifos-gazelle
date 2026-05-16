@@ -317,75 +317,41 @@ is_cluster_accessible() {
     return 0
 }
 #------------------------------------------------------------------------------
-# Function: env_setup_remote_cluster   
-# Description: Sets up a remote Kubernetes cluster.
-# Parameters:
-#   $1 - Mode of operation: "deploy", "cleanapps"
+# Function: env_setup_remote_cluster
+# Description: Validates connectivity to a pre-existing remote cluster.
+#              Assumes the cluster already has an ingress controller installed.
 #------------------------------------------------------------------------------
 env_setup_remote_cluster() {
-    local mode="$1"
     if ! is_cluster_accessible; then
         log_error "Remote kubernetes cluster is NOT accessible. Please check your KUBECONFIG and network connectivity."
         exit 1
-    else
-        log_step "Remote kubernetes cluster is accessible"
-        log_ok
-        return 0
     fi
-    # note that we might need to install NGINX here or interrogate remote cluster for existing ingress controller
-    # For now we assume remote cluster is pre-configured with an ingress controller
-} 
+    log_step "Remote kubernetes cluster is accessible"
+    log_ok
+}
 
 #------------------------------------------------------------------------------
-# Function: env_setup_local_cluster   
-# Description: Sets up a local Kubernetes cluster using k3s.
-# Parameters:
-#   $1 - Mode of operation: "deploy", "cleanapps", or "cleanall"
+# Function: env_setup_local_cluster
+# Description: Installs and configures a local k3s Kubernetes cluster.
+#              Teardown is handled by env_cleanall_main.
 #------------------------------------------------------------------------------
 env_setup_local_cluster() {
-    local mode="$1"
+    check_resources_ok
+    ensure_python_venv
+    add_hosts
 
-    if [[ "$mode" == "deploy" ]]; then
-        check_resources_ok
-        ensure_python_venv
-        add_hosts
-
-        if ! is_local_cluster_installed; then
-            install_k3s
-            $UTILS_DIR/install-k9s.sh > /dev/null 2>&1
-        fi
-        check_and_load_helm_repos
-        install_nginx_local_cluster
-        log_section "local kubernetes v${k8s_version} configured for ${k8s_user}"
-        print_end_message
-    elif [[ "$mode" == "cleanapps" ]]; then
-        if ! is_local_cluster_installed; then
-            log_error "Local kubernetes cluster is NOT installed"
-            exit 1
-        fi
-        if ! is_cluster_accessible; then
-            log_error "Local kubernetes cluster is NOT accessible"
-            exit 1
-        fi
-    elif [[ "$mode" == "cleanall" ]]; then
-        if ! is_local_cluster_installed; then
-            log_warn "Local kubernetes cluster is NOT installed — nothing to delete."
-            print_end_message_delete
-            exit 0
-        fi
-        delete_k8s_local_cluster
-        remove_hosts
-        print_end_message_delete
-    else
-        show_usage
-        exit 1
+    if ! is_local_cluster_installed; then
+        install_k3s
+        $UTILS_DIR/install-k9s.sh > /dev/null 2>&1
     fi
-}   
+    check_and_load_helm_repos
+    install_nginx_local_cluster
+    log_section "local kubernetes v${k8s_version} configured for ${k8s_user}"
+    print_end_message
+}
 
 
 env_setup_main() {
-    local mode="$1"
-
     check_arch_ok
     verify_user
     check_os_ok
@@ -394,12 +360,12 @@ env_setup_main() {
     configure_k8s_user_env
 
     if [[ "$environment" == "local" ]]; then
-        env_setup_local_cluster "$mode"
+        env_setup_local_cluster
     elif [[ "$environment" == "remote" ]]; then
         print_remote_cluster_start_message
-        env_setup_remote_cluster "$mode"
+        env_setup_remote_cluster
     elif [[ "$environment" == "mac" ]]; then
-        env_setup_mac_cluster "$mode"
+        env_setup_mac_cluster
     else
         printf "** Error: Invalid environment type specified: %s. Must be 'local', 'remote', or 'mac'. **\n" "$environment"
         exit 1
