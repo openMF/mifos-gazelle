@@ -67,26 +67,32 @@ wait_for_pods_ready() {
     local namespace="$1"
     local timeout="${2:-600}"
     local elapsed=0
-    local interval=60
+    local interval=15
+    local stable_count=0
+
     log_step "Waiting for $namespace pods to stabilise"
 
-    STABLE_COUNT=0
-    while [ $STABLE_COUNT -lt 3 ]; do
-      if [ "$elapsed" -ge "$timeout" ]; then
-        log_warn "Timed out after ${timeout}s waiting for $namespace pods"
-        return 1
-      fi
-      NOT_READY=$(kubectl get pods -n "$namespace" --no-headers 2>/dev/null | awk '{split($2,a,"/"); if(a[1]!=a[2] || a[1]==0) print}')
+    while true; do
+        if [ "$elapsed" -ge "$timeout" ]; then
+            log_warn "Timed out after ${timeout}s waiting for $namespace pods"
+            return 1
+        fi
 
-      if [ -z "$NOT_READY" ]; then
-        STABLE_COUNT=$((STABLE_COUNT + 1))
-        log_with_verbose_check "$debug" "$DEBUG" "All pods ready — stable count: $STABLE_COUNT/3"
-      else
-        STABLE_COUNT=0
-        log_with_verbose_check "$debug" "$DEBUG" "Some pods not ready — waiting ${interval}s..."
-      fi
-      sleep "$interval"
-      elapsed=$((elapsed + interval))
+        local not_ready
+        not_ready=$(kubectl get pods -n "$namespace" --no-headers 2>/dev/null \
+            | awk '{split($2,a,"/"); if(a[1]!=a[2] || a[1]==0) print}')
+
+        if [ -z "$not_ready" ]; then
+            stable_count=$((stable_count + 1))
+            log_with_verbose_check "$debug" "$DEBUG" "All pods ready — stable count: $stable_count/3"
+            [ "$stable_count" -ge 3 ] && break
+        else
+            stable_count=0
+            log_with_verbose_check "$debug" "$DEBUG" "Some pods not ready — waiting ${interval}s..."
+        fi
+
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
     done
     log_ok
 }

@@ -142,7 +142,7 @@ deploy_ph_infra_helm() {
     helm_cmd="$helm_cmd -f $PH_VALUES_FILE"
   fi
 
-  log_step "Helm install ($PH_INFRA_RELEASE_NAME) — PaymentHub infra services"
+  log_step "Helm install ($PH_INFRA_RELEASE_NAME) — PaymentHub infra"
   log_with_verbose_check "$debug" "$DEBUG" "→ $helm_cmd"
 
   if [ "$debug" = true ]; then
@@ -284,8 +284,8 @@ deploy_ph_operator() {
   local jar_name="paymenthub-operator-1.0.0.jar"
 
   log_step "Applying PaymentHub operator CRD"
-  kubectl apply -f $deploy_dir/config/crd/ph-ee-CustomResourceDefinition.yaml || { log_failed "CRD apply failed"; return 1; }
-  kubectl wait --for=condition=Established crd/paymenthubdeployments.gazelle.mifos.io --timeout=60s
+  kubectl apply -f $deploy_dir/config/crd/ph-ee-CustomResourceDefinition.yaml > /dev/null || { log_failed "CRD apply failed"; return 1; }
+  kubectl wait --for=condition=Established crd/paymenthubdeployments.gazelle.mifos.io --timeout=60s > /dev/null 2>&1
   log_ok
 
   # Resolve local operator source dir — expand $HOME / ~ to the actual user home
@@ -298,7 +298,7 @@ deploy_ph_operator() {
   # Apply RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding, Role, RoleBinding).
   # Deployment is applied separately below based on mode — never applied here.
   log_step "Applying PaymentHub operator RBAC"
-  kubectl apply -f $deploy_dir/operator_rbac.yaml -n $PH_NAMESPACE || { log_failed "Operator RBAC apply failed"; return 1; }
+  kubectl apply -f $deploy_dir/operator_rbac.yaml -n $PH_NAMESPACE > /dev/null || { log_failed "Operator RBAC apply failed"; return 1; }
   log_ok
 
   # Determine deployment mode and generate the correct Deployment manifest.
@@ -324,10 +324,10 @@ deploy_ph_operator() {
     write_operator_deployment_image "$PH_OPERATOR_IMAGE" > "$dep_manifest"
   fi
 
-  kubectl apply -f $dep_manifest || { log_failed "Operator Deployment apply failed"; rm -f "$dep_manifest"; return 1; }
+  kubectl apply -f $dep_manifest > /dev/null || { log_failed "Operator Deployment apply failed"; rm -f "$dep_manifest"; return 1; }
   rm -f "$dep_manifest"
 
-  if ! kubectl rollout status deployment/ph-ee-operator -n $PH_NAMESPACE --timeout=300s; then
+  if ! kubectl rollout status deployment/ph-ee-operator -n $PH_NAMESPACE --timeout=300s > /dev/null 2>&1; then
     log_warn "Operator pod did not start — check: kubectl logs deployment/ph-ee-operator -n $PH_NAMESPACE"
   else
     log_ok
@@ -341,7 +341,7 @@ deploy_ph_operator() {
   cr_rendered="${cr_rendered}.yaml"
   chmod 644 "$cr_rendered"
   generate_phee_crs > "$cr_rendered"
-  kubectl apply -f $cr_rendered || { log_failed "CR apply failed"; rm -f "$cr_rendered"; return 1; }
+  kubectl apply -f $cr_rendered > /dev/null || { log_failed "CR apply failed"; rm -f "$cr_rendered"; return 1; }
   rm -f "$cr_rendered"
   log_ok
 }
@@ -438,7 +438,7 @@ deploy_bpmns() {
       --for=condition=ready \
       --selector=app=ph-ee-zeebe-ops \
       --namespace=paymenthub \
-      --timeout=300s 2>/dev/null; then
+      --timeout=300s > /dev/null 2>&1; then
     log_warn "zeebe-ops pod did not become ready after 300s — upload may fail"
   fi
 

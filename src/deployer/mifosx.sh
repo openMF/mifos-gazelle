@@ -31,7 +31,7 @@ deploy_mifosx_from_yaml() {
     create_namespace "$MIFOSX_NAMESPACE"
     log_ok
 
-    log_step "Copying vendored MifosX manifests to working directory"
+    log_step "Copying  MifosX manifests to working directory"
     mkdir -p "$APPS_DIR/mifosx/kubernetes/manifests"
     cp -r "$BASE_DIR/src/deployer/manifests/mifosx/." "$APPS_DIR/mifosx/kubernetes/manifests/"
     log_ok
@@ -48,6 +48,8 @@ deploy_mifosx_from_yaml() {
     log_step "Applying manifests"
     apply_kube_manifests "$manifests_dir" "$MIFOSX_NAMESPACE"
     log_ok
+
+    wait_for_fineract_api_ready || return 1
 
     log_banner "MifosX Deployed"
 }

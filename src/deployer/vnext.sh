@@ -6,7 +6,7 @@
 # Description: Deploys Mojaloop vNext using Kubernetes manifests.
 #------------------------------------------------------------------------------
 deploy_vnext() {
-  log_section "Deploying Mojaloop vNext"
+  log_section "Deploying vNext beta1"
 
   if is_app_running "$VNEXT_NAMESPACE"; then
     if [[ "$redeploy" == "false" ]]; then
@@ -23,7 +23,7 @@ deploy_vnext() {
   create_namespace "$VNEXT_NAMESPACE"
   log_ok
 
-  log_step "Copying vendored vNext manifests to working directory"
+  log_step "Copying vNext manifests to working directory"
   mkdir -p "$APPS_DIR/vnext/packages/installer/manifests"
   cp -r "$BASE_DIR/src/deployer/manifests/vnext/." "$APPS_DIR/vnext/packages/installer/manifests/"
   log_ok
@@ -36,7 +36,7 @@ deploy_vnext() {
   vnext_restore_demo_data $CONFIG_DIR "mongodump.gz" $INFRA_NAMESPACE
   # log_ok is called inside vnext_restore_demo_data on success
 
-  local last_layer_index=$(( ${#VNEXT_LAYER_DIRS[@]} - 1 ))
+  local last_layer_index=$(( ${#VNEXT_LAYER_DIRS[@]} - 2 ))
   for index in "${!VNEXT_LAYER_DIRS[@]}"; do
     folder="${VNEXT_LAYER_DIRS[index]}"
     log_step "Applying layer $((index+1)) manifests"

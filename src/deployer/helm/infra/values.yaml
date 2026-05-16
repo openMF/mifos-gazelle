@@ -204,6 +204,11 @@ mongo-express:
   # image:
   #   tag: 1.0.0
 
+  livenessProbe:
+    initialDelaySeconds: 30
+  readinessProbe:
+    initialDelaySeconds: 30
+
   ingress:
     enabled: true
     ingressClassName: nginx
