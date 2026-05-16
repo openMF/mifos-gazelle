@@ -142,7 +142,7 @@ deploy_ph_infra_helm() {
     helm_cmd="$helm_cmd -f $PH_VALUES_FILE"
   fi
 
-  log_step "Helm install ($PH_INFRA_RELEASE_NAME) — PaymentHub infra"
+  log_step "Helm install ($PH_INFRA_RELEASE_NAME)"
   log_with_verbose_check "$debug" "$DEBUG" "→ $helm_cmd"
 
   if [ "$debug" = true ]; then

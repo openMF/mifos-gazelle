@@ -127,7 +127,7 @@ create_ingress_secret() {
         done
     fi
 
-    log_step "Creating TLS secret '$secret_name' ($primary_domain, $((index-1)) SANs)"
+    log_step "Creating TLS secret '$secret_name' ($((index-1)) SANs) "
     log_with_verbose_check "$debug" "$DEBUG" "SANs:\n$san_config"
 
     # Generate private key

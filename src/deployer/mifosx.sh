@@ -77,7 +77,7 @@ wait_for_fineract_api_ready() {
   local global_start
   global_start=$(date +%s)
 
-  log_step "Waiting for Fineract tenant APIs (schema + seed data, timeout=${timeout}s)"
+  log_step "Waiting for Fineract tenant APIs (timeout=${timeout}s)"
 
   for tenant in "${tenants[@]}"; do
     local ready=false
@@ -149,7 +149,7 @@ generate_mifosx_and_vnext_data() {
         return 1
       fi
 
-      log_step "Generating MifosX clients and registering vNext Oracle associations"
+      log_step "Generating MifosX clients and vNext Oracle data"
       echo
       "$PYTHON3" "$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py" -c "$CONFIG_FILE_PATH" 2>&1
       local data_gen_exit=$?

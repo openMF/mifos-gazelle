@@ -25,7 +25,7 @@ check_k3s_cluster_status() {
 install_k3s() {
     # TODO check this i.e. do we need to remove old kube config like this 
     rm -rf "$k8s_user_home/.kube" >> /dev/null 2>&1
-    log_step "install local k3s cluster v${k8s_version} user [${k8s_user}]"
+    log_step "Installing k3s v${k8s_version} for user [${k8s_user}]"
     curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE="644" \
                             INSTALL_K3S_CHANNEL="v$k8s_version" \
                             INSTALL_K3S_EXEC=" --disable traefik " sh > /dev/null 2>&1
@@ -49,7 +49,7 @@ install_k3s() {
     # Increase inotify and file-descriptor limits so Java/Spring-Boot pods (zeebe,
     # bulk-processor, etc.) don't hit "too many open files" / fsnotify errors.
     # Write to sysctl.d so the settings survive reboots.
-    log_step "Configuring kernel limits for k3s (inotify / file descriptors)"
+    log_step "Configuring kernel limits (inotify / file descriptors)"
     tee /etc/sysctl.d/99-k3s.conf > /dev/null <<'EOF'
 fs.inotify.max_user_watches=1048576
 fs.inotify.max_user_instances=8192

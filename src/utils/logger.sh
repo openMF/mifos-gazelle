@@ -78,7 +78,7 @@ log_section() {
 # Step in progress (no newline — caller must follow with log_ok or log_failed)
 # Pads to column 55 so status tags align regardless of message length.
 log_step() {
-  printf "%-55s" "    $*"
+  printf "%-60s" "    $*"
 }
 
 # Success status — appended on same line as log_step
