@@ -15,11 +15,8 @@ The tool is written primarily in Bash (requires bash 4+) with Python 3 utilities
 
 ### First time / new machine
 ```bash
-# Ubuntu/Linux (default — k3s, apt packages, /etc/hosts, tools)
-sudo ./setup-env.sh -e local -u $USER
-
-# macOS (Homebrew, Colima, /etc/hosts, tools)
-sudo ./setup-env.sh -e mac -u $USER
+# Linux or macOS — OS is auto-detected (k3s on Linux, Colima on macOS)
+sudo ./setup-env.sh -u $USER
 
 # Remote / pre-existing cluster (/etc/hosts only)
 sudo ./setup-env.sh -e remote -u $USER
@@ -48,8 +45,7 @@ sudo ./setup-env.sh -e remote -u $USER
 ./run.sh -m cleanapps -a all
 
 # Full environment teardown (requires sudo)
-sudo ./setup-env.sh -m cleanall -e local   # Ubuntu: uninstall k3s, revert /etc/hosts
-sudo ./setup-env.sh -m cleanall -e mac     # macOS: delete Colima VM, revert /etc/hosts
+sudo ./setup-env.sh -m cleanall            # OS auto-detected: uninstalls k3s (Linux) or Colima (macOS)
 ```
 
 ### Python Utilities (from `.venv/`)
@@ -123,7 +119,7 @@ Both source `commandline.sh` which sources all other modules and parses CLI flag
 
 All deployment settings live in `config/config.ini` (INI format, parsed with `crudini`). Sections:
 - `[general]` — mode, domain, version, startup timeout, logging
-- `[kubernetes]` — environment type (`local`/`remote`/`mac`), k3s version, resource minimums
+- `[kubernetes]` — environment type (`local`/`remote`), k3s version, resource minimums
 - `[dockerhub]` — optional credentials to raise Docker Hub pull rate limits
 - `[infra]` / `[mifosx]` / `[vnext]` / `[paymenthub]` / `[mastercard-demo]` — per-component `enabled` flag, namespace, repo, branch
 
@@ -131,8 +127,7 @@ Config values are loaded into shell variables via `crudini --get`. CLI flags ove
 
 ### Kubernetes Targets
 
-- **`mac`** — Colima with k3s (primary dev environment)
-- **`local`** — fresh k3s install on Linux
+- **`local`** — auto-detected: k3s on Linux, Colima on macOS
 - **`remote`** — pre-existing cluster via kubeconfig
 
 ### Deployment Dependencies

@@ -238,13 +238,27 @@ show_usage() {
     -u user .............. non-root user for k8s operations (optional, defaults to \$USER)
     -a apps .............. Comma-separated list of apps or 'all' (optional)
                            Valid: vnext paymenthub mifosx infra mastercard-demo setup-data all
-    -e environment ....... local (default) | mac | remote
+    -e environment ....... local (default) | remote
     -d debug ............. true|false (optional, default=false)
     -r redeploy .......... true|false (optional, default=true)
     -h|H ................. display this message
 
     For environment setup and teardown use sudo ./setup-env.sh (see --help).
     "
+}
+
+#------------------------------------------------------------------------------
+# Function : auto_detect_environment
+# Description: Promotes 'local' to 'mac' on macOS so the Colima code path is
+#              used automatically without any config change.
+#------------------------------------------------------------------------------
+auto_detect_environment() {
+    if [[ "${environment:-local}" == "local" && "$(uname -s)" == "Darwin" ]]; then
+        environment="mac"
+        log_with_level "$INFO" "Detected OS: macOS — using Colima/Homebrew path"
+    elif [[ "${environment:-local}" == "local" ]]; then
+        log_with_level "$INFO" "Detected OS: $(uname -s) — using local k3s path"
+    fi
 }
 
 #------------------------------------------------------------------------------
@@ -364,7 +378,7 @@ validate_inputs() {
     fi
 
     if [[ -n "$environment" && "$environment" != "local" && "$environment" != "remote" && "$environment" != "mac" ]]; then
-        log_error "Invalid environment '$environment'. Must be 'local', 'remote', or 'mac'."
+        log_error "Invalid environment '$environment'. Must be 'local' or 'remote'."
         show_usage
         exit 1
     fi
@@ -536,6 +550,7 @@ main() {
     if [[ -n "${cmd_args_map["redeploy"]}" ]]; then redeploy="${cmd_args_map["redeploy"]}"; fi
     if [[ -n "${cmd_args_map["environment"]}" ]]; then environment="${cmd_args_map["environment"]}"; fi
 
+    auto_detect_environment
     validate_inputs
 
     # Set KUBECONFIG now that kubeconfig_path is fully resolved (config + defaults applied)

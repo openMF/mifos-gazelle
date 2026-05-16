@@ -86,15 +86,14 @@ show_setup_env_usage() {
 
     Privileged environment setup and teardown (run before ./run.sh).
 
-    Example 1 : sudo $0                          # first-time setup, local k3s, user from config
-    Example 2 : sudo $0 -e mac -u \$USER         # first-time setup on macOS (Colima)
+    Example 1 : sudo $0                          # first-time setup — OS auto-detected (Linux/macOS)
+    Example 2 : sudo $0 -u \$USER               # first-time setup with explicit user
     Example 3 : sudo $0 -e remote -u \$USER      # /etc/hosts only for a remote cluster
-    Example 4 : sudo $0 -m cleanall              # full environment teardown (local k3s)
-    Example 5 : sudo $0 -m cleanall -e mac       # full environment teardown (macOS Colima)
+    Example 4 : sudo $0 -m cleanall              # full environment teardown
 
     Options:
     -m mode .............. setup (default) | cleanall
-    -e environment ....... local (default) | mac | remote
+    -e environment ....... local (default) | remote
     -u user .............. non-root user for k8s operations (defaults to invoking user)
     -f config_file ....... path to config.ini (optional, defaults to config/config.ini)
     -d debug ............. true|false (optional, default=false)
@@ -154,6 +153,8 @@ main_setup_env() {
     if [[ -n "${cmd_args["debug"]}" ]];       then debug="${cmd_args["debug"]}"; fi
     if [[ -n "${cmd_args["environment"]}" ]]; then environment="${cmd_args["environment"]}"; fi
 
+    auto_detect_environment
+
     # Defaults
     mode="${mode:-setup}"
     debug="${debug:-false}"
@@ -175,7 +176,7 @@ main_setup_env() {
         exit 1
     fi
     if [[ "$environment" != "local" && "$environment" != "remote" && "$environment" != "mac" ]]; then
-        log_error "Invalid environment '$environment'. Must be: local | mac | remote"
+        log_error "Invalid environment '$environment'. Must be: local | remote"
         exit 1
     fi
 
