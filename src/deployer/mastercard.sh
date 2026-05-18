@@ -280,21 +280,13 @@ deploy_bpmn_workflow() {
         return 1
     fi
 
-    log_with_verbose_check "$debug" "$INFO" "Deploying BPMN workflow for greenbank"
+    log_with_verbose_check "$debug" "$INFO" "Deploying Mastercard BPMN workflow to greenbank"
     if run_as_user "bash \"$deploy_script\" -c \"$config_file\" -f \"$workflow_file\" -t greenbank" > /dev/null 2>&1; then
-        log_with_verbose_check "$debug" "$DEBUG" "BPMN deployed for greenbank"
+        log_with_verbose_check "$debug" "$DEBUG" "Mastercard BPMN deployed successfully"
     else
-        log_warn "Failed to deploy BPMN workflow for greenbank"
+        log_warn "Failed to deploy Mastercard BPMN workflow"
         return 1
     fi
-
-    for tenant in redbank bluebank; do
-        if run_as_user "bash \"$deploy_script\" -c \"$config_file\" -f \"$workflow_file\" -t $tenant" > /dev/null 2>&1; then
-            log_with_verbose_check "$debug" "$DEBUG" "BPMN deployed for $tenant"
-        else
-            log_with_verbose_check "$debug" "$DEBUG" "Skipped $tenant (tenant may not exist)"
-        fi
-    done
 }
 
 load_supplementary_data() {
