@@ -1,0 +1,102 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/openspp/openspp
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8069
+  targetPort: 8069
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: openspp.mifos.gazelle.test
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# OpenSPP Configuration
+openspp:
+  # Database configuration (uses shared infrastructure PostgreSQL)
+  database:
+    host: postgresql.infra.svc.cluster.local
+    port: 5432
+    name: openspp
+    user: openspp
+    # Password should be set via secret
+    passwordSecret:
+      name: openspp-db-secret
+      key: password
+
+  # Odoo admin settings
+  admin:
+    user: admin
+    passwordSecret:
+      name: openspp-admin-secret
+      key: password
+
+  # Odoo configuration
+  odoo:
+    workers: 4
+    threads: 2
+    limit_memory_soft: "629145600"  # 600MB
+    limit_memory_hard: "943718400"  # 900MB
+    limit_time_cpu: 60
+    limit_time_real: 120
+
+  # Mailhog (email testing)
+  mailhog:
+    enabled: false
+    smtp_port: 1025
+    ui_port: 8025
+
+  # pgweb (database browser)
+  pgweb:
+    enabled: false
+    port: 5050
+
+  # Debugger
+  debugger:
+    enabled: false
+    port: 6789
+
+# Shared infrastructure references
+sharedInfra:
+  postgresqlNamespace: infra
+  postgresqlService: postgresql

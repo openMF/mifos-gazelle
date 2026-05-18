@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openspp.fullname" . }}
+  labels:
+    {{- include "openspp.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "openspp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "openspp.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "openspp.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.35
+          command: ['sh', '-c', 'until nc -z {{ .Values.openspp.database.host }} {{ .Values.openspp.database.port }}; do echo waiting for db; sleep 2; done;']
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /web/login
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /web/login
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 5
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "{{ .Values.service.targetPort }}"
+            - name: DB_HOST
+              value: "{{ .Values.openspp.database.host }}"
+            - name: DB_PORT
+              value: "{{ .Values.openspp.database.port }}"
+            - name: DB_NAME
+              value: "{{ .Values.openspp.database.name }}"
+            - name: DB_USER
+              value: "{{ .Values.openspp.database.user }}"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openspp.database.passwordSecret.name }}
+                  key: {{ .Values.openspp.database.passwordSecret.key }}
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openspp.admin.passwordSecret.name }}
+                  key: {{ .Values.openspp.admin.passwordSecret.key }}
+            - name: WORKERS
+              value: "{{ .Values.openspp.odoo.workers }}"
+            - name: THREADS
+              value: "{{ .Values.openspp.odoo.threads }}"
+            - name: LIMIT_MEMORY_SOFT
+              value: "{{ .Values.openspp.odoo.limit_memory_soft }}"
+            - name: LIMIT_MEMORY_HARD
+              value: "{{ .Values.openspp.odoo.limit_memory_hard }}"
+            - name: LIMIT_TIME_CPU
+              value: "{{ .Values.openspp.odoo.limit_time_cpu }}"
+            - name: LIMIT_TIME_REAL
+              value: "{{ .Values.openspp.odoo.limit_time_real }}"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/odoo
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "openspp.fullname" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
