@@ -1,0 +1,66 @@
+@David Higgins - Great point about auditing shared dependencies! My design doc addresses exactly this with a shared infrastructure strategy.
+
+h2. OpenSPP Integration Design (GAZ-195)
+
+h3. Overview
+
+Completed design phase for integrating OpenSPP as a new DPG into Mifos Gazelle. Proposal follows the same pattern as GAZ-270 (Demo tools) and prioritizes resource efficiency through infrastructure sharing.
+
+h3. What is OpenSPP?
+
+* Social Safety Net Platform built on Odoo ERP
+* Modular, extensible with REST APIs
+* Use cases: beneficiary registration, program enrollment, benefit processing
+* Docs: https://docs.openspp.org/
+
+h3. The Challenge
+
+* Mifos Gazelle (current): 16GB RAM
+* OpenSPP (production): 32GB+ RAM
+* *Solution:* Share existing infrastructure!
+
+h3. Proposed Shared Services
+
+Instead of deploying OpenSPP independently, reuse Mifos infrastructure:
+
+* PostgreSQL (separate schemas)
+* Redis (separate keyspaces)
+* MinIO (separate buckets)
+* Elasticsearch (separate indices)
+* NGINX (new routes)
+* Kafka (new topics)
+
+h3. Integration Approach
+
+Follow existing DPG pattern (mifosx, phee, vnext):
+
+New files:
+* {{src/deployer/openspp.sh}} - Deployment logic
+* {{src/deployer/helm/openspp/}} - Helm charts
+* Update {{config/config.ini}} with [openspp] section
+
+Deploy with:
+{code}
+./run.sh -u $USER -m deploy -a openspp
+./run.sh -u $USER -m deploy -a all
+{code}
+
+h3. Resource Impact
+
+|Component|Current|With OpenSPP|Change|
+|Mifos + Infra + DPGs|16GB RAM|19GB RAM|+3GB|
+|Disk Space|50GB|60GB|+10GB|
+
+*Justification:* Minimal increase. Shared infrastructure eliminates duplication.
+
+h3. Next Steps
+
+Full design documentation committed to branch: {{OPENSPP_INTEGRATION_DESIGN.md}}
+
+Covers:
+* Complete architecture analysis
+* Deployment model & phases
+* Open questions (Helm charts, PostgreSQL schema, etc.)
+* Success criteria & references
+
+Ready for team feedback before implementation!

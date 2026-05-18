@@ -1,0 +1,16 @@
+apiVersion: v2
+name: openspp
+description: OpenSPP Social Safety Net Platform Helm Chart
+type: application
+version: 1.0.0
+appVersion: "17.0"
+home: https://github.com/OpenSPP/openspp-docker
+sources:
+  - https://github.com/OpenSPP/openspp-docker
+maintainers:
+  - name: Mifos Gazelle Contributors
+keywords:
+  - openspp
+  - social-safety-net
+  - odoo
+  - ssp

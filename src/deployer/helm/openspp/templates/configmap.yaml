@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openspp.fullname" . }}
+  labels:
+    {{- include "openspp.labels" . | nindent 4 }}
+data:
+  odoo.conf: |
+    [options]
+    addons_path = /mnt/extra-addons
+    data_dir = /var/lib/odoo
+    unaccent = True
+    geoip_database = /usr/share/GeoIP/GeoLite2-City.mmdb
+    limit_memory_soft = {{ .Values.openspp.odoo.limit_memory_soft }}
+    limit_memory_hard = {{ .Values.openspp.odoo.limit_memory_hard }}
+    limit_time_cpu = {{ .Values.openspp.odoo.limit_time_cpu }}
+    limit_time_real = {{ .Values.openspp.odoo.limit_time_real }}
+    workers = {{ .Values.openspp.odoo.workers }}
+    threads = {{ .Values.openspp.odoo.threads }}
