@@ -6,6 +6,7 @@ source "$RUN_DIR/src/deployer/vnext.sh" || { echo "FATAL: Could not source vnext
 source "$RUN_DIR/src/deployer/mifosx.sh" || { echo "FATAL: Could not source mifosx.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/phee.sh"   || { echo "FATAL: Could not source phee.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/mastercard.sh" || { echo "FATAL: Could not source mastercard.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/deployer/openspp.sh" || { echo "FATAL: Could not source openspp.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/utils/helpers.sh" || { echo "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 
 #------------------------------------------------------------
@@ -370,6 +371,15 @@ deploy_apps() {
         fi
         log_with_verbose_check "$debug" "$DEBUG" "MASTERCARD_CBS_HOME=$MASTERCARD_CBS_HOME"
         deploy_mastercard
+        ;;
+      "openspp")
+        deploy_openspp
+        if wait_for_openspp; then
+          openspp_info
+        else
+          log_error "OpenSPP deployment failed"
+          exit 1
+        fi
         ;;
       *)
         log_error "Unknown application '$app'. This should have been caught by validation."
