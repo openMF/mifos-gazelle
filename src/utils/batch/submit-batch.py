@@ -93,7 +93,7 @@ def print_curl_commands(domain, csv_file_path, private_key, tenant, correlation_
     print(f"{'─'*72}", file=sys.stderr)
 
     print("\n# 1. Generate signature:", file=sys.stderr)
-    print(f'curl -k -X POST "https://ops.{domain}/api/v1/util/x-signature" \\', file=sys.stderr)
+    print(f'curl -k -X POST "https://ops-bk.{domain}/api/v1/util/x-signature" \\', file=sys.stderr)
     print(f'  -H "X-CorrelationID: {correlation_id}" \\', file=sys.stderr)
     print(f'  -H "Platform-TenantId: {tenant}" \\', file=sys.stderr)
     print(f'  -H "privateKey: {key_display}" \\', file=sys.stderr)
@@ -122,7 +122,7 @@ def print_curl_commands(domain, csv_file_path, private_key, tenant, correlation_
 
 def generate_signature(domain, csv_file_path, private_key, tenant='greenbank', correlation_id=None):
     """Generate X-Signature using ops service. Returns (signature, correlation_id)."""
-    url = f"https://ops.{domain}/api/v1/util/x-signature"
+    url = f"https://ops-bk.{domain}/api/v1/util/x-signature"
     if correlation_id is None:
         correlation_id = str(uuid.uuid4())
 

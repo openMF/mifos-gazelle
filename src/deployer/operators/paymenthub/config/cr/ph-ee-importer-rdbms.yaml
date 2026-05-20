@@ -21,10 +21,10 @@ spec:
   resources:
     limits:
       cpu: 500m
-      memory: 512M
+      memory: 768M
     requests:
       cpu: 100m
-      memory: 256M
+      memory: 384M
   environment:
     - name: SPRING_PROFILES_ACTIVE
       value: local,tenantsConnection
@@ -46,7 +46,7 @@ spec:
     - name: LOGGING_PATTERN_CONSOLE
       value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
     - name: JAVA_TOOL_OPTIONS
-      value: "-Xmx256M"
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
     - name: APPLICATION_BUCKET-NAME
       value: paymenthub-ee
     - name: CLOUD_AWS_S3BASEURL

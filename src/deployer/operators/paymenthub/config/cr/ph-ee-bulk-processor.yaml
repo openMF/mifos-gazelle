@@ -11,7 +11,7 @@ spec:
     name: ph-ee-config
   replicas: 1
   image: docker.io/openmf/ph-ee-bulk-processor:mifos-v2.0.0
-  containerPort: 5000
+  containerPort: 8443
   resources:
     limits:
       cpu: 500m
@@ -51,7 +51,7 @@ spec:
       ports:
         - name: port
           port: 80
-          targetPort: 5000
+          targetPort: 8443
           protocol: TCP
         - name: actuator
           port: 8080
@@ -111,17 +111,19 @@ spec:
     - name: BULK_PROCESSOR_CALLBACK_URL
       value: "http://ph-ee-bulk-processor:80/authorization/callback"
     - name: CONFIG_PARTYLOOKUP_ENABLE
-      value: "true"
+      value: "false"
     - name: CONFIG_APPROVAL_ENABLE
-      value: "true"
+      value: "false"
     - name: CONFIG_ORDERING_ENABLE
-      value: "true"
+      value: "false"
     - name: CONFIG_ORDERING_FIELD
-      value: "payeeIdentifier"
+      value: ""
+    - name: CHANNEL_HOSTNAME
+      value: "http://ph-ee-connector-channel:8443"
     - name: CONFIG_SPLITTING_ENABLE
       value: "true"
     - name: CONFIG_SPLITTING_SUB_BATCH_SIZE
-      value: "5"
+      value: "2"
     - name: CONFIG_FORMATTING_ENABLE
       value: "false"
     - name: CONFIG_FORMATTING_STANDARD
