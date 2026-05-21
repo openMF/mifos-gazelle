@@ -402,13 +402,31 @@ def register_client_with_vnext(headers, tenant_id, mobile_number, currency="USD"
     vnext_headers = {
         "fspiop-source": tenant_id,
         "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Accept": "application/vnd.interoperability.participants+json;version=1.1",
-        "Content-Type": "application/vnd.interoperability.participants+json;version=1.1"
+        "Accept": "application/json",
+        "Content-Type": "application/json"
     }
-    resp = make_api_request("POST", url, vnext_headers, json_data=payload)
-    if resp is not None:
-        print(f"vNext registration OK for {mobile_number}", file=sys.stderr)
-        return True
+    try:
+        resp = requests.post(url, headers=vnext_headers, json=payload, verify=False, timeout=30)
+        if 200 <= resp.status_code < 300:
+            print(f"vNext registration OK for {mobile_number}", file=sys.stderr)
+            return True
+        # 500 usually means duplicate association — verify with GET
+        if resp.status_code == 500:
+            get_resp = requests.get(url, headers={"Accept": "application/json"}, verify=False, timeout=30)
+            if get_resp.status_code == 200:
+                existing = get_resp.json()
+                if existing.get("fspId") == tenant_id:
+                    print(f"vNext already registered for {mobile_number} (skipping duplicate)", file=sys.stderr)
+                    return True
+                # Wrong FSP — delete and re-register
+                requests.delete(url, headers=vnext_headers, verify=False, timeout=30)
+                resp2 = requests.post(url, headers=vnext_headers, json=payload, verify=False, timeout=30)
+                if 200 <= resp2.status_code < 300:
+                    print(f"vNext re-registered {mobile_number} (was {existing.get('fspId')}, now {tenant_id})", file=sys.stderr)
+                    return True
+        print(f"✗ vNext registration failed for {mobile_number}: HTTP {resp.status_code}", file=sys.stderr)
+    except Exception as e:
+        print(f"✗ vNext registration failed for {mobile_number}: {e}", file=sys.stderr)
     return False
 
 def register_beneficiary_with_identity_mapper(tenant_id, mobile_number, account_id, registering_institution):

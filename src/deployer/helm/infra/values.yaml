@@ -262,9 +262,7 @@ elasticsearch:
     repository: bitnamilegacy/elasticsearch
     tag: 8.10.4-debian-11-r0
   sysctlImage:
-    registry: docker.io
-    repository: bitnamilegacy/os-shell
-    tag: 11-debian-11-r90
+    enabled: false
 
   security:
     elasticPassword: elasticSearchPas42
@@ -279,18 +277,14 @@ elasticsearch:
     replicaCount: 1
     persistence:
       enabled: false
-    env:
-      - name: ES_JAVA_OPTS
-        # Set Xmx and Xms to the same value for stability. 768m is a common low-end starting point.
-        value: "-Xms256m -Xmx256m -XX:+HeapDumpOnOutOfMemoryError" 
-    # Define resources for this single 'all-in-one' master node
+    heapSize: 512m
     resources:
       requests:
-        memory: "128Mi"  # Request enough memory for the heap + overhead
+        memory: "768Mi"
         cpu: "100m"
-      # limits:
-      #   memory: "800Mi" # Allow some buffer over the heap for OS page cache and other overhead
-      #   cpu: "41m" # 
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
 
 
   data:

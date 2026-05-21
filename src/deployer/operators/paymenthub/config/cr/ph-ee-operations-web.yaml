@@ -10,7 +10,7 @@ spec:
     enabled: true
     name: ph-ee-operations-web-configmap
   replicas: 1
-  image: docker.io/openmf/ph-ee-operations-web:v1.20.0
+  image: docker.io/openmf/ph-ee-operations-web:mifos-v2.0.0
   containerPort: 80
   resources:
     limits:

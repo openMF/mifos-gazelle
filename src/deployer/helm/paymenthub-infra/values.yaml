@@ -189,7 +189,7 @@ camunda-platform:
       disableExporter: false
       host: "infra-elasticsearch.infra.svc.cluster.local"
       port: 9200
-      clusterName: "fred"
+      clusterName: "elastic"
     identity:
       auth:
         enabled: false
@@ -284,10 +284,10 @@ camunda-platform:
     resources:
       requests:
         cpu: 200m
-        memory: 300Mi
+        memory: 512Mi
       limits:
         cpu: 1000m
-        memory: 800Mi
+        memory: 1536Mi
     affinity: {}
     ingress:
       enabled: true

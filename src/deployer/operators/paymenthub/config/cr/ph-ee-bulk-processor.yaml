@@ -15,10 +15,10 @@ spec:
   resources:
     limits:
       cpu: 500m
-      memory: 512M
+      memory: 768M
     requests:
       cpu: 100m
-      memory: 256M
+      memory: 384M
   rbacEnabled: false
   secretEnabled: true
   configMapEnabled: false
@@ -70,15 +70,15 @@ spec:
       value: "greenbank,bluebank,redbank"
     - name: SERVER_SSL_ENABLED
       value: "false"
-    - name: CAMEL_DISABLE-SSL
+    - name: CAMEL_DISABLE_SSL
       value: "true"
-    - name: OPERATIONS-APP_CONTACTPOINT
+    - name: OPERATIONS_APP_CONTACTPOINT
       value: "http://ph-ee-operations-app:80"
-    - name: OPERATIONS-APP_ENDPOINTS_BATCH-TRANSACTION
+    - name: OPERATIONS_APP_ENDPOINTS_BATCH_TRANSACTION
       value: "/api/v1/batch/transactions"
     - name: IDENTITY_MAPPER_CONTACTPOINT
       value: ""
-    - name: APPLICATION_BUCKET-NAME
+    - name: APPLICATION_BUCKET_NAME
       value: "paymenthub-ee"
     - name: CLOUD_AWS_S3BASEURL
       value: "http://minio:9000"
@@ -123,7 +123,7 @@ spec:
     - name: CONFIG_SPLITTING_ENABLE
       value: "true"
     - name: CONFIG_SPLITTING_SUB_BATCH_SIZE
-      value: "2"
+      value: "5"
     - name: CONFIG_FORMATTING_ENABLE
       value: "false"
     - name: CONFIG_FORMATTING_STANDARD
@@ -132,13 +132,13 @@ spec:
       value: "true"
     - name: CONFIG_BACKPRESSURE_ENABLE
       value: "false"
-    - name: CONFIG_COMPLETION-THRESHOLD-CHECK_ENABLE
+    - name: CONFIG_COMPLETION_THRESHOLD_CHECK_ENABLE
       value: "true"
-    - name: CONFIG_COMPLETION-THRESHOLD-CHECK_COMPLETION-RATE
+    - name: CONFIG_COMPLETION_THRESHOLD_CHECK_COMPLETION_RATE
       value: "95"
     - name: DEDUPLICATION_ENABLED
       value: "true"
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"
     - name: JAVA_TOOL_OPTIONS
-      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
+      value: "-Xms128m -Xmx384m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"

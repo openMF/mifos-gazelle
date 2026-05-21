@@ -9,7 +9,7 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-connector-bulk:mifos-v2.0.0
+  image: docker.io/library/ph-ee-connector-bulk:gazelle-fix
   containerPort: 8080
   resources:
     limits:
@@ -88,29 +88,29 @@ spec:
         secretKeyRef:
           name: ph-ee-connector-bulk-secret
           key: aws-secret-key
-    - name: OPERATIONS-APP_CONTACTPOINT
+    - name: OPERATIONS_APP_CONTACTPOINT
       value: "http://ph-ee-operations-app:80"
-    - name: OPERATIONS-APP_ENDPOINTS_BATCH-SUMMARY
+    - name: OPERATIONS_APP_ENDPOINTS_BATCH_SUMMARY
       value: "/api/v1/batch"
-    - name: OPERATIONS-APP_ENDPOINTS_BATCH-DETAIL
+    - name: OPERATIONS_APP_ENDPOINTS_BATCH_DETAIL
       value: "/api/v1/batch/detail"
-    - name: MOCK-PAYMENT-SCHEMA_CONTACTPOINT
+    - name: MOCK_PAYMENT_SCHEMA_CONTACTPOINT
       value: "http://ph-ee-connector-mock-payment-schema:8080"
-    - name: MOCK-PAYMENT-SCHEMA_ENDPOINTS_BATCH-SUMMARY
+    - name: MOCK_PAYMENT_SCHEMA_ENDPOINTS_BATCH_SUMMARY
       value: "/mockapi/v1/batch"
-    - name: MOCK-PAYMENT-SCHEMA_ENDPOINTS_BATCH-DETAIL
+    - name: MOCK_PAYMENT_SCHEMA_ENDPOINTS_BATCH_DETAIL
       value: "/mockapi/v1/batch/detail"
-    - name: BULK-PROCESSOR_CONTACTPOINT
+    - name: BULK_PROCESSOR_CONTACTPOINT
       value: "http://ph-ee-bulk-processor:80"
-    - name: BULK-PROCESSOR_ENDPOINTS_BATCH-TRANSACTION
+    - name: BULK_PROCESSOR_ENDPOINTS_BATCH_TRANSACTION
       value: "/batchtransactions"
     - name: IDENTITY_MAPPER_CONTACTPOINT
       value: "http://ph-ee-identity-account-mapper:80"
     - name: CHANNEL_CONTACTPOINT
       value: "http://ph-ee-connector-channel:8443"
-    - name: CHANNEL_ENDPOINTS_BATCH-TRANSACTION
+    - name: CHANNEL_ENDPOINTS_TRANSFER
       value: "/channel/transfer"
-    - name: BULK-PROCESSOR_ENDPOINTS_BATCH-EXECUTION
+    - name: BULK_PROCESSOR_ENDPOINTS_BATCH_EXECUTION
       value: "/batchtransactions/execution"
     - name: JAVA_TOOL_OPTIONS
       value: "-Xms64m -Xmx192m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=96m"
