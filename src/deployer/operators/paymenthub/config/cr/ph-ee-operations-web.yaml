@@ -10,7 +10,7 @@ spec:
     enabled: true
     name: ph-ee-operations-web-configmap
   replicas: 1
-  image: docker.io/openmf/ph-ee-operations-web:mifos-v2.0.0
+  image: docker.io/openmf/ph-ee-operations-web:dev
   containerPort: 80
   resources:
     limits:
@@ -52,12 +52,40 @@ spec:
       type: ClusterIP
   environment:
     - name: PH_OPS_BACKEND_SERVER_URL
-      value: "http://ph-ee-operations-app:80/api/v1"
+      value: "https://ops-bk.GAZELLE_DOMAIN/api/v1"
     - name: PH_VOU_BACKEND_SERVER_URL
-      value: "http://ph-ee-operations-app:80/api/v1"
+      value: "https://ops-bk.GAZELLE_DOMAIN/api/v1"
     - name: PH_ACT_BACKEND_SERVER_URL
-      value: "http://ph-ee-identity-account-mapper:80"
+      value: "https://identity-mapper.GAZELLE_DOMAIN"
+    - name: PH_OPS_BULK_CONNECTOR_URL
+      value: "https://connector-bulk.GAZELLE_DOMAIN"
+    - name: PH_OPS_SIGNATURE_URL
+      value: "https://ops-bk.GAZELLE_DOMAIN/api/v1/util/x-signature"
     - name: PH_PLATFORM_TENANT_ID
       value: "greenbank"
+    - name: PH_PLATFORM_TENANT_IDS
+      value: "greenbank,bluebank"
+    - name: PH_REGISTERING_INSTITUTION_ID
+      value: "123"
+    - name: PH_DEFAULT_LANGUAGE
+      value: "en"
+    - name: PH_SUPPORTED_LANGUAGES
+      value: "en,fr,es"
     - name: PH_AUTH_ENABLED
       value: "false"
+    - name: PH_OAUTH_ENABLED
+      value: "false"
+    - name: PH_OAUTH_TYPE
+      value: "keycloak"
+    - name: PH_OAUTH_SERVER_URL
+      value: "https://ops-bk.GAZELLE_DOMAIN/auth"
+    - name: PH_OAUTH_REALM
+      value: "paymenthub"
+    - name: PH_OAUTH_CLIENT_ID
+      value: "opsapp"
+    - name: PH_OAUTH_CLIENT_SECRET
+      value: "Y2xpZW50Og=="
+    - name: PH_OAUTH_BASIC_AUTH
+      value: "true"
+    - name: PH_OAUTH_BASIC_AUTH_TOKEN
+      value: "Y2xpZW50Og=="
