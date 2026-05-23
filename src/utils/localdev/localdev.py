@@ -453,7 +453,16 @@ class LocalDevPatcher:
                 running = self._is_operator_running_locally()
                 dep_col = "🟢 running locally" if running else "— not running"
             elif 'directory' not in comp_config:
-                dep_col = "— operator-cr"
+                if comp_config.get('k8s_deploy_name'):
+                    backup_dir = Path.home() / '.localdev-backups'
+                    backup_file = backup_dir / f"{component}-deployment.json"
+                    if backup_file.exists():
+                        dep_col = "🔒 k8s-patched"
+                        is_patched = True
+                    else:
+                        dep_col = "— k8s (not patched)"
+                else:
+                    dep_col = "— operator-cr"
             else:
                 directory = Path(self._expand_vars(comp_config['directory']))
                 deployment_file = directory / "templates" / "deployment.yaml"
@@ -533,10 +542,13 @@ class LocalDevPatcher:
             print(f"  ℹ️  Run it locally with: ./localdev.py --run")
             return True
 
-        # Operator-managed components have no Helm chart to patch
+        # Operator-managed components with k8s_deploy_name → patch running Deployment directly
         if 'directory' not in comp_config:
+            if comp_config.get('k8s_deploy_name'):
+                return self._patch_k8s_deployment(component, dry_run)
             print(f"\n⏭️  Skipping {component} - managed by PHEE operator (no Helm chart)")
-            print(f"  ℹ️  Run the operator locally to reconcile this component: ./localdev.py --run")
+            print(f"  ℹ️  Add k8s_deploy_name/hostpath/jarpath to localdev.ini to enable direct-patch mode")
+            print(f"  ℹ️  Or run the operator locally: ./localdev.py --run")
             return True
 
         # Get component configuration
@@ -603,7 +615,154 @@ class LocalDevPatcher:
             self._git_skip_worktree(deployment_file, enable=True)
         
         return True
-    
+
+    def _patch_k8s_deployment(self, component: str, dry_run: bool = False) -> bool:
+        """
+        Patch a running Kubernetes Deployment directly for operator-managed components.
+        Fetches current Deployment, saves backup, adds hostPath volume + volumeMount,
+        overrides image and command, then kubectl applies the modified manifest.
+        """
+        import json as _json
+
+        comp_config = self.config[component]
+        k8s_deploy_name = comp_config['k8s_deploy_name']
+        k8s_namespace = comp_config.get('k8s_namespace', 'paymenthub')
+        image = comp_config.get('image', '')
+        jarpath = comp_config.get('jarpath', '')
+        hostpath = self._expand_vars(comp_config.get('hostpath', ''))
+        app_type = comp_config.get('app_type', 'springboot')
+
+        backup_dir = Path.home() / '.localdev-backups'
+        backup_file = backup_dir / f"{component}-deployment.json"
+
+        if backup_file.exists():
+            print(f"\n⏭️  Skipping {component} - already k8s-patched")
+            print(f"  ℹ️  Backup: {backup_file}")
+            print(f"  💡 Use --restore first to re-patch")
+            return True
+
+        print(f"\n{'[DRY RUN] ' if dry_run else ''}Processing {component} (k8s direct-patch)...")
+        print(f"  📦 Deployment : {k8s_deploy_name}  ns: {k8s_namespace}")
+        if app_type == 'springboot':
+            print(f"  🖼️  Image      : {image}")
+            print(f"  📦 JAR        : {jarpath}")
+        print(f"  🔗 Host Path  : {hostpath}")
+
+        result = subprocess.run(
+            ['kubectl', 'get', 'deployment', k8s_deploy_name, '-n', k8s_namespace, '-o', 'json'],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            print(f"  ❌ Failed to get deployment: {result.stderr.strip()}")
+            return False
+
+        try:
+            deployment = _json.loads(result.stdout)
+        except _json.JSONDecodeError as e:
+            print(f"  ❌ Failed to parse deployment JSON: {e}")
+            return False
+
+        if not dry_run:
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            with open(backup_file, 'w') as f:
+                _json.dump(deployment, f, indent=2)
+            print(f"  💾 Backup saved: {backup_file}")
+
+        # Strip server-side fields that cause apply conflicts
+        deployment.pop('status', None)
+        meta = deployment.get('metadata', {})
+        for field in ('resourceVersion', 'uid', 'creationTimestamp', 'generation', 'managedFields'):
+            meta.pop(field, None)
+        meta.get('annotations', {}).pop('kubectl.kubernetes.io/last-applied-configuration', None)
+        meta.setdefault('annotations', {})['localdev.gazelle.mifos.io/patched'] = 'true'
+
+        containers = deployment['spec']['template']['spec'].get('containers', [])
+        if not containers:
+            print(f"  ❌ No containers found in deployment")
+            if backup_file.exists():
+                backup_file.unlink()
+            return False
+        container = containers[0]
+
+        if app_type == 'springboot':
+            if image:
+                container['image'] = image
+            if jarpath:
+                container['command'] = ['java', '-jar', jarpath]
+                container.pop('args', None)
+
+            mounts = container.setdefault('volumeMounts', [])
+            container['volumeMounts'] = [v for v in mounts if v.get('name') != 'local-code']
+            container['volumeMounts'].append({'name': 'local-code', 'mountPath': '/app'})
+
+            spec = deployment['spec']['template']['spec']
+            vols = spec.setdefault('volumes', [])
+            spec['volumes'] = [v for v in vols if v.get('name') != 'local-code']
+            spec['volumes'].append({
+                'name': 'local-code',
+                'hostPath': {'path': hostpath, 'type': 'Directory'}
+            })
+
+        if dry_run:
+            print(f"  ℹ️  Would patch deployment (dry run — container: {container.get('name', '?')})")
+            return True
+
+        result = subprocess.run(
+            ['kubectl', 'apply', '-f', '-'],
+            input=_json.dumps(deployment), capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            print(f"  ❌ kubectl apply failed: {result.stderr.strip()}")
+            if backup_file.exists():
+                backup_file.unlink()
+            return False
+
+        print(f"  ✅ Deployment patched — waiting for rollout...")
+        subprocess.run(
+            ['kubectl', 'rollout', 'status', 'deployment', k8s_deploy_name,
+             '-n', k8s_namespace, '--timeout=120s']
+        )
+        return True
+
+    def _restore_k8s_deployment(self, component: str) -> bool:
+        """Restore an operator-managed deployment patched via _patch_k8s_deployment."""
+        import json as _json
+
+        comp_config = self.config[component]
+        k8s_deploy_name = comp_config['k8s_deploy_name']
+        k8s_namespace = comp_config.get('k8s_namespace', 'paymenthub')
+
+        backup_dir = Path.home() / '.localdev-backups'
+        backup_file = backup_dir / f"{component}-deployment.json"
+
+        if not backup_file.exists():
+            print(f"❌ No k8s backup found for {component}: {backup_file}")
+            return False
+
+        with open(backup_file, 'r') as f:
+            original = _json.load(f)
+
+        original.pop('status', None)
+        meta = original.get('metadata', {})
+        for field in ('resourceVersion', 'uid', 'creationTimestamp', 'generation', 'managedFields'):
+            meta.pop(field, None)
+
+        result = subprocess.run(
+            ['kubectl', 'apply', '-f', '-'],
+            input=_json.dumps(original), capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            print(f"  ❌ kubectl apply failed: {result.stderr.strip()}")
+            return False
+
+        backup_file.unlink()
+        print(f"✅ Restored {component} k8s deployment — waiting for rollout...")
+        subprocess.run(
+            ['kubectl', 'rollout', 'status', 'deployment', k8s_deploy_name,
+             '-n', k8s_namespace, '--timeout=120s']
+        )
+        return True
+
     def _apply_patches(self, content: str, image: str, jarpath: str, hostpath: str, component: str, app_type: str = 'springboot') -> str:
         """Apply the necessary patches to the deployment YAML content"""
         
@@ -824,6 +983,8 @@ class LocalDevPatcher:
             return True
 
         if 'directory' not in comp_config:
+            if comp_config.get('k8s_deploy_name'):
+                return self._restore_k8s_deployment(component)
             print(f"\n⏭️  Skipping {component} - managed by PHEE operator (no Helm chart to restore)")
             return True
 

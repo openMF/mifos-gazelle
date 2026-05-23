@@ -64,7 +64,7 @@ spec:
     - name: PH_PLATFORM_TENANT_ID
       value: "greenbank"
     - name: PH_PLATFORM_TENANT_IDS
-      value: "greenbank,bluebank"
+      value: "greenbank,bluebank,redbank"
     - name: PH_REGISTERING_INSTITUTION_ID
       value: "123"
     - name: PH_DEFAULT_LANGUAGE

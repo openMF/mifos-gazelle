@@ -111,7 +111,7 @@ spec:
     - name: BULK_PROCESSOR_CALLBACK_URL
       value: "http://ph-ee-bulk-processor:80/authorization/callback"
     - name: CONFIG_PARTYLOOKUP_ENABLE
-      value: "false"
+      value: "true"
     - name: CONFIG_APPROVAL_ENABLE
       value: "false"
     - name: CONFIG_ORDERING_ENABLE
