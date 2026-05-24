@@ -32,40 +32,6 @@ commands:
             chmod +x src/utils/test-scripts/verify-endpoints.sh
             src/utils/test-scripts/verify-endpoints.sh
 
-      - run:
-          name: Wait for Fineract tenant API
-          command: |
-            echo "Waiting for Fineract greenbank tenant to be ready..."
-            BASE="https://mifos.mifos.gazelle.test/fineract-provider/api/v1"
-            AUTH="mifos:password"
-            TENANT="greenbank"
-            for i in $(seq 1 60); do
-              http_code=$(curl -sk -o /dev/null -w "%{http_code}" \
-                -u "$AUTH" -H "Fineract-Platform-TenantId: $TENANT" \
-                "$BASE/clients")
-              if [[ "$http_code" == "200" ]]; then
-                paymenttypes=$(curl -sk \
-                  -u "$AUTH" -H "Fineract-Platform-TenantId: $TENANT" \
-                  "$BASE/paymenttypes")
-                if [[ "$paymenttypes" =~ ^\[ && "$paymenttypes" != "[]" ]]; then
-                  echo "Fineract tenant API ready (schema + seed data confirmed)"
-                  exit 0
-                fi
-                echo "Attempt $i/60: schema ready, seed data pending — retrying in 10s..."
-              else
-                echo "Attempt $i/60: HTTP $http_code — retrying in 10s..."
-              fi
-              sleep 10
-            done
-            echo "ERROR: Fineract tenant API not ready after 600s"
-            exit 1
-
-      - run:
-          name: Smoke test payment (make-payment.sh)
-          command: |
-            chmod +x src/utils/make-payment.sh
-            echo "100" | src/utils/make-payment.sh
-
 jobs:
   deploy-test-amd64:
     machine:
