@@ -27,20 +27,16 @@ commands:
             fi
 
       - run:
-          name: Health check endpoints
+          name: Verify endpoints
           command: |
-            echo "Checking main endpoints..."
-            
-            # Get cluster IP
-            CLUSTER_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' || echo "127.0.0.1")
-            
-            # Test main endpoints
-            curl -f http://$CLUSTER_IP/health || echo "Default health check failed"
-            curl -f http://mifos.mifos.gazelle.test || echo "MifosX failed"
-            curl -f http://vnextadmin.mifos.gazelle.test || echo "vNext failed"
-            curl -f http://ops.mifos.gazelle.test || echo "Payment Hub failed"
-            
-            echo "Health checks completed"
+            chmod +x src/utils/test-scripts/verify-endpoints.sh
+            src/utils/test-scripts/verify-endpoints.sh
+
+      - run:
+          name: Smoke test payment (make-payment.sh)
+          command: |
+            chmod +x src/utils/make-payment.sh
+            echo "100" | src/utils/make-payment.sh -v
 
 jobs:
   deploy-test-amd64:
