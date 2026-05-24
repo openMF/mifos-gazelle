@@ -41,7 +41,7 @@ commands:
 jobs:
   deploy-test-amd64:
     machine:
-      image: ubuntu-2004:current
+      image: ubuntu-2204:current
     resource_class: large
     steps:
       - checkout
@@ -49,7 +49,7 @@ jobs:
 
   deploy-test-arm64:
     machine:
-      image: ubuntu-2004:current
+      image: ubuntu-2204:current
     resource_class: arm.large
     steps:
       - checkout
