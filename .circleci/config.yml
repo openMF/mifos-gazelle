@@ -33,6 +33,24 @@ commands:
             src/utils/test-scripts/verify-endpoints.sh
 
       - run:
+          name: Wait for Fineract tenant API
+          command: |
+            echo "Waiting for Fineract greenbank tenant to be ready..."
+            for i in $(seq 1 30); do
+              if curl -sf -u mifos:password \
+                -H "Fineract-Platform-TenantId: greenbank" \
+                "https://mifos.mifos.gazelle.test/fineract-provider/api/v1/clients?limit=1" \
+                | grep -q "mobileNo"; then
+                echo "Fineract tenant API ready"
+                exit 0
+              fi
+              echo "Attempt $i/30, retrying in 10s..."
+              sleep 10
+            done
+            echo "ERROR: Fineract tenant API not ready after 300s"
+            exit 1
+
+      - run:
           name: Smoke test payment (make-payment.sh)
           command: |
             chmod +x src/utils/make-payment.sh
