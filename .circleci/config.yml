@@ -43,7 +43,12 @@ commands:
               "http://mifos.mifos.gazelle.test/fineract-provider/api/v1/clients?limit=1" \
               | grep -q '"totalFilteredRecords":[^0]'; do
               if [ $ELAPSED -ge $MAX_WAIT ]; then
-                echo "ERROR: Fineract data not ready after ${MAX_WAIT}s"; exit 1
+                echo "ERROR: Fineract data not ready after ${MAX_WAIT}s"
+                echo "Last API response:"
+                curl -sk -u "mifos:password" \
+                  -H "Fineract-Platform-TenantId: greenbank" \
+                  "http://mifos.mifos.gazelle.test/fineract-provider/api/v1/clients?limit=1"
+                exit 1
               fi
               echo "  [WAIT] Not ready yet, retrying in 30s... (${ELAPSED}s elapsed)"
               sleep 30
