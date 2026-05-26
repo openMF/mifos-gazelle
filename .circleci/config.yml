@@ -32,6 +32,12 @@ commands:
             chmod +x src/utils/test-scripts/verify-endpoints.sh
             src/utils/test-scripts/verify-endpoints.sh
 
+      - run:
+          name: Run test payment
+          command: |
+            chmod +x src/utils/make-payment.sh
+            echo "100" | src/utils/make-payment.sh -v
+
 jobs:
   deploy-test-amd64:
     machine:
