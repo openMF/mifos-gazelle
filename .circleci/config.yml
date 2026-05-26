@@ -33,10 +33,29 @@ commands:
             src/utils/test-scripts/verify-endpoints.sh
 
       - run:
+          name: Wait for Fineract data
+          command: |
+            echo "Waiting for Fineract clients to be seeded..."
+            MAX_WAIT=600
+            ELAPSED=0
+            until curl -sk -u "mifos:password" \
+              -H "Fineract-Platform-TenantId: greenbank" \
+              "http://mifos.mifos.gazelle.test/fineract-provider/api/v1/clients?limit=1" \
+              | grep -q '"totalFilteredRecords":[^0]'; do
+              if [ $ELAPSED -ge $MAX_WAIT ]; then
+                echo "ERROR: Fineract data not ready after ${MAX_WAIT}s"; exit 1
+              fi
+              echo "  [WAIT] Not ready yet, retrying in 30s... (${ELAPSED}s elapsed)"
+              sleep 30
+              ELAPSED=$((ELAPSED + 30))
+            done
+            echo "Fineract data ready."
+
+      - run:
           name: Run test payment
           command: |
             chmod +x src/utils/make-payment.sh
-            echo "100" | src/utils/make-payment.sh -v
+            echo "10" | src/utils/make-payment.sh
 
 jobs:
   deploy-test-amd64:

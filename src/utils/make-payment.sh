@@ -12,7 +12,6 @@ RESET='\033[0m'
 VERIFY_MAX_RETRIES=6        # 6 retries x 20s = 2 minutes
 VERIFY_SLEEP_INTERVAL=20    # seconds between retries
 VERIFY_PAYMENT=false        # set to true with -v flag
-AMOUNT=""                   # set with -a flag (skips interactive prompt)
 
 # Check for jq - GAZ-230
 if ! command -v jq &> /dev/null; then
