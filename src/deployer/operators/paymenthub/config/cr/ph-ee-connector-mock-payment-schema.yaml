@@ -14,7 +14,7 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-connector-mock-payment-schema:mifos-v2.0.0
+  image: docker.io/openmf/ph-ee-connector-mock-payment-schema:dev-latest
   containerPort: 8080
   resources:
     limits:

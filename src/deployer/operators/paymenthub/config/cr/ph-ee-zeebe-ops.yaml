@@ -12,7 +12,7 @@ spec:
   volMount:
     enabled: false
   replicas: 1
-  image: docker.io/openmf/ph-ee-zeebe-ops:mifos-v2.0.0
+  image: docker.io/openmf/ph-ee-zeebe-ops:dev-latest
   containerPort: 5000
   resources:
     limits:

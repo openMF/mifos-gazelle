@@ -418,105 +418,147 @@ class LocalDevPatcher:
         return s + ' ' * max(0, width - vis_w)
 
     def status_all(self):
-        """Show compact table status of all components, grouped by patch state."""
-        import unicodedata
+        """Show compact table status of all components."""
         components = self.get_components()
-        rows = []
+
+        # Fetch live cluster images once: deploy_name -> (full_image, tag)
+        k8s_images = {}
+        try:
+            result = subprocess.run(
+                ['kubectl', 'get', 'deployments', '-n', 'paymenthub', '-o',
+                 'jsonpath={range .items[*]}{.metadata.name}={.spec.template.spec.containers[0].image}{"\\n"}{end}'],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().splitlines():
+                    if '=' in line:
+                        name, image = line.split('=', 1)
+                        image = image.strip()
+                        tag = image.split(':')[-1] if ':' in image else image
+                        k8s_images[name.strip()] = (image, tag)
+        except Exception:
+            pass
+
+        backup_dir = Path.home() / '.localdev-backups'
+
+        patchable_rows = []
+        checkout_rows  = []
+        operator_rows  = []
 
         for component in components:
             if component not in self.config:
                 continue
             comp_config = self.config[component]
 
-            # ── Checkout column ───────────────────────────────────────────────
+            # ── Repo column ───────────────────────────────────────────────────
             if comp_config.get('checkout_enabled', '').lower() == 'true':
                 checkout_to_dir = self._expand_vars(comp_config.get('checkout_to_dir', str(Path.home())))
                 reponame = comp_config.get('reponame', '')
                 repo_name = reponame.rstrip('/').split('/')[-1].replace('.git', '')
                 repo_path = Path(checkout_to_dir) / repo_name
                 expected = comp_config.get('branch_or_tag', 'main')
-
                 if self._repo_exists(repo_path):
                     current = self._get_current_branch(repo_path)
-                    if current == expected:
-                        co_col = f"✅ {current}"
-                    else:
-                        co_col = f"⚠️  {current} (want {expected})"
+                    co_col = f"✅ {current}" if current == expected else f"⚠️  {current} (want {expected})"
                 else:
                     co_col = "❌ not cloned"
             else:
-                co_col = "— disabled"
+                co_col = "—"
 
-            # ── Deploy column ─────────────────────────────────────────────────
+            # ── Cluster column ────────────────────────────────────────────────
             is_patched = False
-            if comp_config.get('app_type', '') == 'operator':
-                running = self._is_operator_running_locally()
-                dep_col = "🟢 running locally" if running else "— not running"
-            elif 'directory' not in comp_config:
-                if comp_config.get('k8s_deploy_name'):
-                    backup_dir = Path.home() / '.localdev-backups'
+            app_type = comp_config.get('app_type', '')
+
+            if app_type == 'operator':
+                deploy_name = comp_config.get('k8s_deploy_name', '')
+                is_patched = False
+                if deploy_name:
                     backup_file = backup_dir / f"{component}-deployment.json"
                     if backup_file.exists():
-                        dep_col = "🔒 k8s-patched"
+                        cluster_col = "🔧 LOCAL  (hostpath JAR)"
                         is_patched = True
-                    else:
-                        dep_col = "— k8s (not patched)"
-                else:
-                    dep_col = "— operator-cr"
-            else:
-                directory = Path(self._expand_vars(comp_config['directory']))
-                deployment_file = directory / "templates" / "deployment.yaml"
-                backup_file = deployment_file.parent / "_deployment.yaml.backup"
-
-                if not deployment_file.exists():
-                    dep_col = "❌ missing"
-                else:
-                    try:
-                        result = subprocess.run(
-                            ['git', 'ls-files', '-v', str(deployment_file.name)],
-                            cwd=deployment_file.parent,
-                            capture_output=True, text=True
-                        )
-                        if result.returncode == 0 and result.stdout:
-                            if result.stdout.startswith('S'):
-                                dep_col = "🔒 patched"
-                                is_patched = True
-                            elif backup_file.exists():
-                                dep_col = "⚠️  patched (unprotected)"
-                                is_patched = True
-                            else:
-                                dep_col = "— not patched"
+                    elif deploy_name in k8s_images:
+                        full_image, tag = k8s_images[deploy_name]
+                        # eclipse-temurin base image means it's running a local JAR via hostPath
+                        if 'eclipse-temurin' in full_image or 'temurin' in full_image:
+                            cluster_col = f"🔧 in-cluster (hostpath JAR)"
+                            is_patched = True
                         else:
-                            dep_col = "— not patched"
-                    except Exception:
-                        dep_col = "? unknown"
+                            cluster_col = f"image  {tag}"
+                    else:
+                        cluster_col = "not in cluster"
+                else:
+                    running = self._is_operator_running_locally()
+                    cluster_col = "🟢 running locally" if running else "not running"
+                operator_rows.append({'name': component, 'co': co_col, 'cluster': cluster_col, 'is_patched': is_patched})
+                continue
 
-            rows.append({'name': component, 'co': co_col, 'dep': dep_col, 'is_patched': is_patched})
+            deploy_name = comp_config.get('k8s_deploy_name', '')
+            if deploy_name:
+                backup_file = backup_dir / f"{component}-deployment.json"
+                in_cluster = deploy_name in k8s_images
+                app_type_comp = comp_config.get('app_type', 'springboot')
+                live_hostpath = in_cluster and (
+                    'eclipse-temurin' in k8s_images[deploy_name][0] or
+                    'temurin' in k8s_images[deploy_name][0] or
+                    (app_type_comp == 'webapp' and backup_file.exists())
+                )
 
-        patched_rows = [r for r in rows if r['is_patched']]
-        other_rows   = [r for r in rows if not r['is_patched']]
-        all_rows     = patched_rows + other_rows
+                if backup_file.exists() and live_hostpath:
+                    cluster_col = "🔧 LOCAL  (hostpath JAR)"
+                    is_patched = True
+                elif backup_file.exists() and in_cluster:
+                    _, tag = k8s_images[deploy_name]
+                    cluster_col = f"⚠️  reverted → image  {tag}"
+                elif backup_file.exists():
+                    cluster_col = "⚠️  reverted → not deployed"
+                elif in_cluster:
+                    _, tag = k8s_images[deploy_name]
+                    cluster_col = f"image  {tag}"
+                else:
+                    cluster_col = "not deployed"
+                patchable_rows.append({'name': component, 'co': co_col, 'cluster': cluster_col, 'is_patched': is_patched})
+            else:
+                checkout_rows.append({'name': component, 'co': co_col})
 
-        W      = 64
-        name_w = max((len(r['name']) for r in all_rows), default=12) + 2
-        co_w   = 27  # wide enough for "✅ mifos-v2.0.0  " with emoji offset
+        all_named = patchable_rows + checkout_rows + operator_rows
+        W      = 72
+        name_w = max((len(r['name']) for r in all_named), default=12) + 2
+        co_w   = 22
 
         print(f"\n{'═' * W}")
         print(f"  Local Dev Status")
         print(f"{'═' * W}")
-        print(f"  {'COMPONENT':<{name_w}}  {'CHECKOUT':<{co_w}}  DEPLOY")
-        print(f"  {'─' * (W - 4)}")
 
-        def print_section(label, section_rows):
-            if not section_rows:
-                return
-            fill = '─' * max(0, W - len(label) - 7)
-            print(f"\n  ── {label} {fill}")
-            for r in section_rows:
-                print(f"  {self._visual_ljust(r['name'], name_w)}  {self._visual_ljust(r['co'], co_w)}  {r['dep']}")
+        def divider(label=''):
+            if label:
+                fill = '─' * max(0, W - len(label) - 6)
+                print(f"\n  ── {label} {fill}")
+            else:
+                print(f"  {'─' * (W - 4)}")
 
-        print_section("PATCHED  (active local dev)", patched_rows)
-        print_section("NOT PATCHED", other_rows)
+        # Patchable components table
+        divider('k8s-direct  (patchable)')
+        print(f"  {'COMPONENT':<{name_w}}  {'REPO':<{co_w}}  CLUSTER")
+        divider()
+        for r in patchable_rows:
+            print(f"  {self._visual_ljust(r['name'], name_w)}  {self._visual_ljust(r['co'], co_w)}  {r['cluster']}")
+
+        # Checkout-only
+        divider('checkout only')
+        print(f"  {'COMPONENT':<{name_w}}  REPO")
+        divider()
+        for r in checkout_rows:
+            print(f"  {self._visual_ljust(r['name'], name_w)}  {r['co']}")
+
+        # Operator
+        if operator_rows:
+            divider('operator')
+            print(f"  {'COMPONENT':<{name_w}}  {'REPO':<{co_w}}  STATUS")
+            divider()
+            for r in operator_rows:
+                print(f"  {self._visual_ljust(r['name'], name_w)}  {self._visual_ljust(r['co'], co_w)}  {r['cluster']}")
+
         print(f"\n{'═' * W}\n")
     
     def patch_deployment(self, component: str, dry_run: bool = False) -> bool:
@@ -694,6 +736,23 @@ class LocalDevPatcher:
             mounts = container.setdefault('volumeMounts', [])
             container['volumeMounts'] = [v for v in mounts if v.get('name') != 'local-code']
             container['volumeMounts'].append({'name': 'local-code', 'mountPath': '/app'})
+
+            spec = deployment['spec']['template']['spec']
+            vols = spec.setdefault('volumes', [])
+            spec['volumes'] = [v for v in vols if v.get('name') != 'local-code']
+            spec['volumes'].append({
+                'name': 'local-code',
+                'hostPath': {'path': hostpath, 'type': 'Directory'}
+            })
+
+        elif app_type == 'webapp':
+            # Mount local dist/ over nginx html root — keep original image and command
+            mounts = container.setdefault('volumeMounts', [])
+            container['volumeMounts'] = [v for v in mounts if v.get('name') != 'local-code']
+            container['volumeMounts'].append({
+                'name': 'local-code',
+                'mountPath': '/usr/share/nginx/html'
+            })
 
             spec = deployment['spec']['template']['spec']
             vols = spec.setdefault('volumes', [])
