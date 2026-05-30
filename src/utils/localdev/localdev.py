@@ -498,15 +498,29 @@ class LocalDevPatcher:
                 backup_file = backup_dir / f"{component}-deployment.json"
                 in_cluster = deploy_name in k8s_images
                 app_type_comp = comp_config.get('app_type', 'springboot')
-                live_hostpath = in_cluster and (
-                    'eclipse-temurin' in k8s_images[deploy_name][0] or
-                    'temurin' in k8s_images[deploy_name][0] or
-                    (app_type_comp == 'webapp' and backup_file.exists())
+                live_image = k8s_images[deploy_name][0] if in_cluster else ''
+                live_is_hostpath = (
+                    'eclipse-temurin' in live_image or
+                    'temurin' in live_image
                 )
+                # For webapps: only treat as hostpath if the live image is NOT a
+                # registry image (i.e. the operator hasn't reconciled it back yet).
+                # A backup + registry image = stale backup from a previous patch
+                # that was overwritten by a redeploy.
+                if app_type_comp == 'webapp':
+                    live_is_hostpath = live_is_hostpath  # webapps never use temurin anyway
+                live_hostpath = in_cluster and live_is_hostpath
+
+                # Detect stale backup: backup exists but operator already replaced
+                # the deployment with a registry image (not a local JAR image).
+                backup_is_stale = backup_file.exists() and in_cluster and not live_hostpath
 
                 if backup_file.exists() and live_hostpath:
                     cluster_col = "🔧 LOCAL  (hostpath JAR)"
                     is_patched = True
+                elif backup_is_stale:
+                    _, tag = k8s_images[deploy_name]
+                    cluster_col = f"image  {tag}  (stale backup — run --clean-backups)"
                 elif backup_file.exists() and in_cluster:
                     _, tag = k8s_images[deploy_name]
                     cluster_col = f"⚠️  reverted → image  {tag}"
@@ -560,7 +574,59 @@ class LocalDevPatcher:
                 print(f"  {self._visual_ljust(r['name'], name_w)}  {self._visual_ljust(r['co'], co_w)}  {r['cluster']}")
 
         print(f"\n{'═' * W}\n")
-    
+
+    def clean_backups(self) -> None:
+        """Remove backup files left over from localdev patches that have since been
+        overwritten by a full redeploy (operator reconciliation replaced the patched
+        Deployment with a registry image)."""
+        backup_dir = Path.home() / '.localdev-backups'
+        if not backup_dir.exists():
+            print("  ✅ No backup directory found — nothing to clean")
+            return
+
+        # Fetch live cluster images once
+        k8s_images: dict = {}
+        try:
+            result = subprocess.run(
+                ['kubectl', 'get', 'deployments', '-n', 'paymenthub', '-o',
+                 'jsonpath={range .items[*]}{.metadata.name}={.spec.template.spec.containers[0].image}{"\\n"}{end}'],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().splitlines():
+                    if '=' in line:
+                        name, image = line.split('=', 1)
+                        k8s_images[name.strip()] = image.strip()
+        except Exception:
+            pass
+
+        removed = []
+        kept = []
+        for backup_file in sorted(backup_dir.glob('*-deployment.json')):
+            component = backup_file.stem.replace('-deployment', '')
+            comp_config = self.config.get(component, {})
+            deploy_name = comp_config.get('k8s_deploy_name', '')
+            if deploy_name and deploy_name in k8s_images:
+                live_image = k8s_images[deploy_name]
+                is_stale = 'eclipse-temurin' not in live_image and 'temurin' not in live_image
+                if is_stale:
+                    backup_file.unlink()
+                    removed.append(f"{component} (live: {live_image.split('/')[-1]})")
+                else:
+                    kept.append(component)
+            else:
+                # Pod not running — backup may or may not be stale; leave it
+                kept.append(f"{component} (not in cluster — kept)")
+
+        if removed:
+            for r in removed:
+                print(f"  🗑  Removed stale backup: {r}")
+        if kept:
+            for k in kept:
+                print(f"  ✅ Kept active backup: {k}")
+        if not removed and not kept:
+            print("  ✅ No backup files found")
+
     def patch_deployment(self, component: str, dry_run: bool = False) -> bool:
         """
         Patch the Deployment.yaml for a given component
@@ -1200,14 +1266,21 @@ Examples:
         action='store_true',
         help='Run the PHEE operator locally via ./gradlew run (scales down in-cluster operator first reminder)'
     )
+    parser.add_argument(
+        '--clean-backups',
+        action='store_true',
+        help='Remove stale localdev backup files whose deployments have been replaced by a full redeploy'
+    )
 
     args = parser.parse_args()
-    
+
     try:
         patcher = LocalDevPatcher(args.config)
-        
+
         if args.run:
             patcher.run_operator()
+        elif args.clean_backups:
+            patcher.clean_backups()
         elif args.status:
             patcher.status_all()
         elif args.check_git_status:
