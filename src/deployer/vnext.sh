@@ -24,12 +24,12 @@ deploy_vnext() {
   log_ok
 
   log_step "Copying vNext manifests to working directory"
-  mkdir -p "$APPS_DIR/vnext/packages/installer/manifests"
-  cp -r "$BASE_DIR/src/deployer/manifests/vnext/." "$APPS_DIR/vnext/packages/installer/manifests/"
+  mkdir -p "$DEPLOY_WORK_DIR/vnext"
+  cp -r "$BASE_DIR/src/deployer/manifests/vnext/." "$DEPLOY_WORK_DIR/vnext/"
   log_ok
 
   log_step "Updating FQDNs in manifests"
-  apply_domain_to_dir "$APPS_DIR/vnext/packages/installer/manifests" "$GAZELLE_DOMAIN" "local"
+  apply_domain_to_dir "$DEPLOY_WORK_DIR/vnext" "$GAZELLE_DOMAIN" "local"
   log_ok
 
   log_step "Restoring vNext MongoDB demo data"

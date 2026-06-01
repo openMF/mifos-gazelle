@@ -64,7 +64,7 @@ fi
 # these are not user configurables - for internal script use only
 ########################################################################
 BASE_DIR=$( cd $(dirname "$0") ; pwd )
-APPS_DIR="$BASE_DIR/repos"
+DEPLOY_WORK_DIR="/tmp/gazelle-deploy"
 CONFIG_DIR="$BASE_DIR/config"
 UTILS_DIR="$BASE_DIR/src/utils"
 DATA_LOADING_DIR="$UTILS_DIR/data-loading"
@@ -84,13 +84,13 @@ INFRA_CHART_DIR="$BASE_DIR/src/deployer/helm/infra"
 NGINX_VALUES_FILE="$CONFIG_DIR/nginx_values.yaml"
 
 # Mojaloop vNext 
-VNEXT_LAYER_DIRS=("$APPS_DIR/vnext/packages/installer/manifests/crosscut" "$APPS_DIR/vnext/packages/installer/manifests/apps" "$APPS_DIR/vnext/packages/installer/manifests/reporting")
+VNEXT_LAYER_DIRS=("$DEPLOY_WORK_DIR/vnext/crosscut" "$DEPLOY_WORK_DIR/vnext/apps" "$DEPLOY_WORK_DIR/vnext/reporting")
 
 #PaymentHub EE 
 PH_VALUES_FILE="$CONFIG_DIR/ph_values.yaml"
 
 #MifosX 
-MIFOSX_MANIFESTS_DIR="$APPS_DIR/mifosx/kubernetes/manifests"
+MIFOSX_MANIFESTS_DIR="$DEPLOY_WORK_DIR/mifosx"
 
 # Source commandline.sh
 source "$RUN_DIR/src/commandline/commandline.sh"

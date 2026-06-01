@@ -402,8 +402,8 @@ def register_client_with_vnext(headers, tenant_id, mobile_number, currency="USD"
     vnext_headers = {
         "fspiop-source": tenant_id,
         "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Accept": "application/json",
-        "Content-Type": "application/json"
+        "Accept": "application/vnd.interoperability.participants+json;version=1.1",
+        "Content-Type": "application/vnd.interoperability.participants+json;version=1.1"
     }
     try:
         resp = requests.post(url, headers=vnext_headers, json=payload, verify=False, timeout=30)
@@ -476,7 +476,6 @@ def register_beneficiary_with_identity_mapper(tenant_id, mobile_number, account_
             resp_json = response.json()
             if 'responseCode' in resp_json:
                 print(f"✓ Registered {mobile_number} → account {account_id} @ {tenant_id} (payer: {registering_institution})", file=sys.stderr)
-                print(f"   Response: {resp_json.get('responseDescription', 'OK')}", file=sys.stderr)
                 return True
         except:
             pass

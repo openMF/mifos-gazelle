@@ -31,9 +31,9 @@ deploy_mifosx_from_yaml() {
     create_namespace "$MIFOSX_NAMESPACE"
     log_ok
 
-    log_step "Copying  MifosX manifests to working directory"
-    mkdir -p "$APPS_DIR/mifosx/kubernetes/manifests"
-    cp -r "$BASE_DIR/src/deployer/manifests/mifosx/." "$APPS_DIR/mifosx/kubernetes/manifests/"
+    log_step "Copying MifosX manifests to working directory"
+    mkdir -p "$DEPLOY_WORK_DIR/mifosx"
+    cp -r "$BASE_DIR/src/deployer/manifests/mifosx/." "$DEPLOY_WORK_DIR/mifosx/"
     log_ok
 
     log_step "Updating FQDNs in manifests"
