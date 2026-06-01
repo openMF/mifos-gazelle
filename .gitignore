@@ -172,7 +172,7 @@ mojaloop/
 ph/
 fineract/
 apps/
-repos/ 
+repos/
 
 # OS generated files #
 ######################
@@ -195,7 +195,5 @@ src/utils/data-loading/*.csv
 src/utils/batch/*.csv
 
 # AI related metadata
-.claude*
 *.openai
 *.copilot
-CLAUDE.local.md
