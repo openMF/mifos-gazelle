@@ -107,9 +107,26 @@ deploy_helm_chart_from_dir() {
 create_namespace() {
   local namespace=$1
 
-  # Check if the namespace already exists
-  if ! kubectl get namespace "$namespace" >> /dev/null 2>&1; then
-    kubectl create namespace "$namespace" >> /dev/null 2>&1
+  # If namespace is in Terminating state, wait for natural deletion then force-clear
+  # finalizers if it's stuck (common when operator was stopped before CR finalizers
+  # were removed, or when a previous deploy was interrupted mid-teardown).
+  if kubectl get namespace "$namespace" > /dev/null 2>&1; then
+    local phase
+    phase=$(kubectl get namespace "$namespace" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [[ "$phase" == "Terminating" ]]; then
+      kubectl wait --for=delete namespace/"$namespace" --timeout=60s > /dev/null 2>&1 || true
+      # If still stuck, force-remove namespace-level finalizers so Kubernetes can proceed
+      if kubectl get namespace "$namespace" > /dev/null 2>&1; then
+        kubectl patch namespace "$namespace" --type=merge \
+          -p '{"spec":{"finalizers":null}}' > /dev/null 2>&1 || true
+        kubectl wait --for=delete namespace/"$namespace" --timeout=60s > /dev/null 2>&1 || true
+      fi
+    fi
+  fi
+
+  # Create namespace if it still doesn't exist
+  if ! kubectl get namespace "$namespace" > /dev/null 2>&1; then
+    kubectl create namespace "$namespace" > /dev/null 2>&1
     check_command_execution $? "kubectl create namespace $namespace"
   fi
 
