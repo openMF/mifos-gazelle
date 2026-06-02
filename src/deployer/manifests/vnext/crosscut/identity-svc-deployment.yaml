@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: identity-svc
+    mojaloop.layer: crosscut
+  name: identity-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      mojaloop.service: identity-svc
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+      creationTimestamp: null
+      labels:
+        mojaloop.service: identity-svc
+        mojaloop.layer: crosscut
+    spec:
+      containers:
+        - env:
+            - name: KAFKA_URL
+              value: kafka.infra.svc.cluster.local:9092
+            - name: KAFKA_AUDITS_TOPIC
+              value: audits
+            - name: KAFKA_LOGS_TOPIC
+              value: logs
+            - name: MONGO_URL
+              value: mongodb://root:mongoDbPas42@mongodb.infra.svc.cluster.local:27017/
+            - name: PLATFORM_CONFIG_BASE_SVC_URL
+              value: http://platform-configuration-svc:3100
+            - name: AUTH_Z_SVC_BASEURL
+              value: http://authorization-svc:3202
+            - name: AUTH_N_SVC_BASEURL
+              value: http://authentication-svc:3201
+            - name: AUTH_N_TOKEN_ISSUER_NAME
+              value:  mojaloop.vnext.dev.default_issuer
+            - name: AUTH_N_TOKEN_AUDIENCE
+              value: mojaloop.vnext.dev.default_audience
+            - name: BUILTIN_IAM_BASE_URL
+              value: http://identity-svc:3203
+          image: mojaloop/security-bc-builtin-identity-svc:0.5.5
+          livenessProbe:
+            tcpSocket:
+              port: 3203
+            failureThreshold: 10
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 20
+          name: identity-svc
+          ports:
+            - containerPort: 3203
+          resources: {}
+      restartPolicy: Always
+status: {}

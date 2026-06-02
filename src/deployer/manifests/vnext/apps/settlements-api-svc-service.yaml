@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: settlements-api-svc
+    mojaloop.layer: apps
+  name: settlements-api-svc
+spec:
+  ports:
+    - name: "3600"
+      port: 3600
+      targetPort: 3600
+  selector:
+    mojaloop.service: settlements-api-svc
+status:
+  loadBalancer: {}

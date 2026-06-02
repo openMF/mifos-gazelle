@@ -174,6 +174,13 @@ fineract/
 apps/
 repos/
 
+# Vendored manifests under src/deployer must always be tracked,
+# but not Helm chart archives or downloaded chart dependencies
+!src/deployer/**
+src/deployer/**/charts/
+src/deployer/**/*.tgz
+src/deployer/**/*.lock
+
 # OS generated files #
 ######################
 .DS_Store

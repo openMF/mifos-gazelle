@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: scheduling-command-handler-svc
+    mojaloop.layer: crosscut
+  name: scheduling-command-handler-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      mojaloop.service: scheduling-command-handler-svc
+  strategy:
+      type: Recreate
+  template:
+    metadata:
+      annotations:
+      creationTimestamp: null
+      labels:
+          mojaloop.service: scheduling-command-handler-svc
+          mojaloop.layer: crosscut
+    spec:
+      containers:
+        - env:
+            - name: KAFKA_AUDITS_TOPIC
+              value: audits
+            - name: KAFKA_LOGS_TOPIC
+              value: logs
+            - name: KAFKA_URL
+              value: kafka.infra.svc.cluster.local:9092
+            - name: MONGO_URL
+              value: mongodb://root:mongoDbPas42@mongodb.infra.svc.cluster.local:27017/
+            - name: AUTH_N_SVC_BASEURL
+              value: http://authentication-svc:3201
+            - name: AUTH_N_TOKEN_AUDIENCE
+              value: mojaloop.vnext.dev.default_audience
+            - name: AUTH_N_TOKEN_ISSUER_NAME
+              value: mojaloop.vnext.dev.default_issuer
+            - name: AUTH_Z_SVC_BASEURL
+              value: http://authorization-svc:3202
+            - name: PARTICIPANTS_SVC_URL
+              value: http://participants-svc:3010
+            - name: PLATFORM_CONFIG_BASE_SVC_URL
+              value: http://platform-configuration-svc:3100
+            - name: SCHEDULING_HOST_LOCKS
+              value: redis-master.infra.svc.cluster.local
+          image: mojaloop/scheduling-bc-command-handler-svc:0.5.1
+          name: scheduling-command-handler-svc
+          resources: {}
+      restartPolicy: Always
