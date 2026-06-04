@@ -525,11 +525,6 @@ env_cleanall_main() {
     log_section "Gazelle environment teardown [${environment}]"
 
     if [[ "$environment" == "local" ]]; then
-        if ! is_local_cluster_installed; then
-            log_warn "Local kubernetes cluster is NOT installed — nothing to delete."
-            print_end_message_delete
-            return 0
-        fi
         delete_k8s_local_cluster
 
         log_step "/etc/hosts Gazelle entries"
