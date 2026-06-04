@@ -196,20 +196,68 @@ add_hosts() {
     log_ok
 }
 #------------------------------------------------------------------------------
-# Function: delete_k8s_local_cluster   
+# Function: remove_shell_config
+# Description: Removes the Gazelle-managed block from the user's shell rc and
+#              profile files.  Handles both macOS (zsh) and Linux (bash).
+#              Safe to call even if the block is not present.
+#------------------------------------------------------------------------------
+remove_shell_config() {
+    local shell_rc shell_profile
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        shell_rc="$k8s_user_home/.zshrc"
+        shell_profile="$k8s_user_home/.zprofile"
+    else
+        shell_rc="$k8s_user_home/.bashrc"
+        shell_profile="$k8s_user_home/.bash_profile"
+    fi
+
+    log_step "Shell config aliases block (${shell_rc##*/})"
+    if [[ -f "$shell_rc" ]]; then
+        perl -i -ne 'print unless /GAZELLE_START/ .. /GAZELLE_END/' "$shell_rc"
+        log_with_verbose_check "$debug" "$DEBUG" "Removed GAZELLE_START..GAZELLE_END block from $shell_rc"
+        log_ok
+    else
+        log_skipped
+    fi
+
+    log_step "Shell config KUBECONFIG export (${shell_profile##*/})"
+    if [[ -f "$shell_profile" ]]; then
+        perl -i -ne 'print unless /^export KUBECONFIG=/' "$shell_profile"
+        log_with_verbose_check "$debug" "$DEBUG" "Removed export KUBECONFIG= line from $shell_profile"
+        log_ok
+    else
+        log_skipped
+    fi
+}
+
+#------------------------------------------------------------------------------
+# Function: delete_k8s_local_cluster
 # Description: Deletes the local Kubernetes cluster and removes related configurations.
 #------------------------------------------------------------------------------
 delete_k8s_local_cluster() {
-    log_step "removing local kubernetes cluster"
-    rm -f /usr/local/bin/helm >> /dev/null 2>&1
-    /usr/local/bin/k3s-uninstall.sh >> /dev/null 2>&1
-    if [[ $? -eq 0 ]]; then
+    local _out _rc
+
+    log_step "k3s cluster (k3s-uninstall.sh)"
+    if [[ -x /usr/local/bin/k3s-uninstall.sh ]]; then
+        _out=$(/usr/local/bin/k3s-uninstall.sh 2>&1)
+        _rc=$?
+        if [[ $_rc -eq 0 ]]; then
+            log_ok
+        else
+            log_warn "k3s-uninstall.sh returned $_rc (may already be removed)"
+        fi
+        log_with_verbose_check "$debug" "$DEBUG" "$_out"
+    else
+        log_skipped
+    fi
+
+    log_step "/usr/local/bin/helm"
+    if [[ -f /usr/local/bin/helm ]]; then
+        rm -f /usr/local/bin/helm
         log_ok
     else
-        log_warn "k3s not installed"
+        log_skipped
     fi
-    perl -i -ne 'print unless /START_GAZELLE/ .. /END_GAZELLE/' "$k8s_user_home/.bashrc"
-    perl -i -ne 'print unless /START_GAZELLE/ .. /END_GAZELLE/' "$k8s_user_home/.bash_profile"
 }
 
 print_end_message() {
@@ -474,6 +522,8 @@ env_cleanall_main() {
     check_arch_ok
     verify_user
 
+    log_section "Gazelle environment teardown [${environment}]"
+
     if [[ "$environment" == "local" ]]; then
         if ! is_local_cluster_installed; then
             log_warn "Local kubernetes cluster is NOT installed — nothing to delete."
@@ -481,34 +531,87 @@ env_cleanall_main() {
             return 0
         fi
         delete_k8s_local_cluster
+
+        log_step "/etc/hosts Gazelle entries"
         remove_hosts
+        log_ok
+
+        remove_shell_config
         print_end_message_delete
 
     elif [[ "$environment" == "mac" ]]; then
-        # Remove nginx ingress before wiping the VM so helm state is cleaned
+        local _out _rc _colima
+
+        # Uninstall ingress-nginx before wiping the VM so Helm state is cleaned first
+        log_step "ingress-nginx Helm release"
         if is_cluster_accessible; then
-            log_step "Removing ingress-nginx"
-            helm uninstall ingress-nginx -n default >/dev/null 2>&1 || true
-            log_ok
+            _out=$(helm uninstall ingress-nginx -n default 2>&1)
+            _rc=$?
+            if [[ $_rc -eq 0 ]]; then
+                log_ok
+            else
+                log_skipped
+            fi
+            log_with_verbose_check "$debug" "$DEBUG" "$_out"
         else
-            log_warn "Kubernetes cluster is not accessible — skipping nginx cleanup"
+            log_skipped
         fi
+
+        log_step "/etc/hosts Gazelle entries"
         remove_hosts
-        local colima
-        if colima=$(find_colima); then
-            log_step "Deleting Colima VM (full cleanall)"
-            sudo -u "$k8s_user" "$colima" stop 2>/dev/null || true
-            sudo -u "$k8s_user" "$colima" delete --yes 2>/dev/null || true
-            rm -rf "$k8s_user_home/.colima" 2>/dev/null || true
-            log_ok
-            # Clean up stale kubeconfig/docker context entries
-            kubectl config delete-context colima >/dev/null 2>&1 || true
-            sudo -u "$k8s_user" docker context rm colima >/dev/null 2>&1 || true
+        log_ok
+
+        remove_shell_config
+
+        if _colima=$(find_colima); then
+            log_step "Colima VM: stop"
+            _out=$(sudo -u "$k8s_user" "$_colima" stop 2>&1)
+            _rc=$?
+            if [[ $_rc -eq 0 ]]; then
+                log_ok
+            else
+                log_warn "colima stop returned $_rc (may already be stopped)"
+            fi
+            log_with_verbose_check "$debug" "$DEBUG" "$_out"
+
+            log_step "Colima VM: delete"
+            _out=$(sudo -u "$k8s_user" "$_colima" delete --yes 2>&1)
+            _rc=$?
+            if [[ $_rc -eq 0 ]]; then
+                log_ok
+            else
+                log_failed "colima delete returned $_rc"
+            fi
+            log_with_verbose_check "$debug" "$DEBUG" "$_out"
+
+            log_step "~/.colima state directory"
+            if [[ -d "$k8s_user_home/.colima" ]]; then
+                rm -rf "$k8s_user_home/.colima"
+                log_ok
+            else
+                log_skipped
+            fi
+
+            log_step "kubectl context: colima"
+            _out=$(kubectl config delete-context colima 2>&1)
+            _rc=$?
+            [[ $_rc -eq 0 ]] && log_ok || log_skipped
+            log_with_verbose_check "$debug" "$DEBUG" "$_out"
+
+            log_step "docker context: colima"
+            _out=$(sudo -u "$k8s_user" docker context rm colima 2>&1)
+            _rc=$?
+            [[ $_rc -eq 0 ]] && log_ok || log_skipped
+            log_with_verbose_check "$debug" "$DEBUG" "$_out"
+        else
+            log_warn "Colima not found — skipping VM cleanup"
         fi
         print_end_message_delete
 
     elif [[ "$environment" == "remote" ]]; then
+        log_step "/etc/hosts Gazelle entries"
         remove_hosts
+        log_ok
         print_end_message_delete
 
     else
