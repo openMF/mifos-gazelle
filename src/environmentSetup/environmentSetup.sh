@@ -308,7 +308,7 @@ configure_k8s_user_env() {
     grep "start of config added by mifos-gazelle" "$shell_rc" >/dev/null 2>&1
     if [[ $? -ne 0 ]]; then
         log_step "Configure user shell for kubernetes"
-        printf "%s\n" "$start_message" >> "$shell_rc"
+        printf "\n%s\n" "$start_message" >> "$shell_rc"
         echo "$completion_cmd" >> "$shell_rc"
         echo "alias k=kubectl " >> "$shell_rc"
         echo "$complete_cmd" >> "$shell_rc"
