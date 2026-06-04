@@ -24,7 +24,8 @@ brew_available() {
 }
 
 check_arch_ok() {
-    local arch=$(uname -m)
+    local arch
+    arch=$(uname -m)
     if [[ "$arch" != "x86_64" && "$arch" != "arm64" && "$arch" != "aarch64" ]]; then
         printf " **** Error Unknown CPU architecture : mifos-gazelle only works properly with x86_64, arm64, or aarch64 architectures today  *****\n"
         exit 1 
@@ -55,8 +56,8 @@ check_resources_ok() {
 set_linux_os_distro() {
     LINUX_VERSION="Unknown"
     if [ -x "/usr/bin/lsb_release" ]; then
-        LINUX_OS=`lsb_release --d | perl -ne 'print if s/^.*Ubuntu.*(\d+).(\d+).*$/Ubuntu/' `
-        LINUX_VERSION=`/usr/bin/lsb_release --d | perl -ne 'print $& if m/(\d+)/' `
+        LINUX_OS=$(lsb_release --d | perl -ne 'print if s/^.*Ubuntu.*(\d+).(\d+).*$/Ubuntu/')
+        LINUX_VERSION=$(/usr/bin/lsb_release --d | perl -ne 'print $& if m/(\d+)/')
     else
         LINUX_OS="Untested"
     fi
@@ -96,8 +97,8 @@ verify_user() {
         printf "** \n"
         exit 1
     fi
-    if [[ `id -u $k8s_user >/dev/null 2>&1; echo $?` == 0 ]]; then
-        if [[ `id -u $k8s_user` == 0 ]]; then
+    if [[ $(id -u "$k8s_user" >/dev/null 2>&1; echo $?) == 0 ]]; then
+        if [[ $(id -u "$k8s_user") == 0 ]]; then
             printf "** Error: The user specified by -u should be a non-root user ** \n"
             exit 1
         fi
@@ -107,7 +108,7 @@ verify_user() {
         printf "** \n"
         exit 1
     fi
-    k8s_user_home=`eval echo "~$k8s_user"`
+    k8s_user_home=$(eval echo "~$k8s_user")
 }
 
 # check which kubernetes related tools are installed 

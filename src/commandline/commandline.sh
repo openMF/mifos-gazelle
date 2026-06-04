@@ -269,7 +269,7 @@ auto_detect_environment() {
 #------------------------------------------------------------------------------
 check_duplicates() {
     local -n arr=$1
-    declare -A seen
+    local -A seen
     
     for app in "${arr[@]}"; do
         if [[ ${seen[$app]} ]]; then
@@ -354,12 +354,12 @@ validate_inputs() {
         if [[ " $apps " =~ " infra " ]]; then
             if [[ "$mode" == "deploy" ]]; then
                 # for mode = deploy ensure 'infra' is first app if present
-                apps="infra $(echo $apps | sed 's/infra//')"
-                apps=$(echo $apps | xargs)
+                apps="infra $(echo "$apps" | sed 's/infra//')"
+                apps=$(echo "$apps" | xargs)
             else # mode = cleanapps
                 # for mode = cleanapps ensure 'infra' is last app if present
-                apps="$(echo $apps | sed 's/infra//') infra"
-                apps=$(echo $apps | xargs)
+                apps="$(echo "$apps" | sed 's/infra//') infra"
+                apps=$(echo "$apps" | xargs)
             fi
         fi
         log_with_verbose_check "$debug" "$DEBUG" "Final app order: $apps"
@@ -406,7 +406,8 @@ validate_inputs() {
             exit 1
         fi
 
-        local os_version=$(lsb_release -r -s | cut -d'.' -f1)
+        local os_version
+        os_version=$(lsb_release -r -s | cut -d'.' -f1)
         if [[ ! " $ubuntu_ok_versions_list " =~ " $os_version " ]]; then
             log_error "Ubuntu version '$os_version' is not supported. Supported versions: $ubuntu_ok_versions_list."
             show_usage
@@ -493,15 +494,15 @@ CONFIG_FILE_PATH="$DEFAULT_CONFIG_FILE"
 main() {
     # Determine config file path early (before full option parsing) so that
     # logging can be set up before welcome() prints anything.
-    local _early_config="$DEFAULT_CONFIG_FILE"
-    local _args=("$@")
-    for ((i=0; i<${#_args[@]}; i++)); do
-        if [[ "${_args[i]}" == "-f" && $((i+1)) -lt ${#_args[@]} ]]; then
-            _early_config="${_args[$((i+1))]}"
+    local early_config="$DEFAULT_CONFIG_FILE"
+    local args=("$@")
+    for ((i=0; i<${#args[@]}; i++)); do
+        if [[ "${args[i]}" == "-f" && $((i+1)) -lt ${#args[@]} ]]; then
+            early_config="${args[$((i+1))]}"
             break
         fi
     done
-    setup_logging "$_early_config"
+    setup_logging "$early_config"
 
     welcome
     install_crudini
@@ -511,7 +512,7 @@ main() {
         exit 1
     fi
 
-    declare -A cmd_args_map
+    local -A cmd_args_map
     get_options cmd_args_map "$@"
 
     for key in "${!cmd_args_map[@]}"; do

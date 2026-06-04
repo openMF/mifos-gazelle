@@ -9,8 +9,8 @@
 #   $2 - (Optional) Timeout in seconds to wait for the fineract-server pod to be ready. Default is 600 seconds.
 #------------------------------------------------------------------------------
 deploy_mifosx_from_yaml() {
-    manifests_dir=$1
-    timeout_secs=${2:-600}  # Default timeout of 10 minutes if not specified
+    local manifests_dir="$1"
+    local timeout_secs="${2:-600}"
 
     log_section "Deploying MifosX"
 
@@ -115,7 +115,7 @@ wait_for_fineract_api_ready() {
         log_with_verbose_check "$debug" "$DEBUG" "Tenant '${tenant}' schema not ready — HTTP ${clients_code:-000} (${elapsed}s/${timeout}s)"
       fi
 
-      sleep $retry_interval
+      sleep "$retry_interval"
     done
   done
 
@@ -137,6 +137,7 @@ generate_mifosx_and_vnext_data() {
   local retry_cmd="$RUN_DIR/run.sh -m deploy -a setup-data -f \"$CONFIG_FILE_PATH\""
 
   while [[ $elapsed -lt $timeout ]]; do
+    local result_vnext result_mifosx
     is_app_running "vnext"
     result_vnext=$?
     is_app_running "mifosx"

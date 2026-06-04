@@ -7,9 +7,10 @@
 # note this isn't used for k3s cluster health checking just installation verification
 #------------------------------------------------------------------------------
 check_k3s_cluster_status() {
+    local status
     status=$(
-        k3s check-config 2>/dev/null | 
-        perl -ne 's/\e\[[0-9;]*m//g; if (/STATUS: (pass|fail)/) { print "$1\n" }' | 
+        k3s check-config 2>/dev/null |
+        perl -ne 's/\e\[[0-9;]*m//g; if (/STATUS: (pass|fail)/) { print "$1\n" }' |
         tr -d '[:space:]'
     )
     if [[ "$status" == "pass" ]]; then
@@ -23,7 +24,6 @@ check_k3s_cluster_status() {
 # Install k3s lightweight Kubernetes cluster
 #------------------------------------------------------------------------------
 install_k3s() {
-    # TODO check this i.e. do we need to remove old kube config like this 
     rm -rf "$k8s_user_home/.kube" >> /dev/null 2>&1
     log_step "Installing k3s v${k8s_version} for user [${k8s_user}]"
     curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE="644" \
@@ -37,7 +37,7 @@ install_k3s() {
         exit 1
     fi
 
-    rm -rf $kubeconfig_path
+    rm -rf "$kubeconfig_path"
     mkdir -p "$(dirname "$kubeconfig_path")"
     chown "$k8s_user" "$(dirname "$kubeconfig_path")"
     cp /etc/rancher/k3s/k3s.yaml "$kubeconfig_path"
@@ -65,12 +65,13 @@ EOF
 # Description: Returns 0 if the NGINX ingress pod is running, 1 otherwise.
 #------------------------------------------------------------------------------
 check_nginx_running() {
+    local nginx_pod_name pod_status
     nginx_pod_name=$(kubectl get pods -n default --no-headers -o custom-columns=":metadata.name" 2>/dev/null | grep nginx | head -n 1)
     if [ -z "$nginx_pod_name" ]; then
         return 1
     fi
     pod_status=$(kubectl get pod -n default "$nginx_pod_name" -o jsonpath='{.status.phase}' 2>/dev/null)
-    if [ "$pod_status" == "Running" ]; then
+    if [[ "$pod_status" == "Running" ]]; then
         return 0
     else
         return 1
@@ -82,6 +83,7 @@ check_nginx_running() {
 # Description: Retrieves and displays the external IP or hostname of the NGINX Ingress Controller
 #------------------------------------------------------------------------------
 get_ingress_ip() {
+    local ingress_ip
     ingress_ip=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
     if [ -z "$ingress_ip" ]; then
         ingress_ip=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
@@ -248,6 +250,7 @@ install_k8s_tools() {
         if command -v "$tool" >/dev/null 2>&1; then
             # For kubectl, also verify the installed version matches the required version
             if [[ "$tool" == "kubectl" ]]; then
+                local installed_ver
                 installed_ver=$(kubectl version --client -o json 2>/dev/null | grep -o '"gitVersion":"[^"]*"' | head -1 | cut -d'"' -f4)
                 if [[ "$installed_ver" != "$KUBECTL_VERSION" ]]; then
                     log_with_verbose_check "$debug" "$INFO" "kubectl $installed_ver installed but $KUBECTL_VERSION required — reinstalling"
@@ -298,7 +301,7 @@ install_k8s_tools() {
 # Description: Reports basic information about the Kubernetes cluster.
 #------------------------------------------------------------------------------
 report_cluster_info() {
-    #export KUBECONFIG="$kubeconfig_path"
+    local num_nodes k8s_version
     num_nodes=$(kubectl get nodes --no-headers | wc -l)
     k8s_version=$(kubectl version | grep Server | awk '{print $3}')
     printf "\r==> Cluster is available.\n"

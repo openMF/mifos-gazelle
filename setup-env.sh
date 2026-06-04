@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # setup-env.sh -- Privileged environment setup and teardown for Mifos Gazelle.
 #
 # Run with sudo once per machine to install k3s/Colima, OS packages,
@@ -12,37 +12,37 @@
 # macOS ships bash 3.2 which lacks associative arrays (declare -A) and
 # name references (local -n). Re-exec with Homebrew bash 5 when needed.
 if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
-    for _brew_bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do
-        if [[ -x "$_brew_bash" ]]; then
-            exec "$_brew_bash" "$0" "$@"
+    for brew_bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        if [[ -x "$brew_bash" ]]; then
+            exec "$brew_bash" "$0" "$@"
         fi
     done
-    _brew_bin=""
-    for _candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-        [[ -x "$_candidate" ]] && _brew_bin="$_candidate" && break
+    brew_bin=""
+    for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        [[ -x "$candidate" ]] && brew_bin="$candidate" && break
     done
-    if [[ -z "$_brew_bin" ]]; then
+    if [[ -z "$brew_bin" ]]; then
         echo "ERROR: bash 4+ and Homebrew are both required on macOS." >&2
         echo "       Install Homebrew from https://brew.sh then re-run." >&2
         exit 1
     fi
-    _brew_user="${SUDO_USER:-}"
-    if [[ -z "$_brew_user" || "$_brew_user" == "root" ]]; then
-        _brew_user=$(stat -f '%Su' /dev/console 2>/dev/null || echo "")
+    brew_user="${SUDO_USER:-}"
+    if [[ -z "$brew_user" || "$brew_user" == "root" ]]; then
+        brew_user=$(stat -f '%Su' /dev/console 2>/dev/null || echo "")
     fi
-    if [[ -z "$_brew_user" || "$_brew_user" == "root" ]]; then
+    if [[ -z "$brew_user" || "$brew_user" == "root" ]]; then
         echo "ERROR: Cannot determine a non-root user to run 'brew install bash'." >&2
         echo "       Please run: brew install bash" >&2
         exit 1
     fi
     echo "INFO   bash 4+ not found. Installing via Homebrew (this may take a moment)..."
-    if ! sudo -u "$_brew_user" "$_brew_bin" install bash; then
+    if ! sudo -u "$brew_user" "$brew_bin" install bash; then
         echo "ERROR: 'brew install bash' failed. Please install it manually and re-run." >&2
         exit 1
     fi
-    for _brew_bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do
-        if [[ -x "$_brew_bash" ]]; then
-            exec "$_brew_bash" "$0" "$@"
+    for brew_bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        if [[ -x "$brew_bash" ]]; then
+            exec "$brew_bash" "$0" "$@"
         fi
     done
     echo "ERROR: bash 4+ still not found after install. Please check your Homebrew setup." >&2
@@ -60,7 +60,7 @@ fi
 ########################################################################
 # GLOBAL VARS (subset of run.sh — only what env setup needs)
 ########################################################################
-BASE_DIR=$( cd $(dirname "$0") ; pwd )
+BASE_DIR="$( cd "$(dirname "$0")" ; pwd )"
 APPS_DIR="$BASE_DIR/repos"
 CONFIG_DIR="$BASE_DIR/config"
 UTILS_DIR="$BASE_DIR/src/utils"
@@ -108,15 +108,15 @@ show_setup_env_usage() {
 #------------------------------------------------------------------------------
 main_setup_env() {
     # Early config detection for logging setup
-    local _early_config="$DEFAULT_CONFIG_FILE"
-    local _args=("$@")
-    for ((i=0; i<${#_args[@]}; i++)); do
-        if [[ "${_args[i]}" == "-f" && $((i+1)) -lt ${#_args[@]} ]]; then
-            _early_config="${_args[$((i+1))]}"
+    local early_config="$DEFAULT_CONFIG_FILE"
+    local args=("$@")
+    for ((i=0; i<${#args[@]}; i++)); do
+        if [[ "${args[i]}" == "-f" && $((i+1)) -lt ${#args[@]} ]]; then
+            early_config="${args[$((i+1))]}"
             break
         fi
     done
-    setup_logging "$_early_config"
+    setup_logging "$early_config"
 
     welcome
 
@@ -125,7 +125,7 @@ main_setup_env() {
 
     install_crudini
 
-    declare -A cmd_args
+    local -A cmd_args
     OPTIND=1
     while getopts "f:m:e:u:d:yhH" OPT; do
         case "$OPT" in
@@ -198,8 +198,8 @@ main_setup_env() {
             printf "\n*** WARNING: cleanall will delete the Colima VM, all deployed\n"
             printf "*** applications, and ALL local state (including ~/.colima).\n"
             printf "*** This cannot be undone. Continue? [y/N] "
-            read -r _confirm
-            if [[ "$_confirm" != "y" && "$_confirm" != "Y" ]]; then
+            read -r confirm
+            if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
                 printf "Aborted.\n"
                 exit 0
             fi

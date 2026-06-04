@@ -34,9 +34,11 @@ is_app_running() {
     local exit_code=$?
 
     # Strip any lines that look like debug/command echo (e.g., "DEBUG Running as ...")
+    local pod_list
     pod_list=$(echo "$raw_output" | grep -vE '(DEBUG|kubectl)' || true)
-    
+
     # Count total pods and ready pods
+    local total_pods ready_count
     total_pods=$(echo "$pod_list" | grep -c '^')
     # Modified to count pods where READY column shows all containers ready (e.g., 1/1, 2/2)
     # Match patterns like 1/1, 2/2, etc. where both numbers are the same and non-zero
@@ -437,8 +439,9 @@ apply_domain_to_dir() {
 #   $1 - Path to the Helm chart directory
 #------------------------------------------------------------------------------
 ensure_helm_dependencies() {
-  local chartPath=$1
-  local chartName=$(basename "$chartPath")
+  local chartPath="$1"
+  local chartName
+  chartName=$(basename "$chartPath")
   
   log_with_verbose_check "$debug" "$DEBUG" "Ensuring helm dependencies for $chartName"
 

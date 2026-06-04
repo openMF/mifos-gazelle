@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # utility script to show how to create self-signed 
 # TLS secrets for kubernetes ingress
 # 

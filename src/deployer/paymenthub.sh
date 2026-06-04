@@ -26,10 +26,10 @@ deploy_ph(){
   log_step "Removing existing Payment Hub resources"
   clean_phee
   manage_elastic_secrets delete "$INFRA_NAMESPACE"
-  kubectl wait --for=delete namespace/$PH_NAMESPACE --timeout=300s > /dev/null 2>&1 || true
+  kubectl wait --for=delete "namespace/$PH_NAMESPACE" --timeout=300s > /dev/null 2>&1 || true
   log_ok
 
-  kubectl wait --for=condition=ready pod --all -n $VNEXT_NAMESPACE --timeout=600s > /dev/null 2>&1
+  kubectl wait --for=condition=ready pod --all -n "$VNEXT_NAMESPACE" --timeout=600s > /dev/null 2>&1
 
   log_step "Creating namespace $PH_NAMESPACE"
   create_namespace "$PH_NAMESPACE"
@@ -79,19 +79,19 @@ clean_phee() {
   # Remove finalizers from all PaymentHubDeployment CRs first — if the operator
   # is stopped before this, those finalizers are never processed and the namespace
   # hangs in Terminating indefinitely.
-  kubectl get paymenthubdeployments -n $PH_NAMESPACE -o name 2>/dev/null \
-    | xargs -r -I{} kubectl patch {} -n $PH_NAMESPACE --type=merge -p '{"metadata":{"finalizers":[]}}' \
+  kubectl get paymenthubdeployments -n "$PH_NAMESPACE" -o name 2>/dev/null \
+    | xargs -r -I{} kubectl patch {} -n "$PH_NAMESPACE" --type=merge -p '{"metadata":{"finalizers":[]}}' \
     > /dev/null 2>&1 || true
 
-  kubectl scale deployment/ph-ee-operator --replicas=0 -n $PH_NAMESPACE > /dev/null 2>&1 || true
+  kubectl scale deployment/ph-ee-operator --replicas=0 -n "$PH_NAMESPACE" > /dev/null 2>&1 || true
 
-  if helm status $PH_INFRA_RELEASE_NAME -n $PH_NAMESPACE > /dev/null 2>&1; then
-    helm uninstall $PH_INFRA_RELEASE_NAME -n $PH_NAMESPACE > /dev/null 2>&1 || true
+  if helm status "$PH_INFRA_RELEASE_NAME" -n "$PH_NAMESPACE" > /dev/null 2>&1; then
+    helm uninstall "$PH_INFRA_RELEASE_NAME" -n "$PH_NAMESPACE" > /dev/null 2>&1 || true
   fi
 
   cleanup_phee_cluster_rbac
 
-  kubectl delete ns $PH_NAMESPACE --ignore-not-found=true --wait=false > /dev/null 2>&1 || true
+  kubectl delete ns "$PH_NAMESPACE" --ignore-not-found=true --wait=false > /dev/null 2>&1 || true
 }
 
 #------------------------------------------------------------------------------
@@ -122,7 +122,7 @@ cleanup_phee_cluster_rbac() {
     local kind name
     kind=$(echo "$line" | awk '{print $1}')
     name=$(echo "$line" | awk '{print $2}')
-    kubectl delete $kind $name --ignore-not-found > /dev/null 2>&1
+    kubectl delete "$kind" "$name" --ignore-not-found > /dev/null 2>&1
   done <<< "$resources"
 }
 
@@ -141,19 +141,20 @@ deploy_ph_infra_helm() {
 
   ensure_helm_dependencies "$pheeInfraChartPath"
 
-  local helm_cmd="helm upgrade --install $PH_INFRA_RELEASE_NAME $pheeInfraChartPath -n $PH_NAMESPACE --wait --timeout 1200s"
+  local helm_cmd=(helm upgrade --install "$PH_INFRA_RELEASE_NAME" "$pheeInfraChartPath" -n "$PH_NAMESPACE" --wait --timeout 1200s)
   if [ -n "$PH_VALUES_FILE" ]; then
-    helm_cmd="$helm_cmd -f $PH_VALUES_FILE"
+    helm_cmd+=(-f "$PH_VALUES_FILE")
   fi
 
   log_step "Helm install ($PH_INFRA_RELEASE_NAME)"
-  log_with_verbose_check "$debug" "$DEBUG" "→ $helm_cmd"
+  log_with_verbose_check "$debug" "$DEBUG" "→ ${helm_cmd[*]}"
 
+  local install_exit_code output
   if [ "$debug" = true ]; then
-    $helm_cmd
+    "${helm_cmd[@]}"
     install_exit_code=$?
   else
-    output=$($helm_cmd 2>&1)
+    output=$("${helm_cmd[@]}" 2>&1)
     install_exit_code=$?
   fi
 
@@ -288,7 +289,7 @@ deploy_ph_operator() {
   local jar_name="paymenthub-operator-1.0.0.jar"
 
   log_step "Applying PaymentHub operator CRD"
-  kubectl apply -f $deploy_dir/config/crd/ph-ee-CustomResourceDefinition.yaml > /dev/null || { log_failed "CRD apply failed"; return 1; }
+  kubectl apply -f "$deploy_dir/config/crd/ph-ee-CustomResourceDefinition.yaml" > /dev/null || { log_failed "CRD apply failed"; return 1; }
   kubectl wait --for=condition=Established crd/paymenthubdeployments.gazelle.mifos.io --timeout=60s > /dev/null 2>&1
   log_ok
 
@@ -302,7 +303,7 @@ deploy_ph_operator() {
   # Apply RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding, Role, RoleBinding).
   # Deployment is applied separately below based on mode — never applied here.
   log_step "Applying PaymentHub operator RBAC"
-  kubectl apply -f $deploy_dir/operator_rbac.yaml -n $PH_NAMESPACE > /dev/null || { log_failed "Operator RBAC apply failed"; return 1; }
+  kubectl apply -f "$deploy_dir/operator_rbac.yaml" -n "$PH_NAMESPACE" > /dev/null || { log_failed "Operator RBAC apply failed"; return 1; }
   log_ok
 
   # Determine deployment mode and generate the correct Deployment manifest.
@@ -328,10 +329,10 @@ deploy_ph_operator() {
     write_operator_deployment_image "$PH_OPERATOR_IMAGE" > "$dep_manifest"
   fi
 
-  kubectl apply -f $dep_manifest > /dev/null || { log_failed "Operator Deployment apply failed"; rm -f "$dep_manifest"; return 1; }
+  kubectl apply -f "$dep_manifest" > /dev/null || { log_failed "Operator Deployment apply failed"; rm -f "$dep_manifest"; return 1; }
   rm -f "$dep_manifest"
 
-  if ! kubectl rollout status deployment/ph-ee-operator -n $PH_NAMESPACE --timeout=300s > /dev/null 2>&1; then
+  if ! kubectl rollout status deployment/ph-ee-operator -n "$PH_NAMESPACE" --timeout=300s > /dev/null 2>&1; then
     log_warn "Operator pod did not start — check: kubectl logs deployment/ph-ee-operator -n $PH_NAMESPACE"
   else
     log_ok
@@ -345,7 +346,7 @@ deploy_ph_operator() {
   cr_rendered="${cr_rendered}.yaml"
   chmod 644 "$cr_rendered"
   generate_phee_crs > "$cr_rendered"
-  kubectl apply -f $cr_rendered > /dev/null || { log_failed "CR apply failed"; rm -f "$cr_rendered"; return 1; }
+  kubectl apply -f "$cr_rendered" > /dev/null || { log_failed "CR apply failed"; rm -f "$cr_rendered"; return 1; }
   rm -f "$cr_rendered"
   log_ok
 }
@@ -385,7 +386,7 @@ wait_for_phee_crs_ready() {
 
   while [ "$elapsed" -lt "$timeout" ]; do
     local cr_output
-    cr_output=$(kubectl get paymenthubdeployments -n $PH_NAMESPACE \
+    cr_output=$(kubectl get paymenthubdeployments -n "$PH_NAMESPACE" \
       -o jsonpath='{range .items[?(@.spec.enabled==true)]}{.metadata.name}:{.status.ready} {end}' 2>/dev/null \
       | tr ' ' '\n' | grep -v '^$')
 

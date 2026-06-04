@@ -33,10 +33,11 @@ deploy_vnext() {
   log_ok
 
   log_step "Restoring vNext MongoDB demo data"
-  vnext_restore_demo_data $CONFIG_DIR "mongodump.gz" $INFRA_NAMESPACE
+  vnext_restore_demo_data "$CONFIG_DIR" "mongodump.gz" "$INFRA_NAMESPACE"
   # log_ok is called inside vnext_restore_demo_data on success
 
   local last_layer_index=$(( ${#VNEXT_LAYER_DIRS[@]} - 2 ))
+  local folder
   for index in "${!VNEXT_LAYER_DIRS[@]}"; do
     folder="${VNEXT_LAYER_DIRS[index]}"
     log_step "Applying layer $((index+1)) manifests"
@@ -99,6 +100,5 @@ vnext_restore_demo_data() {
         return 1
     fi
 
-    rm -rf "${temp_dir:-}"
     log_ok
 }
