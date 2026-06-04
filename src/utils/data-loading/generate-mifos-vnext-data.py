@@ -410,8 +410,8 @@ def register_client_with_vnext(headers, tenant_id, mobile_number, currency="USD"
         if 200 <= resp.status_code < 300:
             print(f"vNext registration OK for {mobile_number}", file=sys.stderr)
             return True
-        # 500 usually means duplicate association — verify with GET
-        if resp.status_code == 500:
+        # 422 (duplicate association per Mojaloop spec) or 500 — verify with GET
+        if resp.status_code in (422, 500):
             get_resp = requests.get(url, headers={"Accept": "application/json"}, verify=False, timeout=30)
             if get_resp.status_code == 200:
                 existing = get_resp.json()
