@@ -194,7 +194,7 @@ main_setup_env() {
     if [[ "$mode" == "setup" ]]; then
         env_setup_main
     elif [[ "$mode" == "cleanall" ]]; then
-        if [[ "$environment" == "mac" ]]; then
+        if [[ "$environment" == "mac" && "${auto_yes:-false}" != "true" ]]; then
             printf "\n*** WARNING: cleanall will delete the Colima VM, all deployed\n"
             printf "*** applications, and ALL local state (including ~/.colima).\n"
             printf "*** This cannot be undone. Continue? [y/N] "

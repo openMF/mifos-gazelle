@@ -101,7 +101,7 @@ log_failed() {
 
 # Warning message (non-fatal)
 log_warn() {
-  echo -e "${YELLOW}WARN${RESET}   $*"
+  echo -e "${YELLOW}[ WARN ]${RESET}  $*"
 }
 
 # Error message (fatal — caller should exit after)

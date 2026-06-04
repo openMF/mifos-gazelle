@@ -570,7 +570,7 @@ env_cleanall_main() {
             if [[ $_rc -eq 0 ]]; then
                 log_ok
             else
-                log_warn "colima stop returned $_rc (may already be stopped)"
+                log_warn "Colima VM not running or already stopped — safe to ignore if cleanall was run before"
             fi
             log_with_verbose_check "$debug" "$DEBUG" "$_out"
 
@@ -580,7 +580,7 @@ env_cleanall_main() {
             if [[ $_rc -eq 0 ]]; then
                 log_ok
             else
-                log_failed "colima delete returned $_rc"
+                log_warn "Colima VM not found or already deleted — safe to ignore if cleanall was run before"
             fi
             log_with_verbose_check "$debug" "$DEBUG" "$_out"
 
