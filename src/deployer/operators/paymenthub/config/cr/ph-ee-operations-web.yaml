@@ -50,6 +50,20 @@ spec:
         app: ph-ee-operations-web
       sessionAffinity: None
       type: ClusterIP
+  livenessProbe:
+    path: /
+    port: 80
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /
+    port: 80
+    initialDelaySeconds: 20
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
   environment:
     - name: PH_OPS_BACKEND_SERVER_URL
       value: "https://ops-bk.GAZELLE_DOMAIN/api/v1"
