@@ -29,7 +29,7 @@ sudo ./setup-env.sh -e remote -u $USER
 ./run.sh -m deploy -a paymenthub
 ./run.sh -m deploy -a vnext
 ./run.sh -m deploy -a all -d true   # with debug output
-./run.sh -m deploy -a all -t 900    # custom timeout (seconds)
+# Increase startup_timeout in config/config.ini to adjust pod wait timeout
 ```
 
 ### Teardown
