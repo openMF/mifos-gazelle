@@ -402,16 +402,16 @@ def register_client_with_vnext(headers, tenant_id, mobile_number, currency="USD"
     vnext_headers = {
         "fspiop-source": tenant_id,
         "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Accept": "application/vnd.interoperability.participants+json;version=1.1",
-        "Content-Type": "application/vnd.interoperability.participants+json;version=1.1"
+        "Accept": "application/json",
+        "Content-Type": "application/json"
     }
     try:
         resp = requests.post(url, headers=vnext_headers, json=payload, verify=False, timeout=30)
         if 200 <= resp.status_code < 300:
             print(f"vNext registration OK for {mobile_number}", file=sys.stderr)
             return True
-        # 422 (duplicate association per Mojaloop spec) or 500 — verify with GET
-        if resp.status_code in (422, 500):
+        # 500 usually means duplicate association — verify with GET
+        if resp.status_code == 500:
             get_resp = requests.get(url, headers={"Accept": "application/json"}, verify=False, timeout=30)
             if get_resp.status_code == 200:
                 existing = get_resp.json()
