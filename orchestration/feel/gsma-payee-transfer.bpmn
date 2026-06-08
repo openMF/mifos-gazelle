@@ -52,7 +52,7 @@
     <bpmn:endEvent id="Event_0y2gm8f" name="Transaction request ended from payee">
       <bpmn:incoming>Flow_0jr8i67</bpmn:incoming>
     </bpmn:endEvent>
-    <bpmn:exclusiveGateway id="Gateway_01ji2gn">
+    <bpmn:exclusiveGateway id="Gateway_01ji2gn" default="Flow_05fdird">
       <bpmn:incoming>Flow_070pc0z</bpmn:incoming>
       <bpmn:outgoing>Flow_1fsohe8</bpmn:outgoing>
       <bpmn:outgoing>Flow_05fdird</bpmn:outgoing>

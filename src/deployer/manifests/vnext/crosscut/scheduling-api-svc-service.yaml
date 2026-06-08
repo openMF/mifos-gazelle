@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: scheduling-api-svc
+    mojaloop.layer: crosscut
+  name: scheduling-api-svc
+spec:
+  ports:
+    - name: "3150"
+      port: 3150
+      targetPort: 3150
+  selector:
+    mojaloop.service: scheduling-api-svc
+status:
+  loadBalancer: {}

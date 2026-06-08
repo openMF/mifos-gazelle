@@ -20,16 +20,9 @@ else
     exit 1
 fi
 
-# Override run_as_user if we're already the k8s user
 run_as_k8s_user() {
     local command="$1"
-    if [[ "$(whoami)" == "$k8s_user" ]]; then
-        # Already the right user, just run with KUBECONFIG
-        KUBECONFIG="$kubeconfig_path" eval "$command"
-    else
-        # Use the helper function
-        run_as_user "$command"
-    fi
+    KUBECONFIG="${KUBECONFIG:-$kubeconfig_path}" eval "$command"
 }
 
 # Demo data arrays

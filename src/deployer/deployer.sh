@@ -4,53 +4,9 @@
 source "$RUN_DIR/src/deployer/core.sh" || { echo "FATAL: Could not source core.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/vnext.sh" || { echo "FATAL: Could not source vnext.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/mifosx.sh" || { echo "FATAL: Could not source mifosx.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
-source "$RUN_DIR/src/deployer/phee.sh"   || { echo "FATAL: Could not source phee.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/deployer/paymenthub.sh" || { echo "FATAL: Could not source paymenthub.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/mastercard.sh" || { echo "FATAL: Could not source mastercard.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/utils/helpers.sh" || { echo "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
-
-#------------------------------------------------------------
-# Description : Clones/updates a Git repo. Reclones only if repo or branch missing.
-# Usage : clone_repo <branch> <repo_link> <target_dir> <dir_name>
-# Example: clone_repo main link target-dir repo-name
-#------------------------------------------------------------
-clone_repo() {
-  if [ "$#" -ne 4 ]; then
-    echo "Usage: clone_repo <branch> <repo_link> <target_directory> <cloned_directory_name>"
-    return 1
-  fi
-
-  local branch="$1"
-  local repo_link="$2"
-  local target_directory="$3"
-  local cloned_directory_name="$4"
-  local repo_path="$target_directory/$cloned_directory_name"
-
-  # Create target directory if it doesn't exist
-  run_as_user "mkdir -p \"$target_directory\" " >/dev/null 2>&1
-
-  # Check if repository and branch exist
-  if [ -d "$repo_path" ]; then
-    cd "$repo_path" || return 1
-    # Accept if branch exists as local ref, remote-tracking ref, or is currently checked out
-    if git show-ref --verify --quiet "refs/heads/$branch" \
-        || git show-ref --verify --quiet "refs/remotes/origin/$branch" \
-        || [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$branch" ]; then
-      return 0
-    fi
-    # Remove repo if branch doesn't exist anywhere
-    echo "Branch $branch not found in $repo_path. Recloning..."
-    rm -rf "$repo_path"
-  fi
-
-  # Clone the repository
-  run_as_user "git clone -b \"$branch\" \"$repo_link\" \"$repo_path\" " >/dev/null 2>&1
-  if [ $? -eq 0 ]; then
-    log_with_verbose_check "$debug" "$DEBUG" "Cloned $repo_link → $repo_path"
-  else
-    log_error "Failed to clone $repo_link to $repo_path"
-    return 1
-  fi
-}
 
 #------------------------------------------------------------
 # Description : Deletes K8s namespaces matching a regex pattern.
@@ -66,7 +22,7 @@ delete_resources_in_namespace_matching_pattern() {
         
     # Get all namespaces and filter them locally
     local all_namespaces_output matching_namespaces
-    all_namespaces_output=$(run_as_user "kubectl get namespaces -o name" 2>&1)
+    all_namespaces_output=$(kubectl get namespaces -o name 2>&1)
     check_command_execution $? "kubectl get namespaces -o name"
     
     # Filter the output for namespaces matching the pattern, stripping the "namespace/" prefix
@@ -86,7 +42,7 @@ delete_resources_in_namespace_matching_pattern() {
         fi
 
         # Delete the namespace (this removes all resources within it)
-        if ! run_as_user "kubectl delete ns \"$namespace\" --ignore-not-found=true" >> /dev/null 2>&1 ; then
+        if ! kubectl delete ns "$namespace" --ignore-not-found=true >> /dev/null 2>&1 ; then
             log_failed "Failed to delete namespace $namespace"
             exit_code=1
         fi
@@ -116,16 +72,25 @@ deploy_helm_chart_from_dir() {
     return 1
   fi
 
-  # Build helm install command
-  local helm_cmd="helm install --wait --timeout ${startup_timeout}s $release_name $chart_dir -n $namespace"
+  # Build helm command — upgrade --install is idempotent: works whether the
+  # release exists or not, avoiding "already exists" failures on re-runs.
+  local helm_cmd=(helm upgrade --install --wait --timeout "${startup_timeout}s" "$release_name" "$chart_dir" -n "$namespace")
   if [ -n "$values_file" ]; then
-      helm_cmd="$helm_cmd -f $values_file"
+      helm_cmd+=(-f "$values_file")
   fi
 
-  run_as_user "$helm_cmd" #> /dev/null 2>&1
-  check_command_execution $? "$helm_cmd"
-  
-  if is_app_running $namespace; then
+  # Run helm and capture the exit code WITHOUT calling exit here.
+  # deploy_infrastructure wraps this call with >/dev/null 2>&1 in non-debug
+  # mode to suppress verbose output.  Any exit called inside that suppressed
+  # block would terminate the whole script silently — returning lets the
+  # caller's check_command_execution show a visible error instead.
+  "${helm_cmd[@]}"
+  local helm_exit=$?
+  if [[ $helm_exit -ne 0 ]]; then
+    return $helm_exit
+  fi
+
+  if is_app_running "$namespace"; then
     return 0
   else
     log_error "Helm chart deployment failed in namespace '$namespace'."
@@ -142,21 +107,38 @@ deploy_helm_chart_from_dir() {
 create_namespace() {
   local namespace=$1
 
-  # Check if the namespace already exists
-  if ! run_as_user "kubectl get namespace \"$namespace\"" >> /dev/null 2>&1; then
-    # Create the namespace
-    run_as_user "kubectl create namespace \"$namespace\"" >> /dev/null 2>&1
+  # If namespace is in Terminating state, wait for natural deletion then force-clear
+  # finalizers if it's stuck (common when operator was stopped before CR finalizers
+  # were removed, or when a previous deploy was interrupted mid-teardown).
+  if kubectl get namespace "$namespace" > /dev/null 2>&1; then
+    local phase
+    phase=$(kubectl get namespace "$namespace" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [[ "$phase" == "Terminating" ]]; then
+      kubectl wait --for=delete namespace/"$namespace" --timeout=60s > /dev/null 2>&1 || true
+      # If still stuck, force-remove namespace-level finalizers so Kubernetes can proceed
+      if kubectl get namespace "$namespace" > /dev/null 2>&1; then
+        kubectl patch namespace "$namespace" --type=merge \
+          -p '{"spec":{"finalizers":null}}' > /dev/null 2>&1 || true
+        kubectl wait --for=delete namespace/"$namespace" --timeout=60s > /dev/null 2>&1 || true
+      fi
+    fi
+  fi
+
+  # Create namespace if it still doesn't exist
+  if ! kubectl get namespace "$namespace" > /dev/null 2>&1; then
+    kubectl create namespace "$namespace" > /dev/null 2>&1
     check_command_execution $? "kubectl create namespace $namespace"
   fi
 
   # Configure Docker Hub authentication for this namespace
   # Script exits silently if DOCKERHUB_USERNAME/PASSWORD not set
   if [[ -f "$UTILS_DIR/k3s-docker-login.sh" ]]; then
-    local docker_cmd="export DOCKERHUB_USERNAME='${DOCKERHUB_USERNAME:-}' DOCKERHUB_PASSWORD='${DOCKERHUB_PASSWORD:-}' DOCKERHUB_EMAIL='${DOCKERHUB_EMAIL:-}'; $UTILS_DIR/k3s-docker-login.sh \"$namespace\""
     if [ "$debug" = true ]; then
-      run_as_user "$docker_cmd"
+      DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}" DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD:-}" DOCKERHUB_EMAIL="${DOCKERHUB_EMAIL:-}" \
+        "$UTILS_DIR/k3s-docker-login.sh" "$namespace"
     else
-      run_as_user "$docker_cmd" > /dev/null 2>&1
+      DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}" DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD:-}" DOCKERHUB_EMAIL="${DOCKERHUB_EMAIL:-}" \
+        "$UTILS_DIR/k3s-docker-login.sh" "$namespace" > /dev/null 2>&1
     fi
   fi
 }
@@ -226,7 +208,7 @@ apply_kube_manifests() {
     # Apply persistence-related manifests first
     for file in "$directory"/*persistence*.yaml; do
       if [ -f "$file" ]; then
-        run_as_user "kubectl apply -f $file -n $namespace" >> /dev/null 2>&1
+        kubectl apply -f "$file" -n "$namespace" >> /dev/null 2>&1
         check_command_execution $? "kubectl apply -f $file -n $namespace"
       fi
   done
@@ -234,7 +216,7 @@ apply_kube_manifests() {
     # Apply other manifests
     for file in "$directory"/*.yaml; do
       if [[ "$file" != *persistence*.yaml && -f "$file" ]]; then
-        run_as_user "kubectl apply -f $file -n $namespace" >> /dev/null 2>&1
+        kubectl apply -f "$file" -n "$namespace" >> /dev/null 2>&1
         check_command_execution $? "kubectl apply -f $file -n $namespace"
       fi
     done
@@ -267,7 +249,7 @@ print_deployment_end_message() {
   echo
   if [[ "$data_gen_failed" == "true" ]]; then
     log_warn "Data generation did not complete — test payments and batch submissions will not work."
-    log_warn "Once the cluster is stable, re-run:  sudo $RUN_DIR/run.sh -a setup-data -f \"$CONFIG_FILE_PATH\""
+    log_warn "Once the cluster is stable, re-run:  $RUN_DIR/run.sh -m deploy -a setup-data -f \"$CONFIG_FILE_PATH\""
     echo
   fi
 }
@@ -293,9 +275,9 @@ delete_apps() {
         delete_resources_in_namespace_matching_pattern "$MIFOSX_NAMESPACE"
         log_ok
         ;;
-      "phee")
+      "paymenthub")
         log_step "Removing Payment Hub EE"
-        delete_resources_in_namespace_matching_pattern "$PH_NAMESPACE"
+        clean_phee
         log_ok
         ;;
       "infra")
@@ -357,15 +339,15 @@ deploy_apps() {
           data_gen_failed=true
         fi
         ;;
-      "phee")
+      "paymenthub")
         deploy_ph
         ;;
       "mastercard-demo")
         if [[ "$redeploy" == "true" ]]; then
           delete_apps "mastercard-demo"
         fi
-        if ! run_as_user "kubectl get namespace \"$PH_NAMESPACE\"" &> /dev/null; then
-          log_error "Payment Hub namespace not found. Deploy phee first: ./run.sh -a phee"
+        if ! kubectl get namespace "$PH_NAMESPACE" &> /dev/null; then
+          log_error "Payment Hub namespace not found. Deploy paymenthub first: ./run.sh -a paymenthub"
           exit 1
         fi
         log_with_verbose_check "$debug" "$DEBUG" "MASTERCARD_CBS_HOME=$MASTERCARD_CBS_HOME"

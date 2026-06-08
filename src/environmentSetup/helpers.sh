@@ -24,7 +24,8 @@ brew_available() {
 }
 
 check_arch_ok() {
-    local arch=$(uname -m)
+    local arch
+    arch=$(uname -m)
     if [[ "$arch" != "x86_64" && "$arch" != "arm64" && "$arch" != "aarch64" ]]; then
         printf " **** Error Unknown CPU architecture : mifos-gazelle only works properly with x86_64, arm64, or aarch64 architectures today  *****\n"
         exit 1 
@@ -40,23 +41,23 @@ check_resources_ok() {
         total_ram=$(free -g | awk '/^Mem:/{print $2}')
         free_space=$(df -BG ~ | awk '{print $4}' | tail -n 1 | sed 's/G//')
     fi
-    if [[ "$total_ram" -lt "$MIN_RAM" ]]; then
-        printf " ** Error: mifos-gazelle currently requires $MIN_RAM GBs to run properly \n"
-        printf "    Please increase RAM available before trying to run mifos-gazelle \n"
+    local req_ram="${k8s_mem:-16}"
+    if [[ "$total_ram" -lt "$req_ram" ]]; then
+        printf " ** Error: mifos-gazelle requires %s GB RAM; found %s GB\n" "$req_ram" "$total_ram"
+        printf "    Please increase available RAM before running mifos-gazelle\n"
         exit 1
     fi
-    if [[ "$free_space" -lt "$MIN_FREE_SPACE" ]] ; then
-        printf " ** Warning: mifos-gazelle currently requires %sGBs free storage in %s home directory  \n" "$MIN_FREE_SPACE" "$k8s_user"
-        printf "    but only found %sGBs free storage \n" "$free_space"
-        printf "    mifos-gazelle installation will continue, but beware it might fail later due to insufficient storage \n"
+    if [[ "$free_space" -lt "${min_free_space:-30}" ]]; then
+        printf " ** Warning: mifos-gazelle requires %s GB free in %s's home directory\n" "${min_free_space:-30}" "$k8s_user"
+        printf "    but only found %s GB free — installation may fail due to insufficient storage\n" "$free_space"
     fi
 }
 
 set_linux_os_distro() {
     LINUX_VERSION="Unknown"
     if [ -x "/usr/bin/lsb_release" ]; then
-        LINUX_OS=`lsb_release --d | perl -ne 'print if s/^.*Ubuntu.*(\d+).(\d+).*$/Ubuntu/' `
-        LINUX_VERSION=`/usr/bin/lsb_release --d | perl -ne 'print $& if m/(\d+)/' `
+        LINUX_OS=$(lsb_release --d | perl -ne 'print if s/^.*Ubuntu.*(\d+).(\d+).*$/Ubuntu/')
+        LINUX_VERSION=$(/usr/bin/lsb_release --d | perl -ne 'print $& if m/(\d+)/')
     else
         LINUX_OS="Untested"
     fi
@@ -96,8 +97,8 @@ verify_user() {
         printf "** \n"
         exit 1
     fi
-    if [[ `id -u $k8s_user >/dev/null 2>&1; echo $?` == 0 ]]; then
-        if [[ `id -u $k8s_user` == 0 ]]; then
+    if [[ $(id -u "$k8s_user" >/dev/null 2>&1; echo $?) == 0 ]]; then
+        if [[ $(id -u "$k8s_user") == 0 ]]; then
             printf "** Error: The user specified by -u should be a non-root user ** \n"
             exit 1
         fi
@@ -107,7 +108,7 @@ verify_user() {
         printf "** \n"
         exit 1
     fi
-    k8s_user_home=`eval echo "~$k8s_user"`
+    k8s_user_home=$(eval echo "~$k8s_user")
 }
 
 # check which kubernetes related tools are installed 

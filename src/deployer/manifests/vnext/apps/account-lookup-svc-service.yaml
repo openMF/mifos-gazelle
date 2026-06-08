@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: account-lookup-svc
+    mojaloop.layer: apps
+  name: account-lookup-svc
+spec:
+  ports:
+    - name: "3030"
+      port: 3030
+      targetPort: 3030
+  selector:
+    mojaloop.service: account-lookup-svc
+status:
+  loadBalancer: {}

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Check if the script is running on Ubuntu
 if [[ "$(lsb_release -d | awk '{print $2}')" != "Ubuntu" ]]; then

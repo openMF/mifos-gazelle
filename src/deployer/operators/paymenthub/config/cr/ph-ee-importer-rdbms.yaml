@@ -1,0 +1,68 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: ph-ee-importer-rdbms
+  namespace: paymenthub
+spec:
+  labels:
+    namespace: paymenthub
+  enabled: true
+  waitForGatewayEnabled: true
+  rbacEnabled: false
+  secretEnabled: true
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  image: docker.io/openmf/ph-ee-importer-rdbms:dev-latest
+  containerPort: 8000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 768M
+    requests:
+      cpu: 100m
+      memory: 384M
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: local,tenantsConnection
+    - name: DATASOURCE_CORE_USERNAME
+      value: mifos
+    - name: DATASOURCE_CORE_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: ph-ee-importer-rdbms-secret
+          key: database-password
+    - name: DATASOURCE_CORE_HOST
+      value: operationsmysql
+    - name: DATASOURCE_CORE_PORT
+      value: "3306"
+    - name: DATASOURCE_CORE_SCHEMA
+      value: tenants
+    - name: LOGGING_LEVEL_ROOT
+      value: INFO
+    - name: LOGGING_PATTERN_CONSOLE
+      value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
+    - name: APPLICATION_BUCKET-NAME
+      value: paymenthub-ee
+    - name: CLOUD_AWS_S3BASEURL
+      value: "http://minio:9000"
+    - name: CLOUD_AWS_REGION_STATIC
+      valueFrom:
+        secretKeyRef:
+          name: ph-ee-connector-bulk-secret
+          key: aws-region
+    - name: AWS_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: ph-ee-connector-bulk-secret
+          key: aws-access-key
+    - name: AWS_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: ph-ee-connector-bulk-secret
+          key: aws-secret-key

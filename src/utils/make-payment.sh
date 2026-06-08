@@ -189,48 +189,53 @@ function get_savings_account_id() {
     fi
 }
 
+# Function to get the most recent transaction ID for an account - used to baseline before payment
+function get_latest_tx_id() {
+    local account_id="$1"
+    local tenant="$2"
+    local response
+    response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
+        "$MIFOS_CORE_API/savingsaccounts/$account_id?associations=transactions")
+    echo "$response" | jq -r '.transactions[0].id // 0'
+}
+
 # Function to verify payment completion - GAZ-230
+# $5 baseline_tx_id: transaction ID snapshot taken before the payment was sent;
+#    only transactions with id > baseline are considered, preventing false matches
+#    when the same amount was transferred previously.
 function verify_payment() {
     local account_id="$1"
     local tenant="$2"
     local expected_amount="$3"
-    local type="$4" # "Payer" or "Payee" for logging
-    
+    local type="$4"
+    local baseline_tx_id="${5:-0}"
     local count=0
-    
-    echo -e "  Verifying $type transaction (checking every ${VERIFY_SLEEP_INTERVAL}s, max $((VERIFY_MAX_RETRIES * VERIFY_SLEEP_INTERVAL))s)..."
-    
+    local max_secs=$(( VERIFY_MAX_RETRIES * VERIFY_SLEEP_INTERVAL ))
+
     while [ $count -lt $VERIFY_MAX_RETRIES ]; do
-        # Fetch account summary and latest transactions
-        local response
+        local response balance new_tx_id new_tx_amount
         response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
             "$MIFOS_CORE_API/savingsaccounts/$account_id?associations=transactions")
 
-        # Extract Balance
-        local balance
         balance=$(echo "$response" | jq -r '.summary.accountBalance')
-        
-        # Extract Amount of the LAST transaction
-        local last_tx_amount
-        last_tx_amount=$(echo "$response" | jq -r '.transactions[0].amount // 0')
+        new_tx_id=$(echo "$response" | jq -r --argjson b "$baseline_tx_id" \
+            '[.transactions[] | select(.id > $b)] | first | .id // empty')
+        new_tx_amount=$(echo "$response" | jq -r --argjson b "$baseline_tx_id" \
+            '[.transactions[] | select(.id > $b)] | first | .amount // 0')
 
-        # Check if the last transaction matches our transfer amount
-        # Note: We compare as floating point just in case
-        if (( $(echo "$last_tx_amount == $expected_amount" | bc -l 2>/dev/null || echo "$last_tx_amount == $expected_amount" | awk '{print ($1 == $3)}') )); then
-            echo -e " ${GREEN}[OK]${RESET}"
-            echo -e "   Current Balance: ${GREEN}\$$balance${RESET}"
-            echo -e "   Last Transaction: ${GREEN}\$$last_tx_amount${RESET}"
+        if [[ -n "$new_tx_id" ]] && (( $(echo "$new_tx_amount == $expected_amount" | bc -l 2>/dev/null || echo "$new_tx_amount == $expected_amount" | awk '{print ($1 == $3)}') )); then
+            echo -e "\r\033[K  ${GREEN}✓${RESET} $type   balance: ${GREEN}\$$balance${RESET}  last tx: ${GREEN}\$$new_tx_amount${RESET}"
             return 0
         fi
 
-        count=$((count+1))
-        echo -e "  [WAIT] Attempt $count/$VERIFY_MAX_RETRIES - transaction not yet reflected, retrying in ${VERIFY_SLEEP_INTERVAL}s..."
-        sleep $VERIFY_SLEEP_INTERVAL
-        
+        count=$(( count + 1 ))
+        local elapsed=$(( count * VERIFY_SLEEP_INTERVAL ))
+        echo -ne "\r\033[K  $type  ${elapsed}s / ${max_secs}s..."
+        sleep "$VERIFY_SLEEP_INTERVAL"
+
     done
 
-    echo -e " ${RED}Timeout.${RESET}"
-    echo -e "  [FAIL] $type verification timed out after $((VERIFY_MAX_RETRIES * VERIFY_SLEEP_INTERVAL))s"
+    echo -e "\r\033[K  ${RED}✗${RESET} $type  timed out after ${max_secs}s"
     return 1
 }
 
@@ -410,6 +415,22 @@ json_payload=$(cat <<EOF
 EOF
 )
 
+# Snapshot account state before sending — needed to identify the new transaction uniquely
+payer_acc_id=""
+payee_acc_id=""
+payer_baseline_tx_id=0
+payee_baseline_tx_id=0
+if [[ "$VERIFY_PAYMENT" == "true" ]]; then
+    payer_acc_id=$(get_savings_account_id "$payer_msisdn" "$tenant_id")
+    payee_acc_id=$(get_savings_account_id "$payee_msisdn" "$payee_tenant")
+    if [[ -z "$payer_acc_id" ]] || [[ -z "$payee_acc_id" ]]; then
+        echo -e "${RED}Error: Could not retrieve savings account IDs for verification.${RESET}"
+        exit 2
+    fi
+    payer_baseline_tx_id=$(get_latest_tx_id "$payer_acc_id" "$tenant_id")
+    payee_baseline_tx_id=$(get_latest_tx_id "$payee_acc_id" "$payee_tenant")
+fi
+
 # Perform cURL POST and capture HTTP status
 echo "📤 Sending transfer request..."
 
@@ -446,28 +467,15 @@ if [[ "$http_code" == "200" ]]; then
     echo -e "✅ ${GREEN}Transfer successful (HTTP $http_code)${RESET}"
     echo -e "     Response: $http_body"
     echo ""
-    echo -e "${BLUE}=== Verifying Transaction Logic ===${RESET}"
-
     if [[ "$VERIFY_PAYMENT" == "true" ]]; then
-        # Get Account IDs
-        echo "Fetching account details..."
-        payer_acc_id=$(get_savings_account_id "$payer_msisdn" "$tenant_id")
-        payee_acc_id=$(get_savings_account_id "$payee_msisdn" "$payee_tenant")
-        
+        echo -e "${BLUE}=== Payment Verification ===${RESET}"
 
-        if [[ -z "$payer_acc_id" ]] || [[ -z "$payee_acc_id" ]]; then
-            echo -e "${RED}Error: Could not retrieve savings account IDs for verification.${RESET}"
-            exit 2
-        fi
-        
-        # Verify Payer (Debit)
-        if ! verify_payment "$payer_acc_id" "$tenant_id" "$amount" "Payer"; then
+        if ! verify_payment "$payer_acc_id" "$tenant_id" "$amount" "Payer debit  (${tenant_id} #${payer_acc_id})" "$payer_baseline_tx_id"; then
             echo -e "\n❌ ${RED}Payment validation failed for Payer. Exiting.${RESET}"
             exit 2
         fi
-        
-        # Verify Payee (Credit)
-        if ! verify_payment "$payee_acc_id" "$payee_tenant" "$amount" "Payee"; then
+
+        if ! verify_payment "$payee_acc_id" "$payee_tenant" "$amount" "Payee credit (${payee_tenant} #${payee_acc_id})" "$payee_baseline_tx_id"; then
             echo -e "\n❌ ${RED}Payment validation failed for Payee. Exiting.${RESET}"
             exit 2
         fi

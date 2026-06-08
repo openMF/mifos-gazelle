@@ -1,16 +1,17 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Define variables for the charts
-SCRIPT_DIR=$( cd $(dirname "$0") ; pwd )
-config_dir="$( cd $(dirname "$SCRIPT_DIR")/../config ; pwd )"
+SCRIPT_DIR="$( cd "$(dirname "$0")" ; pwd )"
+config_dir="$( cd "$(dirname "$SCRIPT_DIR")/../config" ; pwd )"
 default_config_ini="$config_dir/config.ini"
 config_ini="$default_config_ini"  # Will be overridden if -c is specified
-BPMN_DIR="$( cd $(dirname "$SCRIPT_DIR")/../orchestration/ ; pwd )"
+BPMN_DIR="$( cd "$(dirname "$SCRIPT_DIR")/../orchestration/" ; pwd )"
 DEBUG=false
 TENANT="greenbank"  # Default tenant TODO does this actually do anything 
 
 deploy() {
     local file="$1"
-    local filename=$(basename "$file")
+    local filename
+    filename=$(basename "$file")
 
     echo "Uploading: $filename to tenant: $TENANT"
 
@@ -29,7 +30,8 @@ deploy() {
 
     # Extract HTTP code (last line) and response body (everything else)
     http_code=$(echo "$response" | tail -1)
-    local response_body=$(echo "$response" | head -n -1)
+    local response_body
+    response_body=$(echo "$response" | head -n -1)
 
     if [ "$DEBUG" = true ]; then
         echo "DEBUG: HTTP Code: $http_code"

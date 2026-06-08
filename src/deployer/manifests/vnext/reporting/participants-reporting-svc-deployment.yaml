@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: participants-reporting-svc
+    mojaloop.layer: reporting 
+  name: participants-reporting-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      mojaloop.service: participants-reporting-svc
+  strategy: 
+    type: Recreate 
+  template:
+    metadata:
+      annotations:
+      creationTimestamp: null
+      labels:
+        mojaloop.service: participants-reporting-svc
+        mojaloop.layer: reporting 
+    spec:
+      containers:
+        - env:
+          - name: AUTH_N_SVC_BASEURL
+            value: http://authentication-svc:3201
+          - name: KAFKA_LOGS_TOPIC
+            value: logs
+          - name: KAFKA_URL
+            value: kafka.infra.svc.cluster.local:9092
+          - name: MONGO_URL
+            value: mongodb://root:mongoDbPas42@mongodb.infra.svc.cluster.local:27017/
+          - name: PARTICIPANTS_SVC_URL
+            value: http://participants-svc:3010
+          image: mojaloop/reporting-bc-participants-reporting-svc:0.3.4
+          livenessProbe:
+            tcpSocket:
+              port: 5002
+            failureThreshold: 10
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+          name: participants-reporting-svc
+          ports:
+            - containerPort: 5002
+          resources: {}
+      restartPolicy: Always
+status: {}

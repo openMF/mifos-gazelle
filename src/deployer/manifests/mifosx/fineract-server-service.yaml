@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    description: "Service for Fineract server"
+  labels:
+    app: fineract
+    tier: backend
+  name: fineract-server
+spec:
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: fineract-server

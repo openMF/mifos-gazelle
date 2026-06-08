@@ -1,0 +1,44 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: ph-ee-connector-gsma
+  namespace: paymenthub
+spec:
+  enabled: false
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  image: docker.io/openmf/ph-ee-connector-gsma:v1.3.0-gazelle-1.1.0
+  containerPort: 5000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512M
+    requests:
+      cpu: 100m
+      memory: 256M
+  services:
+    - name: ph-ee-connector-gsma
+      ports:
+        - name: port
+          port: 80
+          targetPort: 5000
+          protocol: TCP
+        - name: actuator
+          port: 8080
+          targetPort: 8080
+          protocol: TCP
+      selector:
+        app: ph-ee-connector-gsma
+      type: ClusterIP
+      sessionAffinity: None
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "paymenthub-infra-zeebe-gateway:26500"

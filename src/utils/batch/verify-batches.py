@@ -11,8 +11,8 @@ Default: all 4 non-Mastercard scenarios.
   4. Closedloop / GovStack       (tenant: redbank   --govstack)
 
 Usage:
-  ./verify-batches.py                    # uses ~/tomconfig.ini
-  ./verify-batches.py -c ~/myconfig.ini
+  ./verify-batches.py                    # uses config/config.ini (project default)
+  ./verify-batches.py -c ~/tomconfig.ini
   ./verify-batches.py --timeout 180
   ./verify-batches.py -I                 # interactive — choose scenarios + options
 """

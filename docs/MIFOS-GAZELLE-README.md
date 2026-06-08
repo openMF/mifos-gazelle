@@ -16,6 +16,7 @@
   - [Test a Payment](#execute-a-transfer-from-greenbank-to-bluebank)
   - [Test Bulk Processing](#bulk-processing)
 - [Application Deployment Modes](#application-deployment-modes)
+- [Payment Hub EE Architecture](#payment-hub-ee-architecture)
 - [Cleanup](#cleanup)
 - [Accessing Deployed Applications](#accessing-deployed-applications-dpgs)
 - [Kibana Dashboards](#kibana-dashboards)
@@ -71,7 +72,7 @@ Colima's `socket_vmnet` network backend gives the VM a dedicated routable IP add
 - macOS 13 Ventura or later (Apple Silicon M-series or Intel)
 - 16 GB RAM (12 GB allocatable to the Colima VM)
 - 50 GB+ free disk space — all images and k3s state live inside the Colima VM disk image; a full 3-DPG deployment uses roughly 25–30 GB inside the VM
-- Non-root user — run `sudo ./run.sh -u $USER …`
+- Non-root user — run `sudo ./setup-env.sh -e mac -u $USER` once, then `./run.sh -m deploy -a all`
 
 **First run** installs everything automatically:
 - Homebrew (if absent)
@@ -81,7 +82,8 @@ Colima's `socket_vmnet` network backend gives the VM a dedicated routable IP add
 ```bash
 git clone --branch main https://github.com/openMF/mifos-gazelle.git
 cd mifos-gazelle
-sudo ./run.sh -u $USER -m deploy -a all
+sudo ./setup-env.sh -e mac -u $USER   # one-time: Homebrew, Colima, /etc/hosts
+./run.sh -m deploy -a all             # deploy (no sudo needed)
 ```
 
 **After deployment — browser notes**
@@ -97,7 +99,8 @@ sudo ./run.sh -u $USER -m deploy -a all
 cd $HOME
 git clone --branch main https://github.com/openMF/mifos-gazelle.git
 cd mifos-gazelle
-sudo ./run.sh -u $USER -m deploy -a all
+sudo ./setup-env.sh -e local -u $USER   # Ubuntu/Linux: k3s, tools, /etc/hosts
+./run.sh -m deploy -a all               # deploy all components (no sudo)
 ```
 
 The deployment takes 10–20 minutes.  See [Deployment times out](#deployment-times-out-waiting-for-pods) in the FAQ if deployments time out on slower hardware.
@@ -106,13 +109,26 @@ The deployment takes 10–20 minutes.  See [Deployment times out](#deployment-ti
 
 ## Deployment Options
 
+**`setup-env.sh` flags** (run with sudo — one-time environment setup):
+
 | Flag | Description | Values | Default |
 |------|-------------|--------|---------|
 | `-f` | Config file path | path to `.ini` | `config/config.ini` |
-| `-m` | Mode (required) | `deploy`, `cleanapps`, `cleanall` | — |
+| `-m` | Mode | `setup`, `cleanall` | `setup` |
+| `-e` | Cluster environment (required) | `local`, `mac`, `remote` | `local` |
 | `-u` | Non-root user (required) | `$USER` | — |
-| `-a` | Components to deploy | `all`, `infra`, `vnext`, `phee`, `mifosx`, `mastercard-demo`, `setup-data` | `all` |
-| `-e` | Cluster environment | `local`, `remote` | `local` |
+| `-d` | Debug output | `true`, `false` | `false` |
+| `-y` | Non-interactive (CI/pipeline) — auto-accept all changes | — | — |
+| `-h` | Show help | — | — |
+
+**`run.sh` flags** (no sudo required — cluster operations):
+
+| Flag | Description | Values | Default |
+|------|-------------|--------|---------|
+| `-f` | Config file path | path to `.ini` | `config/config.ini` |
+| `-m` | Mode (required) | `deploy`, `cleanapps` | — |
+| `-a` | Components | `all`, `infra`, `vnext`, `paymenthub`, `mifosx`, `mastercard-demo`, `setup-data` | `all` |
+| `-e` | Cluster environment | `local`, `remote`, `mac` | `local` |
 | `-d` | Debug output | `true`, `false` | `false` |
 | `-r` | Force redeploy | `true`, `false` | `true` |
 | `-h` | Show help | — | — |
@@ -196,9 +212,25 @@ To view the resulting transaction history across all tenants:
 ## Application Deployment Modes
 
 ```bash
-sudo ./run.sh -u $USER -m deploy -a vnext   # Mojaloop vNext only
-sudo ./run.sh -u $USER -m deploy -a mifosx  # MifosX only
-sudo ./run.sh -u $USER -m deploy -a phee    # Payment Hub EE only
+./run.sh -m deploy -a vnext       # Mojaloop vNext only
+./run.sh -m deploy -a mifosx      # MifosX only
+./run.sh -m deploy -a paymenthub  # Payment Hub EE only
+```
+
+---
+
+## Payment Hub EE Architecture
+
+Payment Hub EE uses a two-layer deployment managed entirely by Gazelle:
+
+1. **Infrastructure (Helm)** — Zeebe, MySQL, Redis, MinIO, and Kafka are deployed via the `paymenthub-infra` Helm chart into the `paymenthub` namespace.
+2. **App components (Kubernetes operator)** — all PHEE application components (connector-channel, bulk-processor, operations-app, connector-mojaloop, identity-account-mapper, etc.) are managed by a Kubernetes operator from [openMF/mifos-operators](https://github.com/openMF/mifos-operators). The operator watches `PaymentHubDeployment` custom resources (CRD: `paymenthubdeployments.gazelle.mifos.io`) and reconciles the Deployments, Services, and Ingresses for each component.
+
+CR definitions live in `src/deployer/operators/paymenthub/config/cr/` — one file per component. To re-apply modified CRs to a running cluster without a full redeploy:
+
+```bash
+./src/utils/apply-crs.sh          # apply immediately
+./src/utils/apply-crs.sh --wait   # apply and wait for all CRs to reconcile
 ```
 
 ---
@@ -206,11 +238,15 @@ sudo ./run.sh -u $USER -m deploy -a phee    # Payment Hub EE only
 ## Cleanup
 
 ```bash
-sudo ./run.sh -u $USER -m cleanall           # Remove everything including k3s
-sudo ./run.sh -u $USER -m cleanapps          # Remove all apps, keep k3s AND IMAGES !
-sudo ./run.sh -u $USER -m cleanapps -a mifosx
-sudo ./run.sh -u $USER -m cleanapps -a phee
-sudo ./run.sh -u $USER -m cleanapps -a vnext
+# Remove all cluster apps (keep k3s and images)
+./run.sh -m cleanapps -a all
+./run.sh -m cleanapps -a mifosx
+./run.sh -m cleanapps -a paymenthub
+./run.sh -m cleanapps -a vnext
+
+# Full environment teardown including k3s (requires sudo)
+sudo ./setup-env.sh -m cleanall -e local   # Ubuntu: uninstall k3s, revert /etc/hosts
+sudo ./setup-env.sh -m cleanall -e mac     # macOS: delete Colima VM, revert /etc/hosts
 ```
 
 ---
@@ -236,14 +272,13 @@ Login at https://mifos.mifos.gazelle.test with user `mifos` / password `password
 
 ```
 # Linux/macOS
-<VM-IP> vnextadmin.mifos.gazelle.test elasticsearch.mifos.gazelle.test kibana.mifos.gazelle.test mongoexpress.mifos.gazelle.test kafkaconsole.mifos.gazelle.test fspiop.mifos.gazelle.test bluebank.mifos.gazelle.test greenbank.mifos.gazelle.test redpanda-console.mifos.gazelle.test
+<VM-IP> vnextadmin.mifos.gazelle.test elasticsearch.mifos.gazelle.test kibana.mifos.gazelle.test mongoexpress.mifos.gazelle.test fspiop.mifos.gazelle.test bluebank.mifos.gazelle.test greenbank.mifos.gazelle.test redpanda-console.mifos.gazelle.test
 
 # Windows (one per line)
 <VM-IP> vnextadmin.mifos.gazelle.test
 <VM-IP> elasticsearch.mifos.gazelle.test
 <VM-IP> kibana.mifos.gazelle.test
 <VM-IP> mongoexpress.mifos.gazelle.test
-<VM-IP> kafkaconsole.mifos.gazelle.test
 <VM-IP> fspiop.mifos.gazelle.test
 <VM-IP> bluebank.mifos.gazelle.test
 <VM-IP> greenbank.mifos.gazelle.test
@@ -254,11 +289,11 @@ Login at https://mifos.mifos.gazelle.test with user `mifos` / password `password
 
 ```
 # Linux/macOS
-<VM-IP> ops.mifos.gazelle.test kibana-phee.mifos.gazelle.test zeebe-operate.mifos.gazelle.test
+<VM-IP> ops.mifos.gazelle.test minio-console.mifos.gazelle.test zeebe-operate.mifos.gazelle.test
 
 # Windows (one per line)
 <VM-IP> ops.mifos.gazelle.test
-<VM-IP> kibana-phee.mifos.gazelle.test
+<VM-IP> minio-console.mifos.gazelle.test
 <VM-IP> zeebe-operate.mifos.gazelle.test
 ```
 
@@ -270,17 +305,14 @@ Payment Hub EE ships with pre-built Kibana visualizations and dashboards for mon
 
 **Import dashboards after deployment:**
 ```bash
-# Default URL (kibana.mifos.gazelle.localhost)
-./src/utils/kibana-dashboard-setup.sh
-
-# Custom Kibana URL
-export KIBANA_URL=https://kibana-phee.mifos.gazelle.test
+# Set KIBANA_URL to your deployment's Kibana address, then run the script
+export KIBANA_URL=https://kibana.mifos.gazelle.test
 ./src/utils/kibana-dashboard-setup.sh
 ```
 
 The script imports objects from `repos/ph_template/Kibana Visualisations/` in the correct order: index patterns → searches → visualizations → lenses → dashboards. It reports a success/failure count on completion.
 
-Access Kibana at http://kibana-phee.mifos.gazelle.test (add to `/etc/hosts` as shown in [Payment Hub EE Host Configuration](#payment-hub-ee)).
+Access Kibana at https://kibana.mifos.gazelle.test (add to `/etc/hosts` as shown in [vNext Host Configuration](#vnext)).
 
 ---
 
@@ -334,7 +366,6 @@ Mifos Gazelle deploys four default tenants: `default`, `greenbank`, `bluebank` a
 - Payment Hub EE mifos-v2.0.0 is deployed which is a branch that builds on v1.13.3 release and is reflected in the mifos-v2.0.0 branches of the Paymenthub EE repositories deployed by mifos-gazelle 
 - ARM64 compatible with all 3 DPGs; Raspberry Pi 4 has a MongoDB limitation (requires ARMv8.2A) but Pi 5 is well tested now and works well for P2P payments i.e. make-payment.sh. 
 - Memory reduction is still wip but 16GB generally works fine for all 3 DPGs on a single node.
-- Kubernetes operator work (openMF/mifos-operators) still planned for a future release
 ---
 
 ## Known Issues
@@ -425,7 +456,7 @@ The test payment script requires that demonstration data (clients, accounts, and
 
 **Re-run data generation:**
 ```bash
-sudo ./run.sh -u $USER -m deploy -a setup-data
+./run.sh -m deploy -a setup-data
 ```
 
 This reruns only the data generation and loading step — it does not redeploy any components. After it completes, retry `./src/utils/make-payment.sh`.

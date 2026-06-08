@@ -68,9 +68,10 @@ ensure_python_venv() {
 
     log_step "Python virtualenv for data-loading scripts"
 
-    # Create the venv as the k8s_user so they can run scripts without sudo
+    # Create the venv as the k8s_user so they can run scripts without sudo.
+    # Uses sudo -u because this function runs from setup-env.sh (root context).
     if [[ ! -x "$venv_dir/bin/python3" ]]; then
-        run_as_user "python3 -m venv \"$venv_dir\"" >/dev/null
+        sudo -u "$k8s_user" python3 -m venv "$venv_dir" >/dev/null
         if [[ $? -ne 0 ]]; then
             log_error "Failed to create Python venv at $venv_dir"
             exit 1
@@ -78,8 +79,8 @@ ensure_python_venv() {
     fi
 
     # Install/upgrade requirements (pip will skip packages already at the right version)
-    run_as_user "\"$venv_dir/bin/pip\" install --quiet --upgrade pip" >/dev/null
-    run_as_user "\"$venv_dir/bin/pip\" install --quiet -r \"$requirements\"" >/dev/null
+    sudo -u "$k8s_user" "$venv_dir/bin/pip" install --quiet --upgrade pip >/dev/null
+    sudo -u "$k8s_user" "$venv_dir/bin/pip" install --quiet -r "$requirements" >/dev/null
     if [[ $? -ne 0 ]]; then
         log_error "Failed to install Python requirements"
         exit 1
@@ -195,20 +196,68 @@ add_hosts() {
     log_ok
 }
 #------------------------------------------------------------------------------
-# Function: delete_k8s_local_cluster   
+# Function: remove_shell_config
+# Description: Removes the Gazelle-managed block from the user's shell rc and
+#              profile files.  Handles both macOS (zsh) and Linux (bash).
+#              Safe to call even if the block is not present.
+#------------------------------------------------------------------------------
+remove_shell_config() {
+    local shell_rc shell_profile
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        shell_rc="$k8s_user_home/.zshrc"
+        shell_profile="$k8s_user_home/.zprofile"
+    else
+        shell_rc="$k8s_user_home/.bashrc"
+        shell_profile="$k8s_user_home/.bash_profile"
+    fi
+
+    log_step "Shell config aliases block (${shell_rc##*/})"
+    if [[ -f "$shell_rc" ]]; then
+        perl -i -ne 'print unless /GAZELLE_START/ .. /GAZELLE_END/' "$shell_rc"
+        log_with_verbose_check "$debug" "$DEBUG" "Removed GAZELLE_START..GAZELLE_END block from $shell_rc"
+        log_ok
+    else
+        log_skipped
+    fi
+
+    log_step "Shell config KUBECONFIG export (${shell_profile##*/})"
+    if [[ -f "$shell_profile" ]]; then
+        perl -i -ne 'print unless /^export KUBECONFIG=/' "$shell_profile"
+        log_with_verbose_check "$debug" "$DEBUG" "Removed export KUBECONFIG= line from $shell_profile"
+        log_ok
+    else
+        log_skipped
+    fi
+}
+
+#------------------------------------------------------------------------------
+# Function: delete_k8s_local_cluster
 # Description: Deletes the local Kubernetes cluster and removes related configurations.
 #------------------------------------------------------------------------------
 delete_k8s_local_cluster() {
-    log_step "removing local kubernetes cluster"
-    rm -f /usr/local/bin/helm >> /dev/null 2>&1
-    /usr/local/bin/k3s-uninstall.sh >> /dev/null 2>&1
-    if [[ $? -eq 0 ]]; then
+    local _out _rc
+
+    log_step "k3s cluster (k3s-uninstall.sh)"
+    if [[ -x /usr/local/bin/k3s-uninstall.sh ]]; then
+        _out=$(/usr/local/bin/k3s-uninstall.sh 2>&1)
+        _rc=$?
+        if [[ $_rc -eq 0 ]]; then
+            log_ok
+        else
+            log_warn "k3s-uninstall.sh returned $_rc (may already be removed)"
+        fi
+        log_with_verbose_check "$debug" "$DEBUG" "$_out"
+    else
+        log_skipped
+    fi
+
+    log_step "/usr/local/bin/helm"
+    if [[ -f /usr/local/bin/helm ]]; then
+        rm -f /usr/local/bin/helm
         log_ok
     else
-        log_warn "k3s not installed"
+        log_skipped
     fi
-    perl -i -ne 'print unless /START_GAZELLE/ .. /END_GAZELLE/' "$k8s_user_home/.bashrc"
-    perl -i -ne 'print unless /START_GAZELLE/ .. /END_GAZELLE/' "$k8s_user_home/.bash_profile"
 }
 
 print_end_message() {
@@ -259,7 +308,7 @@ configure_k8s_user_env() {
     grep "start of config added by mifos-gazelle" "$shell_rc" >/dev/null 2>&1
     if [[ $? -ne 0 ]]; then
         log_step "Configure user shell for kubernetes"
-        printf "%s\n" "$start_message" >> "$shell_rc"
+        printf "\n%s\n" "$start_message" >> "$shell_rc"
         echo "$completion_cmd" >> "$shell_rc"
         echo "alias k=kubectl " >> "$shell_rc"
         echo "$complete_cmd" >> "$shell_rc"
@@ -316,93 +365,253 @@ is_cluster_accessible() {
     return 0
 }
 #------------------------------------------------------------------------------
-# Function: env_setup_remote_cluster   
-# Description: Sets up a remote Kubernetes cluster.
-# Parameters:
-#   $1 - Mode of operation: "deploy", "cleanapps"
+# Function: env_setup_remote_cluster
+# Description: Validates connectivity to a pre-existing remote cluster.
+#              Assumes the cluster already has an ingress controller installed.
 #------------------------------------------------------------------------------
 env_setup_remote_cluster() {
-    local mode="$1"
     if ! is_cluster_accessible; then
         log_error "Remote kubernetes cluster is NOT accessible. Please check your KUBECONFIG and network connectivity."
         exit 1
-    else
-        log_step "Remote kubernetes cluster is accessible"
-        log_ok
-        return 0
     fi
-    # note that we might need to install NGINX here or interrogate remote cluster for existing ingress controller
-    # For now we assume remote cluster is pre-configured with an ingress controller
-} 
+    log_step "Remote kubernetes cluster is accessible"
+    log_ok
+}
 
 #------------------------------------------------------------------------------
-# Function: env_setup_local_cluster   
-# Description: Sets up a local Kubernetes cluster using k3s.
-# Parameters:
-#   $1 - Mode of operation: "deploy", "cleanapps", or "cleanall"
+# Function: env_setup_local_cluster
+# Description: Installs and configures a local k3s Kubernetes cluster.
+#              Teardown is handled by env_cleanall_main.
 #------------------------------------------------------------------------------
 env_setup_local_cluster() {
-    local mode="$1"
+    check_resources_ok
+    ensure_python_venv
+    add_hosts
 
-    if [[ "$mode" == "deploy" ]]; then
-        check_resources_ok
-        ensure_python_venv
-        add_hosts
-
-        if ! is_local_cluster_installed; then
-            install_k3s
-            $UTILS_DIR/install-k9s.sh > /dev/null 2>&1
-        fi
-        check_and_load_helm_repos
-        install_nginx_local_cluster
-        log_section "local kubernetes v${k8s_version} configured for ${k8s_user}"
-        print_end_message
-    elif [[ "$mode" == "cleanapps" ]]; then
-        if ! is_local_cluster_installed; then
-            log_error "Local kubernetes cluster is NOT installed"
-            exit 1
-        fi
-        if ! is_cluster_accessible; then
-            log_error "Local kubernetes cluster is NOT accessible"
-            exit 1
-        fi
-    elif [[ "$mode" == "cleanall" ]]; then
-        if ! is_local_cluster_installed; then
-            log_warn "Local kubernetes cluster is NOT installed — nothing to delete."
-            print_end_message_delete
-            exit 0
-        fi
-        delete_k8s_local_cluster
-        remove_hosts
-        print_end_message_delete
-    else
-        show_usage
-        exit 1
+    if ! is_local_cluster_installed; then
+        install_k3s
+        $UTILS_DIR/install-k9s.sh > /dev/null 2>&1
     fi
-}   
+    check_and_load_helm_repos
+    install_nginx_local_cluster
+    log_section "local kubernetes v${k8s_version} configured for ${k8s_user}"
+    print_end_message
+}
 
+
+#------------------------------------------------------------------------------
+# Function: show_planned_changes
+# Description: Prints a manifest of every file, directory, and system resource
+#              that setup-env.sh will touch, before any changes are made.
+#              Output is OS- and environment-aware.
+#------------------------------------------------------------------------------
+show_planned_changes() {
+    local os_type shell_rc shell_profile
+    [[ "$(uname -s)" == "Darwin" ]] && os_type="macOS" || os_type="Linux"
+
+    local user_home
+    user_home=$(eval echo "~$k8s_user")
+    if [[ "$os_type" == "macOS" ]]; then
+        shell_rc="~/.zshrc"; shell_profile="~/.zprofile"
+    else
+        shell_rc="~/.bashrc"; shell_profile="~/.bash_profile"
+    fi
+    local kc="${kubeconfig_path:-$user_home/.kube/config}"
+    kc="${kc/$user_home/\~}"
+
+    local W=40   # left-column width
+
+    printf "\n${CYAN}${BOLD}  ── Planned Changes  [%s / %s] %s${RESET}\n\n" \
+        "$environment" "$os_type" "────────────────────────────────"
+
+    printf "  ${BOLD}%-*s  %s${RESET}\n"  "$W" "Resource" "Change"
+    printf "  %-*s  %s\n"  "$W" "$(printf '%0.s─' {1..40})" "$(printf '%0.s─' {1..30})"
+
+    printf "  %-*s  %s\n"  "$W" "$shell_rc"    "kubectl aliases, completion, KUBECONFIG"
+    printf "  %-*s  %s\n"  "$W" "$shell_profile" "KUBECONFIG export"
+
+    if [[ "$environment" == "local" || "$environment" == "mac" ]]; then
+        printf "  %-*s  %s\n"  "$W" "/etc/hosts" \
+            "Add/replace Gazelle block (~30 hostnames)"
+    fi
+
+    if [[ "$os_type" == "macOS" ]]; then
+        printf "  %-*s  %s\n"  "$W" "/etc/sudoers.d/colima"  "socket_vmnet sudoers snippet"
+        printf "  %-*s  %s\n"  "$W" "Homebrew: colima docker helm k9s kubectx..." "Install if missing"
+        if [[ "$environment" == "mac" ]]; then
+            printf "  %-*s  %s\n"  "$W" "Colima Lima VM" \
+                "Create/start  [k3s v${k8s_version:-1.30.0}]"
+        fi
+    else
+        printf "  %-*s  %s\n"  "$W" "apt: docker-ce jq netcat..."  "Install if missing"
+        if [[ "$environment" == "local" ]]; then
+            printf "  %-*s  %s\n"  "$W" "/usr/local/bin  kubectl helm k9s kubens..." "Install if missing"
+            printf "  %-*s  %s\n"  "$W" "/etc/sysctl.d/99-k3s.conf"  "inotify/fd limits for Java workloads"
+            printf "  %-*s  %s\n"  "$W" "k3s v${k8s_version:-1.30}  (get.k3s.io)" \
+                "Install; kubeconfig → $kc"
+        fi
+    fi
+
+    if [[ "$environment" == "local" || "$environment" == "mac" ]]; then
+        printf "  %-*s  %s\n"  "$W" ".venv/"  "Project Python virtualenv"
+    fi
+
+    printf "\n"
+    if [[ "$os_type" == "macOS" ]]; then
+        printf "  ${YELLOW}${BOLD}%-*s${RESET}  %s\n"  "$W" "WARNING" \
+            "This is your desktop — changes are system-wide"
+        printf "  %-*s  %s\n"  "$W" "" "Reversible: sudo ./setup-env.sh -m cleanall"
+        printf "  %-*s  %s\n"  "$W" "" "Homebrew packages need manual brew uninstall"
+    fi
+    printf "\n"
+}
+
+#------------------------------------------------------------------------------
+# Function: confirm_planned_changes
+# Description: Prompts the user to confirm the planned changes listed by
+#              show_planned_changes.  Reads from /dev/tty so the prompt works
+#              even when stdin is a pipe.  Skipped when auto_yes=true (set via
+#              the -y flag for CI/pipeline runs).
+#------------------------------------------------------------------------------
+confirm_planned_changes() {
+    if [[ "${auto_yes:-false}" == "true" ]]; then
+        printf "  Auto-accepted via -y flag.\n\n"
+        return 0
+    fi
+    printf "\n  Proceed with these changes? [y/N] "
+    local _ans
+    read -r _ans </dev/tty
+    if [[ "$_ans" != "y" && "$_ans" != "Y" ]]; then
+        printf "  Aborted.\n"
+        exit 0
+    fi
+    printf "\n"
+}
 
 env_setup_main() {
-    local mode="$1"
-
-    check_sudo
     check_arch_ok
     verify_user
-    check_os_ok  
+    check_os_ok
+    show_planned_changes
+    confirm_planned_changes
     install_os_prerequisites
     install_k8s_tools
     configure_k8s_user_env
 
     if [[ "$environment" == "local" ]]; then
-        env_setup_local_cluster "$mode"
+        env_setup_local_cluster
     elif [[ "$environment" == "remote" ]]; then
         print_remote_cluster_start_message
-        env_setup_remote_cluster "$mode"
+        env_setup_remote_cluster
     elif [[ "$environment" == "mac" ]]; then
-        env_setup_mac_cluster "$mode"
+        env_setup_mac_cluster
     else
         printf "** Error: Invalid environment type specified: %s. Must be 'local', 'remote', or 'mac'. **\n" "$environment"
         exit 1
     fi
-} 
+}
+
+#------------------------------------------------------------------------------
+# Function: env_cleanall_main
+# Description: Full environment teardown — called by setup-env.sh -m cleanall.
+#              Removes k3s/Colima, /etc/hosts entries, and shell config added
+#              by setup-env.sh. Does NOT delete application namespaces (use
+#              ./run.sh -m cleanapps first on a live cluster).
+#------------------------------------------------------------------------------
+env_cleanall_main() {
+    check_arch_ok
+    verify_user
+
+    log_section "Gazelle environment teardown [${environment}]"
+
+    if [[ "$environment" == "local" ]]; then
+        delete_k8s_local_cluster
+
+        log_step "/etc/hosts Gazelle entries"
+        remove_hosts
+        log_ok
+
+        remove_shell_config
+        print_end_message_delete
+
+    elif [[ "$environment" == "mac" ]]; then
+        local _out _rc _colima
+
+        # Uninstall ingress-nginx before wiping the VM so Helm state is cleaned first
+        log_step "ingress-nginx Helm release"
+        if is_cluster_accessible; then
+            _out=$(helm uninstall ingress-nginx -n default 2>&1)
+            _rc=$?
+            if [[ $_rc -eq 0 ]]; then
+                log_ok
+            else
+                log_skipped
+            fi
+            log_with_verbose_check "$debug" "$DEBUG" "$_out"
+        else
+            log_skipped
+        fi
+
+        log_step "/etc/hosts Gazelle entries"
+        remove_hosts
+        log_ok
+
+        remove_shell_config
+
+        if _colima=$(find_colima); then
+            log_step "Colima VM: stop"
+            _out=$(sudo -u "$k8s_user" "$_colima" stop 2>&1)
+            _rc=$?
+            if [[ $_rc -eq 0 ]]; then
+                log_ok
+            else
+                log_warn "Colima VM not running or already stopped — safe to ignore if cleanall was run before"
+            fi
+            log_with_verbose_check "$debug" "$DEBUG" "$_out"
+
+            log_step "Colima VM: delete"
+            _out=$(sudo -u "$k8s_user" "$_colima" delete --yes 2>&1)
+            _rc=$?
+            if [[ $_rc -eq 0 ]]; then
+                log_ok
+            else
+                log_warn "Colima VM not found or already deleted — safe to ignore if cleanall was run before"
+            fi
+            log_with_verbose_check "$debug" "$DEBUG" "$_out"
+
+            log_step "~/.colima state directory"
+            if [[ -d "$k8s_user_home/.colima" ]]; then
+                rm -rf "$k8s_user_home/.colima"
+                log_ok
+            else
+                log_skipped
+            fi
+
+            log_step "kubectl context: colima"
+            _out=$(kubectl config delete-context colima 2>&1)
+            _rc=$?
+            [[ $_rc -eq 0 ]] && log_ok || log_skipped
+            log_with_verbose_check "$debug" "$DEBUG" "$_out"
+
+            log_step "docker context: colima"
+            _out=$(sudo -u "$k8s_user" docker context rm colima 2>&1)
+            _rc=$?
+            [[ $_rc -eq 0 ]] && log_ok || log_skipped
+            log_with_verbose_check "$debug" "$DEBUG" "$_out"
+        else
+            log_warn "Colima not found — skipping VM cleanup"
+        fi
+        print_end_message_delete
+
+    elif [[ "$environment" == "remote" ]]; then
+        log_step "/etc/hosts Gazelle entries"
+        remove_hosts
+        log_ok
+        print_end_message_delete
+
+    else
+        log_error "Invalid environment '$environment'. Must be 'local', 'remote', or 'mac'."
+        exit 1
+    fi
+}
 

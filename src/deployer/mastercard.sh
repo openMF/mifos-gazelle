@@ -11,17 +11,11 @@
 # All necessary variables are already set in the environment
 # logger.sh (GREEN/RESET/log_with_level/log_with_verbose_check) is available via helpers.sh
 
-# Expand ~ to the actual user's home directory (handles sudo)
+# Expand ~ to the actual user's home directory
 expand_tilde() {
     local path="$1"
     if [[ "$path" == "~"* ]]; then
-        local user_home
-        if [ -n "$SUDO_USER" ]; then
-            user_home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
-        else
-            user_home="$HOME"
-        fi
-        path="${user_home}${path:1}"
+        path="${HOME}${path:1}"
     fi
     echo "$path"
 }
@@ -63,7 +57,7 @@ check_prerequisites() {
         log_with_verbose_check "$debug" "$WARNING" "MASTERCARD_CBS_HOME not found ($MASTERCARD_CBS_HOME) - BPMN workflow deploy will be skipped (Docker image deployment)"
     fi
 
-    if ! run_as_user "kubectl get namespace \"$PAYMENTHUB_NAMESPACE\"" &> /dev/null; then
+    if ! kubectl get namespace "$PAYMENTHUB_NAMESPACE" &> /dev/null; then
         log_warn "PaymentHub namespace not found: $PAYMENTHUB_NAMESPACE"
         log_warn "Mastercard CBS requires PaymentHub to be deployed first"
     fi
@@ -72,23 +66,23 @@ check_prerequisites() {
 create_namespace() {
     log_with_verbose_check "$debug" "$INFO" "Creating namespace: $MASTERCARD_NAMESPACE"
 
-    run_as_user "kubectl create namespace $MASTERCARD_NAMESPACE --dry-run=client -o yaml" \
-        | run_as_user "kubectl apply -f -" > /dev/null 2>&1
+    kubectl create namespace "$MASTERCARD_NAMESPACE" --dry-run=client -o yaml \
+        | kubectl apply -f - > /dev/null 2>&1
 
-    run_as_user "kubectl label namespace $MASTERCARD_NAMESPACE \
+    kubectl label namespace "$MASTERCARD_NAMESPACE" \
         app.kubernetes.io/part-of=mifos-gazelle \
-        app.kubernetes.io/component=mastercard-cbs --overwrite" > /dev/null 2>&1
+        app.kubernetes.io/component=mastercard-cbs --overwrite > /dev/null 2>&1
 }
 
 create_secrets() {
     log_with_verbose_check "$debug" "$INFO" "Creating Kubernetes secrets"
 
-    if ! run_as_user "kubectl get secret mastercard-cbs-credentials -n $MASTERCARD_NAMESPACE" &> /dev/null; then
-        run_as_user "kubectl create secret generic mastercard-cbs-credentials \
-            -n $MASTERCARD_NAMESPACE \
+    if ! kubectl get secret mastercard-cbs-credentials -n "$MASTERCARD_NAMESPACE" &> /dev/null; then
+        kubectl create secret generic mastercard-cbs-credentials \
+            -n "$MASTERCARD_NAMESPACE" \
             --from-literal=client_id=${MASTERCARD_CLIENT_ID:-demo} \
             --from-literal=client_secret=${MASTERCARD_CLIENT_SECRET:-demo} \
-            --from-literal=partner_id=${MASTERCARD_PARTNER_ID:-MIFOS_GOVSTACK}" > /dev/null 2>&1
+            --from-literal=partner_id=${MASTERCARD_PARTNER_ID:-MIFOS_GOVSTACK} > /dev/null 2>&1
         log_with_verbose_check "$debug" "$INFO" "Created mastercard-cbs-credentials secret"
     fi
 
@@ -98,35 +92,35 @@ create_secrets() {
     decryption_key_path=$(expand_tilde "${MASTERCARD_DECRYPTION_KEY_PATH:-}")
 
     if [ -n "$signing_key_path" ]; then
-        if ! run_as_user "kubectl get secret mastercard-cbs-certs -n $MASTERCARD_NAMESPACE" &> /dev/null; then
+        if ! kubectl get secret mastercard-cbs-certs -n "$MASTERCARD_NAMESPACE" &> /dev/null; then
             if [ ! -f "$signing_key_path" ]; then
                 log_error "MASTERCARD_SIGNING_KEY_PATH not found: $signing_key_path"
                 return 1
             fi
-            local cert_args="--from-file=signing-key.p12=${signing_key_path}"
+            local cert_args=("--from-file=signing-key.p12=${signing_key_path}")
             [ -n "$encryption_cert_path" ] && [ -f "$encryption_cert_path" ] && \
-                cert_args="$cert_args --from-file=encryption-key.p12=${encryption_cert_path}"
+                cert_args+=("--from-file=encryption-key.p12=${encryption_cert_path}")
             [ -n "$decryption_key_path" ] && [ -f "$decryption_key_path" ] && \
-                cert_args="$cert_args --from-file=decryption-key.pem=${decryption_key_path}"
-            run_as_user "kubectl create secret generic mastercard-cbs-certs \
-                -n $MASTERCARD_NAMESPACE \
-                $cert_args" > /dev/null 2>&1
+                cert_args+=("--from-file=decryption-key.pem=${decryption_key_path}")
+            kubectl create secret generic mastercard-cbs-certs \
+                -n "$MASTERCARD_NAMESPACE" \
+                "${cert_args[@]}" > /dev/null 2>&1
             log_with_verbose_check "$debug" "$INFO" "Created mastercard-cbs-certs secret from local cert files"
         fi
     else
         log_with_verbose_check "$debug" "$WARNING" "MASTERCARD_SIGNING_KEY_PATH not set - certs must be bundled in Docker image (localdev only)"
     fi
 
-    if run_as_user "kubectl get secret operationsmysql -n $PAYMENTHUB_NAMESPACE" &> /dev/null; then
-        if ! run_as_user "kubectl get secret mysql-secret -n $MASTERCARD_NAMESPACE" &> /dev/null; then
-            run_as_user "kubectl get secret operationsmysql -n $PAYMENTHUB_NAMESPACE -o json" \
+    if kubectl get secret operationsmysql -n "$PAYMENTHUB_NAMESPACE" &> /dev/null; then
+        if ! kubectl get secret mysql-secret -n "$MASTERCARD_NAMESPACE" &> /dev/null; then
+            kubectl get secret operationsmysql -n "$PAYMENTHUB_NAMESPACE" -o json \
                 | jq --arg ns "$MASTERCARD_NAMESPACE" '
                     .metadata.namespace = $ns |
                     .metadata.name = "mysql-secret" |
                     .data.password = .data["mysql-root-password"] |
                     del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp)
                 ' \
-                | run_as_user "kubectl apply -f -" > /dev/null 2>&1
+                | kubectl apply -f - > /dev/null 2>&1
             log_with_verbose_check "$debug" "$INFO" "Copied operationsmysql as mysql-secret to $MASTERCARD_NAMESPACE"
         fi
     else
@@ -147,10 +141,10 @@ deploy_operator() {
     log_with_verbose_check "$debug" "$INFO" "Deploying operator with config: $config_file"
 
     cd "$operator_dir"
-    if [ "$debug" == "true" ]; then
-        run_as_user "bash '$operator_dir/deploy-operator.sh' -c '$config_file' deploy"
+    if [[ "$debug" == "true" ]]; then
+        bash "$operator_dir/deploy-operator.sh" -c "$config_file" deploy
     else
-        run_as_user "bash '$operator_dir/deploy-operator.sh' -c '$config_file' deploy" > /dev/null 2>&1
+        bash "$operator_dir/deploy-operator.sh" -c "$config_file" deploy > /dev/null 2>&1
     fi
     local rc=$?
     cd "$RUN_DIR"
@@ -187,7 +181,8 @@ deploy_connector() {
         log_with_verbose_check "$debug" "$INFO" "Connector image: ${image_repo}:${image_tag}"
     fi
 
-    local cr_file="/tmp/mastercard-cbs-cr.yaml"
+    local cr_file
+    cr_file=$(mktemp /tmp/mastercard-cbs-cr.XXXXXX.yaml)
     cat > "$cr_file" <<EOF
 apiVersion: paymenthub.mifos.io/v1alpha1
 kind: MastercardCBSConnector
@@ -206,7 +201,7 @@ spec:
     clientSecretName: "mastercard-cbs-credentials"
   paymenthub:
     namespace: "${PAYMENTHUB_NAMESPACE}"
-    zeebeGateway: "phee-zeebe-gateway.${PAYMENTHUB_NAMESPACE}.svc.cluster.local:26500"
+    zeebeGateway: "paymenthub-infra-zeebe-gateway.${PAYMENTHUB_NAMESPACE}.svc.cluster.local:26500"
     operationsDb:
       host: "operationsmysql.${PAYMENTHUB_NAMESPACE}.svc.cluster.local"
       port: 3306
@@ -230,7 +225,7 @@ EOF
     log_with_verbose_check "$debug" "$INFO" "Applying connector CR from $cr_file"
 
     local apply_output
-    apply_output=$(run_as_user "kubectl apply -f '$cr_file' 2>&1")
+    apply_output=$(kubectl apply -f "$cr_file" 2>&1)
     local rc=$?
 
     if [ $rc -ne 0 ]; then
@@ -246,9 +241,9 @@ wait_for_deployment() {
     local elapsed=0
 
     while [ $elapsed -lt $timeout ]; do
-        if run_as_user "kubectl get deployment ph-ee-connector-mastercard-cbs -n \"$MASTERCARD_NAMESPACE\"" &> /dev/null; then
-            if run_as_user "kubectl wait --for=condition=available --timeout=30s \
-                deployment/ph-ee-connector-mastercard-cbs -n \"$MASTERCARD_NAMESPACE\"" &> /dev/null; then
+        if kubectl get deployment ph-ee-connector-mastercard-cbs -n "$MASTERCARD_NAMESPACE" &> /dev/null; then
+            if kubectl wait --for=condition=available --timeout=30s \
+                deployment/ph-ee-connector-mastercard-cbs -n "$MASTERCARD_NAMESPACE" &> /dev/null; then
                 break
             fi
         fi
@@ -281,7 +276,7 @@ deploy_bpmn_workflow() {
     fi
 
     log_with_verbose_check "$debug" "$INFO" "Deploying BPMN workflow for greenbank"
-    if run_as_user "bash \"$deploy_script\" -c \"$config_file\" -f \"$workflow_file\" -t greenbank" > /dev/null 2>&1; then
+    if bash "$deploy_script" -c "$config_file" -f "$workflow_file" -t greenbank > /dev/null 2>&1; then
         log_with_verbose_check "$debug" "$DEBUG" "BPMN deployed for greenbank"
     else
         log_warn "Failed to deploy BPMN workflow for greenbank"
@@ -289,7 +284,7 @@ deploy_bpmn_workflow() {
     fi
 
     for tenant in redbank bluebank; do
-        if run_as_user "bash \"$deploy_script\" -c \"$config_file\" -f \"$workflow_file\" -t $tenant" > /dev/null 2>&1; then
+        if bash "$deploy_script" -c "$config_file" -f "$workflow_file" -t "$tenant" > /dev/null 2>&1; then
             log_with_verbose_check "$debug" "$DEBUG" "BPMN deployed for $tenant"
         else
             log_with_verbose_check "$debug" "$DEBUG" "Skipped $tenant (tenant may not exist)"
@@ -313,10 +308,10 @@ load_supplementary_data() {
     fi
 
     log_with_verbose_check "$debug" "$INFO" "Loading supplementary data via $data_loader"
-    if [ "$debug" == "true" ]; then
-        run_as_user "bash \"$data_loader\" -c \"$config_file\""
+    if [[ "$debug" == "true" ]]; then
+        bash "$data_loader" -c "$config_file"
     else
-        run_as_user "bash \"$data_loader\" -c \"$config_file\"" > /tmp/mastercard-data-load.log 2>&1
+        bash "$data_loader" -c "$config_file" > /tmp/mastercard-data-load.log 2>&1
     fi
 
     if [ $? -ne 0 ]; then
@@ -341,10 +336,10 @@ generate_mastercard_csv() {
 
     local output_dir="$RUN_DIR/src/utils/data-loading"
     log_with_verbose_check "$debug" "$INFO" "Generating bulk-gazelle-mastercard-6.csv"
-    if [ "$debug" == "true" ]; then
-        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$config_file\" --mode mastercard --num-rows 6 --output-dir \"$output_dir\""
+    if [[ "$debug" == "true" ]]; then
+        "$PYTHON3" "$csv_generator" -c "$config_file" --mode mastercard --num-rows 6 --output-dir "$output_dir"
     else
-        run_as_user "\"$PYTHON3\" \"$csv_generator\" -c \"$config_file\" --mode mastercard --num-rows 6 --output-dir \"$output_dir\"" > /tmp/mastercard-csv-gen.log 2>&1
+        "$PYTHON3" "$csv_generator" -c "$config_file" --mode mastercard --num-rows 6 --output-dir "$output_dir" > /tmp/mastercard-csv-gen.log 2>&1
     fi
 
     if [ $? -ne 0 ]; then
@@ -361,17 +356,17 @@ configure_payment_mode() {
 }
 
 verify_deployment() {
-    if [ "$debug" == "true" ]; then
+    if [[ "$debug" == "true" ]]; then
         echo ""
         echo "    Custom Resource:"
-        run_as_user "kubectl get mastercardcbsconnector -n $MASTERCARD_NAMESPACE" || \
+        kubectl get mastercardcbsconnector -n "$MASTERCARD_NAMESPACE" || \
             log_warn "CR not found"
         echo ""
         echo "    Pods:"
-        run_as_user "kubectl get pods -n $MASTERCARD_NAMESPACE"
+        kubectl get pods -n "$MASTERCARD_NAMESPACE"
         echo ""
         echo "    Services:"
-        run_as_user "kubectl get svc -n $MASTERCARD_NAMESPACE"
+        kubectl get svc -n "$MASTERCARD_NAMESPACE"
     fi
 }
 
@@ -379,16 +374,16 @@ cleanup() {
     MASTERCARD_NAMESPACE="${MASTERCARD_NAMESPACE:-mastercard-demo}"
     local operator_dir="${RUN_DIR:-$HOME/mifos-gazelle}/src/deployer/operators/mastercard"
 
-    run_as_user "kubectl delete mastercardcbsconnector mastercard-cbs \
-        -n \"$MASTERCARD_NAMESPACE\" --ignore-not-found=true" > /dev/null 2>&1
+    kubectl delete mastercardcbsconnector mastercard-cbs \
+        -n "$MASTERCARD_NAMESPACE" --ignore-not-found=true > /dev/null 2>&1
 
     sleep 10
 
     if [ -f "$operator_dir/deploy-operator.sh" ]; then
-        run_as_user "cd \"$operator_dir\" && bash deploy-operator.sh undeploy" > /dev/null 2>&1
+        bash "$operator_dir/deploy-operator.sh" undeploy > /dev/null 2>&1
     fi
 
-    run_as_user "kubectl delete namespace \"$MASTERCARD_NAMESPACE\" --ignore-not-found=true" > /dev/null 2>&1
+    kubectl delete namespace "$MASTERCARD_NAMESPACE" --ignore-not-found=true > /dev/null 2>&1
 }
 
 deploy_mastercard() {
@@ -450,8 +445,8 @@ main() {
             verify_deployment
             ;;
         status)
-            run_as_user "kubectl get mastercardcbsconnector -n ${MASTERCARD_NAMESPACE:-mastercard-demo}"
-            run_as_user "kubectl get pods -n ${MASTERCARD_NAMESPACE:-mastercard-demo}"
+            kubectl get mastercardcbsconnector -n "${MASTERCARD_NAMESPACE:-mastercard-demo}"
+            kubectl get pods -n "${MASTERCARD_NAMESPACE:-mastercard-demo}"
             ;;
         *)
             echo "Usage: $0 {deploy|undeploy|verify|status}"

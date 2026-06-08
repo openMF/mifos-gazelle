@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+  creationTimestamp:
+  labels:
+    mojaloop.service: fspiop-api-svc
+    mojaloop.layer: apps
+  name: fspiop-api-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      mojaloop.service: fspiop-api-svc
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+      creationTimestamp:
+      labels:
+        mojaloop.service: fspiop-api-svc
+        mojaloop.layer: apps
+    spec:
+      containers:
+      - env:
+        - name: AUTH_N_SVC_BASEURL
+          value: http://authentication-svc:3201
+        - name: AUTH_N_TOKEN_AUDIENCE
+          value: mojaloop.vnext.dev.default_audience
+        - name: AUTH_N_TOKEN_ISSUER_NAME
+          value: mojaloop.vnext.dev.default_issuer
+        - name: AUTH_Z_SVC_BASEURL
+          value: http://authorization-svc:3202
+        - name: KAFKA_AUDITS_TOPIC
+          value: audits
+        - name: KAFKA_LOGS_TOPIC
+          value: logs
+        - name: KAFKA_URL
+          value: kafka.infra.svc.cluster.local:9092
+        - name: MONGO_URL
+          value: mongodb://root:mongoDbPas42@mongodb.infra.svc.cluster.local:27017/
+        - name: PARTICIPANTS_SVC_URL
+          value: http://participants-svc:3010
+        - name: PLATFORM_CONFIG_BASE_SVC_URL
+          value: http://platform-configuration-svc:3100
+        - name: JWS_DISABLED
+          value: 'true'
+        image: mojaloop/interop-apis-bc-fspiop-api-svc:0.5.1
+        name: fspiop-api-svc
+        ports:
+        - containerPort: 4000
+        resources: {}
+        volumeMounts:
+        - mountPath: /app/data
+          name: fspiop-api-svc-data
+      restartPolicy: Always
+      volumes:
+      - name: fspiop-api-svc-data
+        persistentVolumeClaim:
+          claimName: fspiop-api-svc-data
+status: {}

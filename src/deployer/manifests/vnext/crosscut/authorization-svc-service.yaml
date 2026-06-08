@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: authorization-svc
+    mojaloop.layer: crosscut
+  name: authorization-svc
+spec:
+  ports:
+    - name: "3202"
+      port: 3202
+      targetPort: 3202
+  selector:
+    mojaloop.service: authorization-svc
+    mojaloop.layer: crosscut
+status:
+  loadBalancer: {}

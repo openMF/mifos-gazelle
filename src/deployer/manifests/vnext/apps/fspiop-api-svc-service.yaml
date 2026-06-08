@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: fspiop-api-svc
+    mojaloop.layer: apps
+  name: fspiop-api-svc
+spec:
+  ports:
+    - name: "4000"
+      port: 4000
+      targetPort: 4000
+  selector:
+    mojaloop.service: fspiop-api-svc
+status:
+  loadBalancer: {}

@@ -21,7 +21,7 @@ is_app_running() {
     
     # Check if namespace exists
     local namespace_check
-    namespace_check=$(run_as_user "kubectl get namespace \"$namespace\" -o name")
+    namespace_check=$(kubectl get namespace "$namespace" -o name 2>/dev/null)
     local namespace_exit_code=$?
     log_with_verbose_check "$debug" debug "Namespace check exit code: $namespace_exit_code, output: [$namespace_check]"
     [[ $namespace_exit_code -ne 0 ]] && {
@@ -30,13 +30,15 @@ is_app_running() {
     }
     
     local raw_output
-    raw_output=$(run_as_user "kubectl get pod -n \"$namespace\" --no-headers -o wide")
+    raw_output=$(kubectl get pod -n "$namespace" --no-headers -o wide 2>/dev/null)
     local exit_code=$?
 
     # Strip any lines that look like debug/command echo (e.g., "DEBUG Running as ...")
+    local pod_list
     pod_list=$(echo "$raw_output" | grep -vE '(DEBUG|kubectl)' || true)
-    
+
     # Count total pods and ready pods
+    local total_pods ready_count
     total_pods=$(echo "$pod_list" | grep -c '^')
     # Modified to count pods where READY column shows all containers ready (e.g., 1/1, 2/2)
     # Match patterns like 1/1, 2/2, etc. where both numbers are the same and non-zero
@@ -65,20 +67,34 @@ is_app_running() {
 
 wait_for_pods_ready() {
     local namespace="$1"
+    local timeout="${2:-600}"
+    local elapsed=0
+    local interval=15
+    local stable_count=0
+
     log_step "Waiting for $namespace pods to stabilise"
 
-    STABLE_COUNT=0
-    while [ $STABLE_COUNT -lt 3 ]; do
-      NOT_READY=$(run_as_user "kubectl get pods -n \"$namespace\" --no-headers" | awk '{split($2,a,"/"); if(a[1]!=a[2] || a[1]==0) print}')
+    while true; do
+        if [ "$elapsed" -ge "$timeout" ]; then
+            log_warn "Timed out after ${timeout}s waiting for $namespace pods"
+            return 1
+        fi
 
-      if [ -z "$NOT_READY" ]; then
-        STABLE_COUNT=$((STABLE_COUNT + 1))
-        log_with_verbose_check "$debug" "$DEBUG" "All pods ready — stable count: $STABLE_COUNT/3"
-      else
-        STABLE_COUNT=0
-        log_with_verbose_check "$debug" "$DEBUG" "Some pods not ready — waiting 60s..."
-      fi
-      sleep 60
+        local not_ready
+        not_ready=$(kubectl get pods -n "$namespace" --no-headers 2>/dev/null \
+            | awk '{split($2,a,"/"); if(a[1]!=a[2] || a[1]==0) print}')
+
+        if [ -z "$not_ready" ]; then
+            stable_count=$((stable_count + 1))
+            log_with_verbose_check "$debug" "$DEBUG" "All pods ready — stable count: $stable_count/3"
+            [ "$stable_count" -ge 3 ] && break
+        else
+            stable_count=0
+            log_with_verbose_check "$debug" "$DEBUG" "Some pods not ready — waiting ${interval}s..."
+        fi
+
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
     done
     log_ok
 }
@@ -113,14 +129,11 @@ create_ingress_secret() {
         done
     fi
 
-    log_step "Creating TLS secret '$secret_name' ($primary_domain, $((index-1)) SANs)"
+    log_step "Creating TLS secret '$secret_name' ($((index-1)) SANs) "
     log_with_verbose_check "$debug" "$DEBUG" "SANs:\n$san_config"
 
     # Generate private key
     openssl genrsa -out "$key_dir/$primary_domain.key" 2048 >/dev/null 2>&1
-
-    # Set proper ownership and permissions on the key
-    chown "$k8s_user":"$k8s_user" "$key_dir/$primary_domain.key"
     chmod 600 "$key_dir/$primary_domain.key"
 
     # X.509 CN field is limited to 64 characters; truncate if needed.
@@ -160,8 +173,6 @@ EOF
 
     rm -f "$config_file"
 
-    # Set proper ownership and permissions on the certificate
-    chown "$k8s_user":"$k8s_user" "$key_dir/$primary_domain.crt"
     chmod 644 "$key_dir/$primary_domain.crt"
 
     if ! openssl x509 -in "$key_dir/$primary_domain.crt" -noout -text | grep -q "Subject Alternative Name"; then
@@ -169,29 +180,15 @@ EOF
     fi
 
     # Create/replace TLS secret
-    # Check if we're already running as k8s_user or if we need to use run_as_user
-    if [ "$(whoami)" = "$k8s_user" ]; then
-        # Already the correct user, run kubectl directly
-        kubectl -n "$namespace" delete secret "$secret_name" --ignore-not-found >/dev/null 2>&1
+    kubectl -n "$namespace" delete secret "$secret_name" --ignore-not-found >/dev/null 2>&1
 
-        if kubectl -n "$namespace" create secret tls "$secret_name" \
-            --cert="$key_dir/$primary_domain.crt" \
-            --key="$key_dir/$primary_domain.key" >/dev/null 2>&1; then
-            log_ok
-        else
-            log_failed "kubectl create secret tls '$secret_name'"
-            return 1
-        fi
+    if kubectl -n "$namespace" create secret tls "$secret_name" \
+        --cert="$key_dir/$primary_domain.crt" \
+        --key="$key_dir/$primary_domain.key" >/dev/null 2>&1; then
+        log_ok
     else
-        # Running as different user (e.g., root), use run_as_user wrapper
-        run_as_user "kubectl -n \"$namespace\" delete secret \"$secret_name\" --ignore-not-found" >/dev/null 2>&1
-
-        if run_as_user "kubectl -n \"$namespace\" create secret tls \"$secret_name\" --cert=\"$key_dir/$primary_domain.crt\" --key=\"$key_dir/$primary_domain.key\"" >/dev/null 2>&1; then
-            log_ok
-        else
-            log_failed "kubectl create secret tls '$secret_name' (as $k8s_user)"
-            return 1
-        fi
+        log_failed "kubectl create secret tls '$secret_name'"
+        return 1
     fi
 }
 
@@ -216,10 +213,8 @@ manage_elastic_secrets() {
         return 1
     fi
 
-    # Create a temporary directory owned by k8s_user
     local temp_dir
     temp_dir=$(mktemp -d -p "/tmp" "elastic_secrets_XXXXXX") || { log_error "Failed to create temporary directory"; return 1; }
-    chown "$k8s_user":"$k8s_user" "$temp_dir" || { log_error "Failed to change ownership of $temp_dir"; rm -rf "$temp_dir"; return 1; }
     chmod 700 "$temp_dir" || { log_error "Failed to set permissions on $temp_dir"; rm -rf "$temp_dir"; return 1; }
 
     if [ "$action" = "create" ]; then
@@ -242,7 +237,6 @@ manage_elastic_secrets() {
             rm -rf "$temp_dir"
             return 1
         fi
-        chown "$k8s_user":"$k8s_user" "$temp_dir/elastic-certificates.p12" "$temp_dir/key.pem" "$temp_dir/cert.pem" || { log_error "Failed to set ownership on generated cert files"; rm -rf "$temp_dir"; return 1; }
         chmod 600 "$temp_dir/elastic-certificates.p12" "$temp_dir/key.pem" "$temp_dir/cert.pem" || { log_error "Failed to set permissions on generated cert files"; rm -rf "$temp_dir"; return 1; }
 
         # Convert certificates
@@ -257,49 +251,36 @@ manage_elastic_secrets() {
             return 1
         fi
 
-        # Ensure generated files are owned by k8s_user
-        if ! chown "$k8s_user":"$k8s_user" "$temp_dir/elastic-certificate.pem" "$temp_dir/elastic-certificate.crt"; then
-            log_error "Failed to change ownership of generated certificate files"
-            rm -rf "$temp_dir"
-            return 1
-        fi
         if ! chmod 600 "$temp_dir/elastic-certificate.pem" "$temp_dir/elastic-certificate.crt"; then
             log_error "Failed to set permissions on generated certificate files"
             rm -rf "$temp_dir"
             return 1
         fi
 
-        # Verify k8s_user can access generated files
-        if ! su - "$k8s_user" -c "test -r '$temp_dir/elastic-certificate.pem' && test -r '$temp_dir/elastic-certificate.crt'" 2>/dev/null; then
-            log_error "$k8s_user cannot read generated certificate files"
-            rm -rf "$temp_dir"
-            return 1
-        fi
-
         # Create secrets
         local secret_output
-        secret_output=$(run_as_user "kubectl create secret generic elastic-certificates --namespace=\"$namespace\" --from-file=\"$temp_dir/elastic-certificates.p12\"" 2>&1)
+        secret_output=$(kubectl create secret generic elastic-certificates --namespace="$namespace" --from-file="$temp_dir/elastic-certificates.p12" 2>&1)
         if [ $? -ne 0 ]; then
             log_error "Failed to create elastic-certificates secret: $secret_output"
             rm -rf "$temp_dir"
             return 1
         fi
 
-        secret_output=$(run_as_user "kubectl create secret generic elastic-certificate-pem --namespace=\"$namespace\" --from-file=\"$temp_dir/elastic-certificate.pem\"" 2>&1)
+        secret_output=$(kubectl create secret generic elastic-certificate-pem --namespace="$namespace" --from-file="$temp_dir/elastic-certificate.pem" 2>&1)
         if [ $? -ne 0 ]; then
             log_error "Failed to create elastic-certificate-pem secret: $secret_output"
             rm -rf "$temp_dir"
             return 1
         fi
 
-        secret_output=$(run_as_user "kubectl create secret generic elastic-certificate-crt --namespace=\"$namespace\" --from-file=\"$temp_dir/elastic-certificate.crt\"" 2>&1)
+        secret_output=$(kubectl create secret generic elastic-certificate-crt --namespace="$namespace" --from-file="$temp_dir/elastic-certificate.crt" 2>&1)
         if [ $? -ne 0 ]; then
             log_error "Failed to create elastic-certificate-crt secret: $secret_output"
             rm -rf "$temp_dir"
             return 1
         fi
 
-        secret_output=$(run_as_user "kubectl create secret generic elastic-credentials --namespace=\"$namespace\" --from-literal=password=\"$password\" --from-literal=username=elastic" 2>&1)
+        secret_output=$(kubectl create secret generic elastic-credentials --namespace="$namespace" --from-literal=password="$password" --from-literal=username=elastic 2>&1)
         if [ $? -ne 0 ]; then
             log_error "Failed to create elastic-credentials secret: $secret_output"
             rm -rf "$temp_dir"
@@ -307,7 +288,7 @@ manage_elastic_secrets() {
         fi
 
         local encryptionkey="MMFI5EFpJnib4MDDbRPuJ1UNIRiHuMud_r_EfBNprx7qVRlO7R"
-        secret_output=$(run_as_user "kubectl create secret generic kibana --namespace=\"$namespace\" --from-literal=encryptionkey=$encryptionkey" 2>&1)
+        secret_output=$(kubectl create secret generic kibana --namespace="$namespace" --from-literal=encryptionkey=$encryptionkey 2>&1)
         if [ $? -ne 0 ]; then
             log_error "Failed to create kibana secret: $secret_output"
             rm -rf "$temp_dir"
@@ -322,7 +303,7 @@ manage_elastic_secrets() {
 
         for secret in "${secrets[@]}"; do
             local delete_output
-            delete_output=$(run_as_user "kubectl delete secret $secret --namespace=\"$namespace\" --ignore-not-found=true" 2>&1)
+            delete_output=$(kubectl delete secret "$secret" --namespace="$namespace" --ignore-not-found=true 2>&1)
             if [ $? -ne 0 ] && [[ ! "$delete_output" =~ "not found" ]]; then
                 log_warn "Failed to delete secret $secret: $delete_output"
                 all_success=false
@@ -458,8 +439,9 @@ apply_domain_to_dir() {
 #   $1 - Path to the Helm chart directory
 #------------------------------------------------------------------------------
 ensure_helm_dependencies() {
-  local chartPath=$1
-  local chartName=$(basename "$chartPath")
+  local chartPath="$1"
+  local chartName
+  chartName=$(basename "$chartPath")
   
   log_with_verbose_check "$debug" "$DEBUG" "Ensuring helm dependencies for $chartName"
 

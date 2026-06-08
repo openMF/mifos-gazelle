@@ -98,6 +98,8 @@ configure_mac_k3s_node_ip() {
     if sudo -u "$k8s_user" "$colima" exec -- sudo rc-service k3s restart >/dev/null 2>&1; then
         # OpenRC (Alpine Linux — Colima Lima VM)
         restarted=true
+    elif sudo -u "$k8s_user" "$colima" exec -- sudo systemctl restart k3s >/dev/null 2>&1; then
+        restarted=true
     elif sudo -u "$k8s_user" "$colima" exec -- sudo service k3s restart >/dev/null 2>&1; then
         restarted=true
     elif sudo -u "$k8s_user" "$colima" exec -- sudo dinitctl restart k3s >/dev/null 2>&1; then
@@ -165,6 +167,7 @@ recover_mac_k8s() {
     printf "    Auto-recovery tier 1: restarting k3s inside the VM...\n"
     sudo -u "$k8s_user" "$colima" exec -- sudo rm -f /etc/rancher/k3s/config.yaml >/dev/null 2>&1 || true
     sudo -u "$k8s_user" "$colima" exec -- sudo rc-service k3s restart >/dev/null 2>&1 || \
+        sudo -u "$k8s_user" "$colima" exec -- sudo systemctl start k3s >/dev/null 2>&1 || \
         sudo -u "$k8s_user" "$colima" exec -- sudo service k3s restart >/dev/null 2>&1 || true
 
     use_colima_context
@@ -187,8 +190,8 @@ recover_mac_k8s() {
     fi
 
     log_error "Auto-recovery failed. Try:"
-    printf "   1. Run: colima stop && colima start --kubernetes --kubernetes-version v1.30.0+k3s1 --runtime containerd --memory 16 --cpu 4\n"
-    printf "   2. If the problem persists, run: colima delete && re-run ./run.sh\n"
+    printf "   1. colima stop && colima start --kubernetes\n"
+    printf "   2. If the problem persists: colima delete && re-run setup-env.sh\n"
     return 1
 }
 
@@ -249,13 +252,17 @@ start_colima() {
     fi
     # Pass Homebrew PATH explicitly — sudo strips PATH so colima's internal
     # kubectl dependency check fails without it.
+    # Colima requires full major.minor.patch; config stores major.minor for k3s channel use
+    local _kver="${k8s_version:-1.35.0}"
+    [[ "$_kver" =~ ^[0-9]+\.[0-9]+$ ]] && _kver="${_kver}.0"
+
     sudo -u "$k8s_user" env PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" \
         "$colima" start \
         --kubernetes \
-        --kubernetes-version "v1.30.0+k3s1" \
+        --kubernetes-version "v${_kver}+k3s1" \
         --runtime docker \
-        --memory 16 \
-        --cpu 4 \
+        --memory "${k8s_mem:-16}" \
+        --cpu "${k8s_cpu:-4}" \
         --network-address
 }
 
@@ -304,7 +311,19 @@ install_mac_k8s() {
     if colima=$(find_colima); then
         local vm_state
         vm_state=$(sudo -u "$k8s_user" "$colima" list --json 2>/dev/null \
-            | python3 -c "import sys,json; items=json.load(sys.stdin); print(items[0].get('status','') if items else '')" 2>/dev/null || true)
+            | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if isinstance(data, list):
+        print(data[0].get('status', '') if data else '')
+    elif isinstance(data, dict):
+        print(data.get('status', ''))
+    else:
+        print('')
+except Exception:
+    print('')
+" 2>/dev/null || true)
         if [[ "$vm_state" == "Running" ]]; then
             printf "    VM is running but cluster is unreachable — attempting auto-recovery...\n"
             if recover_mac_k8s; then
@@ -350,70 +369,20 @@ install_mac_k8s() {
 
 #------------------------------------------------------------------------------
 # Function: env_setup_mac_cluster
-# Description: Sets up Gazelle on a macOS host using Colima (k3s) as the
-#              Kubernetes provider.
-# Parameters:
-#   $1 - Mode of operation: "deploy", "cleanapps", or "cleanall"
+# Description: Installs and configures a Colima k3s cluster on macOS.
+#              Teardown is handled by env_cleanall_main.
 #------------------------------------------------------------------------------
 env_setup_mac_cluster() {
-    local mode="$1"
-    if [[ "$mode" == "deploy" ]]; then
-        check_resources_ok
-        install_mac_k8s
-        configure_mac_vm_limits
-        # NOTE: configure_mac_k3s_node_ip is intentionally NOT called here.
-        # The default Colima k3s setup works correctly without explicit node-ip binding.
-        # The function exists and is updated for potential future use if needed.
-        ensure_python_venv
-        add_hosts
-        check_and_load_helm_repos
-        install_nginx_local_cluster
-        log_section "macOS kubernetes cluster configured for $k8s_user"
-        print_end_message
-    elif [[ "$mode" == "cleanapps" || "$mode" == "cleanall" ]]; then
-        if is_cluster_accessible; then
-            # Cluster is up — delete namespaces and helm releases cleanly
-            if [[ "$mode" == "cleanapps" ]]; then
-                : # app deletion handled by delete_apps called from commandline.sh
-            else
-                log_step "Removing ingress-nginx"
-                run_as_user "helm uninstall ingress-nginx -n default" >/dev/null 2>&1 || true
-                log_ok
-            fi
-        else
-            if [[ "$mode" == "cleanapps" ]]; then
-                log_error "Kubernetes cluster is NOT accessible"
-                exit 1
-            else
-                log_warn "Kubernetes cluster is not accessible — skipping namespace cleanup"
-            fi
-        fi
-        remove_hosts
-        if [[ "$mode" == "cleanall" ]]; then
-            # Delete the Colima VM entirely — full wipe of k3s state and images.
-            # colima delete stops the VM first if running, then removes the disk.
-            local colima
-            if colima=$(find_colima); then
-                log_step "Deleting Colima VM (full cleanall)"
-                # --yes skips the interactive confirmation prompt.
-                # Stop first (ignoring errors if already stopped) so containerd
-                # shuts down cleanly before delete removes the disk; this avoids
-                # the ttrpc/JSON errors that occur when delete tries to stop a
-                # partially-running VM itself.
-                sudo -u "$k8s_user" "$colima" stop 2>/dev/null || true
-                sudo -u "$k8s_user" "$colima" delete --yes 2>/dev/null || true
-                # colima delete leaves behind ~/.colima (named disks, Lima config, SSH
-                # config) which can hold 20-30 GB of disk images. Remove the entire
-                # directory for a true cleanall — Colima recreates it on next start.
-                rm -rf "$k8s_user_home/.colima" 2>/dev/null || true
-                log_ok
-                # Remove stale kubeconfig and Docker contexts left by the deleted VM.
-                su - "$k8s_user" -c "kubectl config delete-context colima" >/dev/null 2>&1 || true
-                sudo -u "$k8s_user" docker context rm colima >/dev/null 2>&1 || true
-            fi
-        fi
-    else
-        show_usage
-        exit 1
-    fi
+    check_resources_ok
+    install_mac_k8s
+    configure_mac_vm_limits
+    # NOTE: configure_mac_k3s_node_ip is intentionally NOT called here.
+    # The default Colima k3s setup works correctly without explicit node-ip binding.
+    # The function exists and is updated for potential future use if needed.
+    ensure_python_venv
+    add_hosts
+    check_and_load_helm_repos
+    install_nginx_local_cluster
+    log_section "macOS kubernetes cluster configured for $k8s_user"
+    print_end_message
 }
