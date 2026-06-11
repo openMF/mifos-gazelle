@@ -1,0 +1,40 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: ph-ee-vouchers
+  namespace: paymenthub
+spec:
+  enabled: false
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  image: docker.io/openmf/ph-ee-vouchers:v1.3.1
+  containerPort: 8080
+  resources:
+    limits:
+      cpu: 500m
+      memory: 752M
+    requests:
+      cpu: 100m
+      memory: 256M
+  services:
+    - name: ph-ee-vouchers
+      ports:
+        - name: port
+          port: 80
+          targetPort: 8080
+          protocol: TCP
+      selector:
+        app: ph-ee-vouchers
+      sessionAffinity: None
+      type: ClusterIP
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "paymenthub-infra-zeebe-gateway:26500"

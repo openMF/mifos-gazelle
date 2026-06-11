@@ -74,17 +74,17 @@ MASTERCARD_LOCALDEV_ENABLED     = true
 **Option A — all in one step** (recommended): with `enabled = true` in `config/config.ini`, a single `run.sh` call deploys everything in the correct order, ending with `setup-data` which populates the identity mapper and loads Mastercard supplementary data:
 
 ```bash
-sudo ./run.sh
+./run.sh -m deploy -a all
 ```
 
 **Option B — add to an existing deployment**: deploy the connector first, then run `setup-data` last to populate the identity mapper and load supplementary data:
 
 ```bash
 # Deploy the Mastercard connector, operator, and BPMN workflows
-sudo ./run.sh -a mastercard-demo
+./run.sh -m deploy -a mastercard-demo
 
 # Load all data: Fineract clients, identity mapper, and Mastercard supplementary data
-sudo ./run.sh -a setup-data
+./run.sh -m deploy -a setup-data
 ```
 
 > **`setup-data` must run after `mastercard-demo`**, not before. The supplementary data
@@ -127,7 +127,7 @@ Response Status: 202
 ### 4. Remove
 
 ```bash
-sudo ./run.sh -m cleanapps -a mastercard-demo
+./run.sh -m cleanapps -a mastercard-demo
 ```
 
 ---

@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: auditing-svc
+    mojaloop.layer: crosscut
+  name: auditing-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      mojaloop.service: auditing-svc
+      mojaloop.layer: crosscut
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+      creationTimestamp: null
+      labels:
+        mojaloop.service: auditing-svc
+        mojaloop.layer: crosscut
+    spec:
+      containers:
+        - env:
+            - name: ELASTICSEARCH_AUDITS_INDEX
+              value: ml-auditing
+            - name: ELASTICSEARCH_PASSWORD
+              value: elasticSearchPas42
+            - name: ELASTICSEARCH_URL
+              value: http://infra-elasticsearch.infra.svc.cluster.local:9200
+            - name: ELASTICSEARCH_USERNAME
+              value: elastic
+            - name: KAFKA_AUDITS_TOPIC
+              value: audits
+            - name: KAFKA_LOGS_TOPIC
+              value: logs
+            - name: KAFKA_URL
+              value: kafka.infra.svc.cluster.local:9092
+          image: mojaloop/auditing-bc-auditing-svc:0.5.1
+          name: auditing-svc
+          ports:
+            - containerPort: 3050
+          resources: {}
+      restartPolicy: Always
+status: {}

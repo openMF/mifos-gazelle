@@ -12,7 +12,7 @@ set -e
 KIBANA_URL="${KIBANA_URL:-https://kibana.mifos.gazelle.localhost}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Data directory with Kibana dashboards (relative to script location)
-DATA_DIR="$(cd "$SCRIPT_DIR/../../repos/ph_template/Kibana Visualisations" && pwd)"
+DATA_DIR="$(cd "$SCRIPT_DIR/kibana-dashboards" && pwd)"
 
 # Colors for output
 RED='\033[0;31m'

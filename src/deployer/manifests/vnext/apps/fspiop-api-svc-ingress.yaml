@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fspiop-api-svc
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    #external-dns.alpha.kubernetes.io/hostname: fspiop.mifos.gazelle.test
+    #cert-manager.io/issuer: letsencrypt-staging
+spec:
+  ingressClassName: nginx
+  #tls:
+  # - hosts: 
+  #   - fspiop.mifos.gazelle.test 
+  #   secretName: quickstart-example-tls
+  rules:
+  - host: fspiop.mifos.gazelle.test
+    http:
+      paths:
+      - path: "/"
+        pathType: Prefix
+        backend:
+          service:
+            name: fspiop-api-svc
+            port:
+              number: 4000

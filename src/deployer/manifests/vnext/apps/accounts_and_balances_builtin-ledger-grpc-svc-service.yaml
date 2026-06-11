@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: accounts-and-balances-builtin-ledger-grpc-svc
+    mojaloop.layer: apps
+  name: accounts-and-balances-builtin-ledger-grpc-svc
+spec:
+  ports:
+    - name: "3350"
+      port: 3350
+      targetPort: 3350
+  selector:
+    mojaloop.service: accounts-and-balances-builtin-ledger-grpc-svc
+status:
+  loadBalancer: {}

@@ -1,0 +1,58 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: message-gateway
+  namespace: paymenthub
+spec:
+  enabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  image: docker.io/openmf/message-gateway:v1.2.0
+  containerPort: 9191
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512M
+    requests:
+      cpu: 100m
+      memory: 256M
+  rbacEnabled: false
+  secretEnabled: true
+  configMapEnabled: false
+  ingressEnabled: false
+  initContainerEnabled: true
+  services:
+    - name: message-gateway
+      ports:
+        - name: port
+          port: 80
+          targetPort: 9191
+          protocol: TCP
+      selector:
+        app: message-gateway
+      sessionAffinity: None
+      type: ClusterIP
+  environment:
+    - name: SPRING_DATASOURCE_URL
+      value: "jdbc:mysql:thin://operationsmysql:3306/messagegateway"
+    - name: MYSQL_USERNAME
+      value: "mifos"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "paymenthub-infra-zeebe-gateway:26500"
+    - name: MYSQL_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: message-gateway-secret
+          key: database-password
+    - name: CALLBACKCONFIG_HOST
+      value: "ph-ee-connector-notifications"
+    - name: HOSTCONFIG_HOST
+      value: "message-gateway"
+    - name: PROVIDERSOURCE_FROMDATABASE
+      value: "disabled"
+    - name: PROVIDERSOURCE_FROMYML
+      value: "enabled"
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"

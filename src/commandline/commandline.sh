@@ -9,19 +9,13 @@ DEFAULT_CONFIG_FILE="$RUN_DIR/config/config.ini"
 
 #------------------------------------------------------------------------------
 # function: resolve_invoker_user
-# Description: Resolves the username of the user who invoked the script,
-#              handling cases where sudo is used.
+# Description: Resolves the username of the user who invoked the script.
+#              In setup-env.sh (sudo context) checks SUDO_USER first.
+#              In run.sh (no sudo) whoami is always correct.
 #------------------------------------------------------------------------------
 resolve_invoker_user() {
   if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
     printf '%s\n' "$SUDO_USER"
-    return
-  fi
-  if invoker="$(logname 2>/dev/null)"; then
-    [[ -n "$invoker" ]] && printf '%s\n' "$invoker" && return
-  fi
-  if [[ -n "${LOGNAME:-}" && "${LOGNAME}" != "root" ]]; then
-    printf '%s\n' "$LOGNAME"
     return
   fi
   whoami
@@ -148,8 +142,10 @@ load_config_from_file() {
     if [[ -n "$config_helm_version" ]]; then helm_version="$config_helm_version"; fi
     # local config_k8s_current_release_list=$(crudini --get "$config_path" kubernetes k8s_current_release_list 2>/dev/null)
     # if [[ -n "$config_k8s_current_release_list" ]]; then k8s_current_release_list="$config_k8s_current_release_list"; fi
-    local config_min_ram=$(crudini --get "$config_path" kubernetes min_ram 2>/dev/null)
-    if [[ -n "$config_min_ram" ]]; then min_ram="$config_min_ram"; fi
+    local config_k8s_cpu=$(crudini --get "$config_path" kubernetes k8s_cpu 2>/dev/null)
+    if [[ -n "$config_k8s_cpu" ]]; then k8s_cpu="$config_k8s_cpu"; fi
+    local config_k8s_mem=$(crudini --get "$config_path" kubernetes k8s_mem 2>/dev/null)
+    if [[ -n "$config_k8s_mem" ]]; then k8s_mem="$config_k8s_mem"; fi
     local config_min_free_space=$(crudini --get "$config_path" kubernetes min_free_space 2>/dev/null)
     if [[ -n "$config_min_free_space" ]]; then min_free_space="$config_min_free_space"; fi
     local config_linux_os_list=$(crudini --get "$config_path" kubernetes linux_os_list 2>/dev/null)
@@ -159,7 +155,7 @@ load_config_from_file() {
 
     # Read app enablement flags and construct the 'apps' variable
     local enabled_apps_list=""
-    local valid_apps=("infra" "vnext" "phee" "mifosx" "mastercard-demo")
+    local valid_apps=("infra" "vnext" "paymenthub" "mifosx" "mastercard-demo")
 
     for app_name in "${valid_apps[@]}"; do
         local app_enabled=$(crudini --get "$config_path" "$app_name" enabled 2>/dev/null)
@@ -222,26 +218,47 @@ welcome() {
 #------------------------------------------------------------------------------
 show_usage() {
     echo "
-    USAGE: $0 [-f <config_file_path>] -m [mode] -u [user] -a [apps] -e [environment] -d [true/false] -r [true/false]
-    Example 1 : sudo $0                                          # deploy all apps enabled in config.ini and user \$USER from config.ini
-    Example 2 : sudo $0 -m cleanapps -d true                     # delete all apps enabled in config.init,  debug mode \$USER from config.ini
-    Example 3 : sudo $0 -m cleanall                              # delete all apps, all local Kubernetes artifacts, and local kubernetes server
-    Example 4 : sudo $0 -a phee                                  # deploy PHEE only, user \$USER from config.ini
-    Example 6 : sudo $0 -a \"mifosx,vnext\"                        # deploy MifosX and vNext only 
-    Example 7 : sudo $0 -f /opt/my_config.ini                    # Use a custom config file
-    Example 8 : sudo $0 -a \"phee,mifosx\" -e remote -d true       # deploy PHEE and MifosX on remote cluster with debug mode
-    Example 9 : sudo $0 -a setup-data                            # re-run data generation after a slow first boot
+    USAGE: $0 [-f <config_file_path>] -m [mode] -a [apps] -e [environment] -d [true/false] -r [true/false]
+
+    Deploys or removes Mifos Gazelle applications on an already-configured cluster.
+    Run 'sudo ./setup-env.sh' first to set up the environment (k3s, /etc/hosts, tools).
+
+    Example 1 : $0 -m deploy                                  # deploy all apps enabled in config.ini
+    Example 2 : $0 -m deploy -a paymenthub                    # deploy PaymentHub only
+    Example 3 : $0 -m deploy -a \"mifosx,vnext\"                # deploy MifosX and vNext only
+    Example 4 : $0 -m deploy -e remote -d true                # deploy on remote cluster with debug
+    Example 5 : $0 -m cleanapps                               # delete all deployed apps
+    Example 6 : $0 -m cleanapps -a paymenthub                 # delete PaymentHub only
+    Example 7 : $0 -f /opt/my_config.ini -m deploy            # use a custom config file
+    Example 8 : $0 -m deploy -a setup-data                    # re-run data generation
 
     Options:
     -f config_file_path .. Specify an alternative config.ini file path (optional)
-    -m mode .............. deploy|cleanapps|cleanall (required)
-    -u user .............. (non root) user that the process will use for execution (required)
-    -a apps .............. Comma-separated list of apps (vnext,phee,mifosx,infra,mastercard-demo,setup-data) or 'all' (optional)
-    -e environment ....... Cluster environment (local or remote, optional, default=local)
-    -d debug ............. Enable debug mode (true|false, optional, default=false)
-    -r redeploy .......... Force redeployment of apps (true|false, optional, default=true)
-    -h|H ................. Display this message
+    -m mode .............. deploy|cleanapps (required)
+    -u user .............. non-root user for k8s operations (optional, defaults to \$USER)
+    -a apps .............. Comma-separated list of apps or 'all' (optional)
+                           Valid: vnext paymenthub mifosx infra mastercard-demo setup-data all
+    -e environment ....... local (default) | remote
+    -d debug ............. true|false (optional, default=false)
+    -r redeploy .......... true|false (optional, default=true)
+    -h|H ................. display this message
+
+    For environment setup and teardown use sudo ./setup-env.sh (see --help).
     "
+}
+
+#------------------------------------------------------------------------------
+# Function : auto_detect_environment
+# Description: Promotes 'local' to 'mac' on macOS so the Colima code path is
+#              used automatically without any config change.
+#------------------------------------------------------------------------------
+auto_detect_environment() {
+    if [[ "${environment:-local}" == "local" && "$(uname -s)" == "Darwin" ]]; then
+        environment="mac"
+        log_with_level "$INFO" "Detected OS: macOS — using Colima/Homebrew path"
+    elif [[ "${environment:-local}" == "local" ]]; then
+        log_with_level "$INFO" "Detected OS: $(uname -s) — using local k3s path"
+    fi
 }
 
 #------------------------------------------------------------------------------
@@ -252,7 +269,7 @@ show_usage() {
 #------------------------------------------------------------------------------
 check_duplicates() {
     local -n arr=$1
-    declare -A seen
+    local -A seen
     
     for app in "${arr[@]}"; do
         if [[ ${seen[$app]} ]]; then
@@ -281,8 +298,9 @@ validate_inputs() {
         exit 1
     fi
 
-    if [[ "$mode" != "deploy" && "$mode" != "cleanapps" && "$mode" != "cleanall" ]]; then
-        log_error "Invalid mode '$mode'. Must be one of: deploy, cleanapps, cleanall."
+    if [[ "$mode" != "deploy" && "$mode" != "cleanapps" ]]; then
+        log_error "Invalid mode '$mode'. run.sh accepts: deploy | cleanapps"
+        log_error "For environment setup and teardown use: sudo ./setup-env.sh [-m cleanall]"
         show_usage
         exit 1
     fi
@@ -292,8 +310,8 @@ validate_inputs() {
             log_warn "No apps specified via -a or config file. Defaulting to 'all'."
             apps="all"
         fi
-        local ALL_VALID_APPS="infra vnext phee mifosx mastercard-demo setup-data all"
-        local CORE_APPS="infra vnext phee mifosx"
+        local ALL_VALID_APPS="infra vnext paymenthub mifosx mastercard-demo setup-data all"
+        local CORE_APPS="infra vnext paymenthub mifosx"
 
         local current_apps_array
         IFS=' ' read -r -a current_apps_array <<< "$apps"
@@ -336,12 +354,12 @@ validate_inputs() {
         if [[ " $apps " =~ " infra " ]]; then
             if [[ "$mode" == "deploy" ]]; then
                 # for mode = deploy ensure 'infra' is first app if present
-                apps="infra $(echo $apps | sed 's/infra//')"
-                apps=$(echo $apps | xargs)
+                apps="infra $(echo "$apps" | sed 's/infra//')"
+                apps=$(echo "$apps" | xargs)
             else # mode = cleanapps
                 # for mode = cleanapps ensure 'infra' is last app if present
-                apps="$(echo $apps | sed 's/infra//') infra"
-                apps=$(echo $apps | xargs)
+                apps="$(echo "$apps" | sed 's/infra//') infra"
+                apps=$(echo "$apps" | xargs)
             fi
         fi
         log_with_verbose_check "$debug" "$DEBUG" "Final app order: $apps"
@@ -360,7 +378,7 @@ validate_inputs() {
     fi
 
     if [[ -n "$environment" && "$environment" != "local" && "$environment" != "remote" && "$environment" != "mac" ]]; then
-        log_error "Invalid environment '$environment'. Must be 'local', 'remote', or 'mac'."
+        log_error "Invalid environment '$environment'. Must be 'local' or 'remote'."
         show_usage
         exit 1
     fi
@@ -388,7 +406,8 @@ validate_inputs() {
             exit 1
         fi
 
-        local os_version=$(lsb_release -r -s | cut -d'.' -f1)
+        local os_version
+        os_version=$(lsb_release -r -s | cut -d'.' -f1)
         if [[ ! " $ubuntu_ok_versions_list " =~ " $os_version " ]]; then
             log_error "Ubuntu version '$os_version' is not supported. Supported versions: $ubuntu_ok_versions_list."
             show_usage
@@ -467,25 +486,23 @@ debug="false"
 redeploy="true"
 kubeconfig_path=""
 #helm_version=""
-# min_ram=6
 # min_free_space=30
 # linux_os_list="Ubuntu"
 #ubuntu_ok_versions_list=""
-export KUBECONFIG=$kubeconfig_path
 CONFIG_FILE_PATH="$DEFAULT_CONFIG_FILE"
 
 main() {
     # Determine config file path early (before full option parsing) so that
     # logging can be set up before welcome() prints anything.
-    local _early_config="$DEFAULT_CONFIG_FILE"
-    local _args=("$@")
-    for ((i=0; i<${#_args[@]}; i++)); do
-        if [[ "${_args[i]}" == "-f" && $((i+1)) -lt ${#_args[@]} ]]; then
-            _early_config="${_args[$((i+1))]}"
+    local early_config="$DEFAULT_CONFIG_FILE"
+    local args=("$@")
+    for ((i=0; i<${#args[@]}; i++)); do
+        if [[ "${args[i]}" == "-f" && $((i+1)) -lt ${#args[@]} ]]; then
+            early_config="${args[$((i+1))]}"
             break
         fi
     done
-    setup_logging "$_early_config"
+    setup_logging "$early_config"
 
     welcome
     install_crudini
@@ -495,7 +512,7 @@ main() {
         exit 1
     fi
 
-    declare -A cmd_args_map
+    local -A cmd_args_map
     get_options cmd_args_map "$@"
 
     for key in "${!cmd_args_map[@]}"; do
@@ -532,37 +549,19 @@ main() {
     if [[ -n "${cmd_args_map["redeploy"]}" ]]; then redeploy="${cmd_args_map["redeploy"]}"; fi
     if [[ -n "${cmd_args_map["environment"]}" ]]; then environment="${cmd_args_map["environment"]}"; fi
 
+    auto_detect_environment
     validate_inputs
+
+    # Set KUBECONFIG now that kubeconfig_path is fully resolved (config + defaults applied)
+    export KUBECONFIG="$kubeconfig_path"
 
     if [ "$mode" == "deploy" ]; then
         echo -e "${YELLOW}WARN${RESET}   This deployment is recommended for demo, test and educational purposes only."
         echo
-        env_setup_main "$mode"
         deploy_apps "$apps" "$redeploy"
     elif [ "$mode" == "cleanapps" ]; then
         log_with_verbose_check "$debug" "$INFO" "Cleaning up Mifos Gazelle applications only"
-        env_setup_main "$mode"
         delete_apps "$apps"
-    elif [ "$mode" == "cleanall" ]; then
-        if [[ "$environment" == "mac" ]]; then
-            printf "\n*** WARNING: cleanall will delete the Colima VM, all deployed\n"
-            printf "*** applications, and ALL local state (including ~/.colima).\n"
-            printf "*** This cannot be undone. Continue? [y/N] "
-            read -r _confirm
-            if [[ "$_confirm" != "y" && "$_confirm" != "Y" ]]; then
-                printf "Aborted.\n"
-                exit 0
-            fi
-        fi
-        # For mac/remote: delete app namespaces BEFORE env_setup_main deletes the
-        # cluster.  env_setup_mac_cluster's cleanall path calls colima delete
-        # at the end, making kubectl unreachable for any subsequent delete_apps call.
-        if [[ "$environment" == "mac" || "$environment" == "remote" ]]; then
-            if is_cluster_accessible; then
-                delete_apps "$apps"
-            fi
-        fi
-        env_setup_main "$mode"
     else
         show_usage
         exit 1

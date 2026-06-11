@@ -172,7 +172,14 @@ mojaloop/
 ph/
 fineract/
 apps/
-repos/ 
+repos/
+
+# Vendored manifests under src/deployer must always be tracked,
+# but not Helm chart archives or downloaded chart dependencies
+!src/deployer/**
+src/deployer/**/charts/
+src/deployer/**/*.tgz
+src/deployer/**/*.lock
 
 # OS generated files #
 ######################
@@ -195,7 +202,5 @@ src/utils/data-loading/*.csv
 src/utils/batch/*.csv
 
 # AI related metadata
-.claude*
 *.openai
 *.copilot
-CLAUDE.local.md

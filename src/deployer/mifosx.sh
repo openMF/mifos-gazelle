@@ -9,8 +9,8 @@
 #   $2 - (Optional) Timeout in seconds to wait for the fineract-server pod to be ready. Default is 600 seconds.
 #------------------------------------------------------------------------------
 deploy_mifosx_from_yaml() {
-    manifests_dir=$1
-    timeout_secs=${2:-600}  # Default timeout of 10 minutes if not specified
+    local manifests_dir="$1"
+    local timeout_secs="${2:-600}"
 
     log_section "Deploying MifosX"
 
@@ -21,7 +21,7 @@ deploy_mifosx_from_yaml() {
       fi
     fi
 
-    run_as_user "kubectl wait --for=condition=ready pod --all -n $PH_NAMESPACE --timeout=600s" > /dev/null 2>&1
+    kubectl wait --for=condition=ready pod --all -n "$PH_NAMESPACE" --timeout=600s > /dev/null 2>&1
 
     log_step "Removing existing MifosX resources"
     delete_resources_in_namespace_matching_pattern "$MIFOSX_NAMESPACE"
@@ -31,7 +31,10 @@ deploy_mifosx_from_yaml() {
     create_namespace "$MIFOSX_NAMESPACE"
     log_ok
 
-    clone_repo "$MIFOSX_BRANCH" "$MIFOSX_REPO_LINK" "$APPS_DIR" "$MIFOSX_REPO_DIR"
+    log_step "Copying MifosX manifests to working directory"
+    mkdir -p "$DEPLOY_WORK_DIR/mifosx"
+    cp -r "$BASE_DIR/src/deployer/manifests/mifosx/." "$DEPLOY_WORK_DIR/mifosx/"
+    log_ok
 
     log_step "Updating FQDNs in manifests"
     apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/web-app-deployment.yaml" "$GAZELLE_DOMAIN"
@@ -39,12 +42,14 @@ deploy_mifosx_from_yaml() {
     log_ok
 
     log_step "Restoring MifosX database dump"
-    run_as_user "$DATA_LOADING_DIR/dump-restore-fineract-db.sh -r" > /dev/null
+    "$DATA_LOADING_DIR/dump-restore-fineract-db.sh" -r > /dev/null
     log_ok
 
     log_step "Applying manifests"
     apply_kube_manifests "$manifests_dir" "$MIFOSX_NAMESPACE"
     log_ok
+
+    wait_for_fineract_api_ready || return 1
 
     log_banner "MifosX Deployed"
 }
@@ -63,15 +68,16 @@ deploy_mifosx_from_yaml() {
 # Returns:    0 if all tenants ready, 1 on timeout
 #------------------------------------------------------------------------------
 wait_for_fineract_api_ready() {
-  local tenants=("greenbank" "bluebank" "redbank")
+  IFS=' ' read -ra tenants <<< "${FINERACT_TENANTS:-greenbank bluebank redbank}"
   local base_url="https://mifos.${GAZELLE_DOMAIN}/fineract-provider/api/v1"
-  local auth="Basic bWlmb3M6cGFzc3dvcmQ="   # mifos:password
+  local auth
+  auth="Basic $(printf '%s:%s' "${FINERACT_USERNAME:-mifos}" "${FINERACT_PASSWORD:-password}" | base64)"
   local timeout=${startup_timeout:-600}
   local retry_interval=10
   local global_start
   global_start=$(date +%s)
 
-  log_step "Waiting for Fineract tenant APIs (schema + seed data, timeout=${timeout}s)"
+  log_step "Waiting for Fineract tenant APIs (timeout=${timeout}s)"
 
   for tenant in "${tenants[@]}"; do
     local ready=false
@@ -109,7 +115,7 @@ wait_for_fineract_api_ready() {
         log_with_verbose_check "$debug" "$DEBUG" "Tenant '${tenant}' schema not ready — HTTP ${clients_code:-000} (${elapsed}s/${timeout}s)"
       fi
 
-      sleep $retry_interval
+      sleep "$retry_interval"
     done
   done
 
@@ -128,9 +134,10 @@ generate_mifosx_and_vnext_data() {
   local start_time
   start_time=$(date +%s)
   local elapsed=0
-  local retry_cmd="sudo $RUN_DIR/run.sh -a setup-data -f \"$CONFIG_FILE_PATH\""
+  local retry_cmd="$RUN_DIR/run.sh -m deploy -a setup-data -f \"$CONFIG_FILE_PATH\""
 
   while [[ $elapsed -lt $timeout ]]; do
+    local result_vnext result_mifosx
     is_app_running "vnext"
     result_vnext=$?
     is_app_running "mifosx"
@@ -143,9 +150,9 @@ generate_mifosx_and_vnext_data() {
         return 1
       fi
 
-      log_step "Generating MifosX clients and registering vNext Oracle associations"
+      log_step "Generating MifosX clients and vNext Oracle data"
       echo
-      run_as_user "\"$PYTHON3\" \"$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py\" -c \"$CONFIG_FILE_PATH\" 2>&1"
+      "$PYTHON3" "$RUN_DIR/src/utils/data-loading/generate-mifos-vnext-data.py" -c "$CONFIG_FILE_PATH" 2>&1
       local data_gen_exit=$?
 
       if [[ $data_gen_exit -ne 0 ]]; then

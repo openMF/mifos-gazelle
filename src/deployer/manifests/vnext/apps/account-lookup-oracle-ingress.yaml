@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: account-lookup-oracle-ingress
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: vnextadmin.mifos.gazelle.test
+    http:
+      paths:
+      - path: "/_interop(/|$)(.*)"
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: account-lookup-http-oracle-svc
+            port:
+              number: 3031

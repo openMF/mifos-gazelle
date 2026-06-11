@@ -5,17 +5,13 @@ commands:
     description: "Deploy Mifos Gazelle and verify health"
     steps:
       - run:
-          name: Set up Python venv
+          name: Environment setup and deploy
           command: |
-            python3 -m venv .venv
-            .venv/bin/pip install --quiet -r src/utils/data-loading/requirements.txt
-
-      - run:
-          name: Deploy via run.sh
-          command: |
-            chmod +x ./run.sh
-            echo "Deploying on $(uname -m)..."
-            sudo ./run.sh -m deploy -u "$USER" -a all -d true
+            chmod +x ./setup-env.sh ./run.sh
+            echo "Setting up environment on $(uname -m)..."
+            sudo ./setup-env.sh -e local -u "$USER" -d true -y
+            echo "Deploying..."
+            ./run.sh -m deploy -a all -d true
 
       - run:
           name: Verify pods are running

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+  creationTimestamp:
+  labels:
+    mojaloop.service: account-lookup-http-oracle-svc
+    mojaloop.layer: apps
+  name: account-lookup-http-oracle-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      mojaloop.service: account-lookup-http-oracle-svc
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+      creationTimestamp:
+      labels:
+        mojaloop.service: account-lookup-http-oracle-svc
+        mojaloop.layer: apps
+    spec:
+      containers:
+      - env:
+        - name: KAFKA_AUDITS_TOPIC
+          value: audits
+        - name: KAFKA_LOGS_TOPIC
+          value: logs
+        - name: KAFKA_URL
+          value: kafka.infra.svc.cluster.local:9092
+        image: mojaloop/account-lookup-bc-http-oracle-svc:0.5.1
+        livenessProbe:
+          tcpSocket:
+            port: 3031
+          failureThreshold: 10
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
+        name: account-lookup-http-oracle-svc
+        ports:
+        - containerPort: 3031
+        resources: {}
+      restartPolicy: Always
+status: {}

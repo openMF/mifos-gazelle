@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: identity-svc
+    mojaloop.layer: crosscut
+  name: identity-svc
+spec:
+  ports:
+    - name: "3203"
+      port: 3203
+      targetPort: 3203
+  selector:
+    mojaloop.service: identity-svc
+    mojaloop.layer: crosscut
+status:
+  loadBalancer: {}

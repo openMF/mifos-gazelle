@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: participants-svc
+    mojaloop.layer: apps
+  name: participants-svc
+spec:
+  ports:
+    - name: "3010"
+      port: 3010
+      targetPort: 3010
+  selector:
+    mojaloop.service: participants-svc
+status:
+  loadBalancer: {}
