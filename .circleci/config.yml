@@ -6,6 +6,7 @@ commands:
     steps:
       - run:
           name: Environment setup and deploy
+          no_output_timeout: 40m
           command: |
             chmod +x ./setup-env.sh ./run.sh
             echo "Setting up environment on $(uname -m)..."
