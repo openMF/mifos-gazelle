@@ -51,12 +51,6 @@ install_os_prerequisites() {
     else
         log_with_verbose_check "$debug" debug "jq is already installed\n"
     fi
-    if ! python3 -m venv --help &> /dev/null; then
-        log_with_verbose_check "$debug" debug "python3-venv is not installed. Installing ..."
-        apt-get update >> /dev/null 2>&1
-        apt-get install -y python3-venv python3-pip >> /dev/null 2>&1
-        log_ok
-    fi
     log_ok
 }
 
