@@ -37,7 +37,7 @@ spec:
             - name: MIFOS_SUPPORTED_LANGUAGES
               value: cs-CS,de-DE,en-US,es-MX,fr-FR,it-IT,ko-KO,li-LI,lv-LV,ne-NE,pt-PT,sw-SW
           #image: openmf/web-app:master
-          image: openmf/web-app:dev-dc1f82e
+          image: openmf/web-app:1.12
           imagePullPolicy: IfNotPresent
           name: web-app
           ports:
