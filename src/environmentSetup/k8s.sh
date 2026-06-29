@@ -266,6 +266,7 @@ install_k8s_tools() {
         # Install or reinstall the tool
         if [[ "$tool" == "kustomize" ]]; then
             curl -s "${tools[$tool]}" | bash > /dev/null 2>&1
+            mv ./kustomize /usr/local/bin > /dev/null 2>&1
 
         elif [[ "$tool" == "kubectl" ]]; then
             curl -s -L "${tools[$tool]}" -o ./"$tool"
