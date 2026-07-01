@@ -5,7 +5,14 @@ commands:
     description: "Deploy Mifos Gazelle and verify health"
     steps:
       - run:
+          name: Set up Python venv
+          command: |
+            python3 -m venv .venv
+            .venv/bin/pip install --quiet -r src/utils/data-loading/requirements.txt
+
+      - run:
           name: Environment setup and deploy
+          no_output_timeout: 40m
           command: |
             chmod +x ./setup-env.sh ./run.sh
             echo "Setting up environment on $(uname -m)..."
@@ -29,25 +36,45 @@ commands:
             fi
 
       - run:
-          name: Health check endpoints
+          name: Verify endpoints
           command: |
-            echo "Checking main endpoints..."
-            
-            # Get cluster IP
-            CLUSTER_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' || echo "127.0.0.1")
-            
-            # Test main endpoints
-            curl -f http://$CLUSTER_IP/health || echo "Default health check failed"
-            curl -f http://mifos.mifos.gazelle.test || echo "MifosX failed"
-            curl -f http://vnextadmin.mifos.gazelle.test || echo "vNext failed"
-            curl -f http://ops.mifos.gazelle.test || echo "Payment Hub failed"
-            
-            echo "Health checks completed"
+            chmod +x src/utils/test-scripts/verify-endpoints.sh
+            src/utils/test-scripts/verify-endpoints.sh
+
+      - run:
+          name: Wait for Fineract data
+          command: |
+            echo "Waiting for Fineract clients to be seeded..."
+            MAX_WAIT=600
+            ELAPSED=0
+            until curl -sk -u "mifos:password" \
+              -H "Fineract-Platform-TenantId: greenbank" \
+              "http://mifos.mifos.gazelle.test/fineract-provider/api/v1/clients?limit=1" \
+              | grep -q '"totalFilteredRecords":[^0]'; do
+              if [ $ELAPSED -ge $MAX_WAIT ]; then
+                echo "ERROR: Fineract data not ready after ${MAX_WAIT}s"
+                echo "Last API response:"
+                curl -sk -u "mifos:password" \
+                  -H "Fineract-Platform-TenantId: greenbank" \
+                  "http://mifos.mifos.gazelle.test/fineract-provider/api/v1/clients?limit=1"
+                exit 1
+              fi
+              echo "  [WAIT] Not ready yet, retrying in 30s... (${ELAPSED}s elapsed)"
+              sleep 30
+              ELAPSED=$((ELAPSED + 30))
+            done
+            echo "Fineract data ready."
+
+      - run:
+          name: Run test payment
+          command: |
+            chmod +x src/utils/make-payment.sh
+            echo "10" | src/utils/make-payment.sh
 
 jobs:
   deploy-test-amd64:
     machine:
-      image: ubuntu-2004:current
+      image: ubuntu-2204:current
     resource_class: large
     steps:
       - checkout
@@ -55,7 +82,7 @@ jobs:
 
   deploy-test-arm64:
     machine:
-      image: ubuntu-2004:current
+      image: ubuntu-2204:current
     resource_class: arm.large
     steps:
       - checkout
