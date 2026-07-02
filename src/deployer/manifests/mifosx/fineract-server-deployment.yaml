@@ -25,7 +25,7 @@ spec:
               value: > 
                     -Xss256k
                     -Xms512m 
-                    -Xmx2048m 
+                    -Xmx1536m 
                     -XX:+UseSerialGC
                     -XX:+HeapDumpOnOutOfMemoryError
                     -Dnetworkaddress.cache.ttl=30
@@ -127,13 +127,13 @@ spec:
           ports:
             - containerPort: 8080
               protocol: TCP
-          # resources:
-          #   requests:
-          #     memory: "256Mi"
-          #     cpu: "200m"
-          #   limits:
-          #     memory: "1600Mi"
-          #     cpu: "500m"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "2560Mi"
+              cpu: "1000m"
           volumeMounts:
             - mountPath: /data
               name: fineract-server-claim0
