@@ -73,13 +73,15 @@ dependencies:
   - vNext
   - elasticsearch
   version: 19.13.5
-## MySQL
-- name: mysql
-  alias: mysql
-  condition: mysql.enabled
+# MySQL removed in GAZ-305 — MifosX migrated to Postgres; PaymentHub uses its
+# own operationsmysql in the paymenthub-infra chart, not this shared instance.
+## PostgreSQL (GAZ-305 — MifosX MySQL->Postgres migration)
+- name: postgresql
+  alias: postgresql
+  condition: postgresql.enabled
   repository: https://charts.bitnami.com/bitnami
   tags:
   - gazelle
   - dependency
-  - mysql
-  version: 9.4.5
+  - postgresql
+  version: 15.5.38

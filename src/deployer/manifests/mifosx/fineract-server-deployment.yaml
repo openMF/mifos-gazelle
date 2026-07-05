@@ -22,76 +22,57 @@ spec:
         - env:
             - name: JAVA_TOOL_OPTIONS
               # value: "-Xms384m -Xmx512m -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError"
-              value: > 
+              value: >
                     -Xss256k
-                    -Xms512m 
-                    -Xmx2048m 
+                    -Xms512m
+                    -Xmx1024m
                     -XX:+UseSerialGC
                     -XX:+HeapDumpOnOutOfMemoryError
                     -Dnetworkaddress.cache.ttl=30
                     -Dnetworkaddress.cache.negative.ttl=10
             - name: FINERACT_DEFAULT_TENANTDB_DESCRIPTION
               value: "Default Demo Tenant"
+            # GAZ-305: MifosX migrated from MySQL/MariaDB to Postgres.
+            # DB backend is now postgres.infra.svc.cluster.local:5432 (was mysql.infra:3306).
             - name: FINERACT_DEFAULT_TENANTDB_HOSTNAME
-              value: "mysql.infra.svc.cluster.local"
+              value: "postgres.infra.svc.cluster.local"
             - name: FINERACT_DEFAULT_TENANTDB_IDENTIFIER
               value: "default"
             - name: FINERACT_DEFAULT_TENANTDB_NAME
               value: "fineract_default"
             - name: FINERACT_DEFAULT_TENANTDB_PORT
-              value: "3306"
+              value: "5432"
             - name: FINERACT_DEFAULT_TENANTDB_TIMEZONE
               value: Asia/Kolkata
             - name: FINERACT_DEFAULT_TENANTDB_UID
-              value: "root"              
+              value: "postgres"
             - name: FINERACT_DEFAULT_TENANTDB_PWD
-              value: "mysqlpw"
+              value: "postgrespw"
             - name: FINERACT_DEFAULT_TENANTDB_MASTER_PASSWORD
-              value: "fineract" 
+              value: "fineract"
+            - name: FINERACT_DEFAULT_TENANTDB_CONN_PARAMS
+              value: ""
             - name: FINERACT_HIKARI_AUTO_COMMIT
               value: "true"
             - name: FINERACT_HIKARI_CONNECTION_TIMEOUT
               value: "20000"
+            # Postgres JDBC driver (was org.mariadb.jdbc.Driver).
             - name: FINERACT_HIKARI_DRIVER_SOURCE_CLASS_NAME
-              value: org.mariadb.jdbc.Driver
-            - name: FINERACT_HIKARI_DS_PROPERTIES_CACHE_PREP_STMTS
-              value: "true"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_CACHE_RESULT_SET_METADATA
-              value: "true"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_CACHE_SERVER_CONFIGURATION
-              value: "true"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_DUMP_QUERIES_IN_EXCEPTION
-              value: "true"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_ELIDE_SET_AUTO_COMMITS
-              value: "true"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_LOG_SLOW_QUERIES
-              value: "true"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_MAINTAIN_TIME_STATS
-              value: "false"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_PREP_STMT_CACHE_SIZE
-              value: "250"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_PREP_STMT_CACHE_SQL_LIMIT
-              value: "2048"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_REWRITE_BATCHED_STATEMENTS
-              value: "true"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_USE_LOCAL_SESSION_STATE
-              value: "true"
-            - name: FINERACT_HIKARI_DS_PROPERTIES_USE_SERVER_PREP_STMTS
-              value: "true"
+              value: org.postgresql.Driver
             - name: FINERACT_HIKARI_IDLE_TIMEOUT
               value: "60000"
             - name: FINERACT_HIKARI_JDBC_URL
-              value: jdbc:mariadb://mysql.infra.svc.cluster.local:3306/fineract_tenants
+              value: jdbc:postgresql://postgres.infra.svc.cluster.local:5432/fineract_tenants
             - name: FINERACT_HIKARI_MAXIMUM_POOL_SIZE
               value: "10"
             - name: FINERACT_HIKARI_MINIMUM_IDLE
               value: "3"
             - name: FINERACT_HIKARI_PASSWORD
-              value: "mysqlpw"
+              value: "postgrespw"
             - name: FINERACT_HIKARI_TEST_QUERY
               value: SELECT 1
             - name: FINERACT_HIKARI_USERNAME
-              value: "root"
+              value: "postgres"
             - name: FINERACT_LOGGING_LEVEL
               value: INFO
             - name: FINERACT_NODE_ID
@@ -100,11 +81,9 @@ spec:
               value: "8080"
             - name: FINERACT_SERVER_SSL_ENABLED
               value: "false"
-            - name: FINERACT_HIKARI_DRIVER_CLASS_NAME
-              value: org.mariadb.jdbc.Driver
-            - name:  FINERACT_SECURITY_BASICAUTH_ENABLED
-              value: "true" 
-            - name:  FINERACT_LIQUIBASE_ENABLED
+            - name: FINERACT_SECURITY_BASICAUTH_ENABLED
+              value: "true"
+            - name: FINERACT_LIQUIBASE_ENABLED
               value: "false"
           #image: openmf/fineract:develop
           #image: openmf/fineract:1.11

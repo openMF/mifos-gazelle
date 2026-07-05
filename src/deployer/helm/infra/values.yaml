@@ -210,7 +210,7 @@ mongodb:
 # mongo express config
 mongo-express:
   fullnameOverride: mongo-express
-  enabled: true
+  enabled: false   # GAZ-305: mongo-admin UI disabled to trim memory (Mongo itself stays)
 
   # image:
   #   tag: 1.0.0
@@ -326,73 +326,37 @@ elasticsearch:
       tls:
         enabled: false
 
-############### MySQL  ####################
-mysql:
-  fullnameOverride: "mysql"
+############### MySQL — REMOVED in GAZ-305 ####################
+# MySQL/MariaDB was the old MifosX backend. MifosX now runs on Postgres (below),
+# so the shared infra MySQL is removed. PaymentHub is unaffected — it uses its
+# own operationsmysql in the paymenthub-infra chart.
+
+############### PostgreSQL (GAZ-305 — MifosX MySQL->Postgres) ####################
+# Runs alongside MySQL during the migration. MySQL is removed only after
+# Postgres is verified (Phase 6). Image pinned to 16.6 (the released 25.12.25
+# MifosX bundle target); chart 15.5.38 is the PG-16-era bitnami chart.
+postgresql:
   enabled: true
-  auth:
-    database: "tenants"
-    username: "mifos"
-    password: "password"
-    rootPassword: "mysqlpw"
-    # rootPassword: "ethieTieCh8ahv"
+  fullnameOverride: "postgres"   # -> postgres.infra.svc.cluster.local:5432
   image:
-    tag: "5.7"
-    repository: bitnamilegacy/mysql
+    repository: bitnamilegacy/postgresql
+    tag: "16.6.0"
     debug: false
+  auth:
+    # Fineract connects as the postgres superuser (mirrors MySQL's root usage).
+    postgresPassword: "postgrespw"
   primary:
-    configuration: |-
-      [mysqld]
-      default_authentication_plugin=mysql_native_password
-      skip-name-resolve
-      explicit_defaults_for_timestamp
-      basedir=/opt/bitnami/mysql
-      plugin_dir=/opt/bitnami/mysql/lib/plugin
-      port=3306
-      socket=/opt/bitnami/mysql/tmp/mysql.sock
-      datadir=/bitnami/mysql/data
-      tmpdir=/opt/bitnami/mysql/tmp
-      max_allowed_packet=16M
-      bind-address=*
-      pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
-      log-error=/opt/bitnami/mysql/logs/mysqld.log
-      character-set-server=UTF8
-      collation-server=utf8_general_ci
-      slow_query_log=0
-      slow_query_log_file=/opt/bitnami/mysql/logs/mysqld.log
-      long_query_time=10.0
-      innodb_buffer_pool_size=128M
-
-      [client]
-      port=3306
-      socket=/opt/bitnami/mysql/tmp/mysql.sock
-      default-character-set=UTF8
-      plugin_dir=/opt/bitnami/mysql/lib/plugin
-
-      [manager]
-      port=3306
-      socket=/opt/bitnami/mysql/tmp/mysql.sock
-      pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
     resources:
       requests:
         memory: "256Mi"
       limits:
-        memory: "512Mi"
-  initdbScripts:
-    setup.sql: |-
-      # CREATE DATABASE IF NOT EXISTS messagegateway;
-      # CREATE DATABASE IF NOT EXISTS `identity_account_mapper`;
-      # CREATE DATABASE IF NOT EXISTS `voucher_management`;
-      # CREATE DATABASE IF NOT EXISTS `fineract_tenants`;
-      # CREATE DATABASE IF NOT EXISTS `fineract_default`;
-      # CREATE DATABASE IF NOT EXISTS `greenbank`;
-      # CREATE DATABASE IF NOT EXISTS `bluebank`;
-      # GRANT ALL PRIVILEGES ON messagegateway.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `identity_account_mapper`.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `voucher_management`.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `fineract_tenants`.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `fineract_default`.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `greenbank`.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `bluebank`.* TO 'mifos';
-      GRANT ALL ON *.* TO 'root'@'%';
+        memory: "1Gi"          # > MySQL's fatal 512Mi, to avoid a repeat OOM under Liquibase load
+    # Create the two bootstrap DBs Fineract needs on first init, mirroring the
+    # upstream mifosx-platform postgresql/ init script. Tenant DBs (greenbank/
+    # bluebank/redbank) are created later by the ported update-mifos-tenants.sh.
+    initdb:
+      scripts:
+        01-create-fineract-dbs.sql: |
+          CREATE DATABASE fineract_tenants;
+          CREATE DATABASE fineract_default;
 

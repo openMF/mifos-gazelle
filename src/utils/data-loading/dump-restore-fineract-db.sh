@@ -1,97 +1,84 @@
 #!/bin/bash
+#
+# GAZ-305: Postgres port of the Fineract DB dump/restore helper (was MySQL).
+# Dumps/restores the Fineract databases in the infra Postgres pod.
 
 # Variables
 BASE_DIR="$(cd "$(dirname "$0")"/../../..; pwd)"
 CONFIG_DIR="$BASE_DIR/config"
 NAMESPACE="infra"
-POD_NAME="mysql-0"
-MYSQL_USER="root"
-MYSQL_PASSWORD="mysqlpw"
+POD_NAME="postgres-0"
+PG_USER="postgres"
+PG_PASSWORD="postgrespw"
+# Fineract databases (tenant store + default + the three demo tenants).
+FIN_DBS="fineract_tenants fineract_default greenbank bluebank redbank"
 DUMP_FILE="$CONFIG_DIR/fineract-db-dump-$(date +%Y%m%d%H%M%S).sql"
-#RESTORE_FILE="$CONFIG_DIR/fineract-db-dump-20250318023009.sql"
 RESTORE_FILE="$CONFIG_DIR/fineract-db-dump-final.sql" # includes redbank
-#RESTORE_FILE="$CONFIG_DIR/fineract-db-dump.sql"
 
-# Function to dump all databases
+# psql/pg_dump run inside the postgres pod as the superuser.
+pg_exec() { kubectl exec -n "$NAMESPACE" "$POD_NAME" -- env PGPASSWORD="$PG_PASSWORD" "$@"; }
+pg_exec_i() { kubectl exec -i -n "$NAMESPACE" "$POD_NAME" -- env PGPASSWORD="$PG_PASSWORD" "$@"; }
+
+# Dump each Fineract database. --create --clean --if-exists makes each dump
+# self-contained and idempotent on restore (DROP DATABASE IF EXISTS + CREATE +
+# \connect + schema + data), so restoring is safe whether or not the DB exists.
 dump_databases() {
-  echo "Dumping all databases from pod $POD_NAME in namespace $NAMESPACE to $DUMP_FILE"
-  
-  # Use kubectl exec to dump databases directly to the local machine
-  if ! kubectl exec -n "$NAMESPACE" "$POD_NAME" -- \
-    mysqldump -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --all-databases > "$DUMP_FILE"; then
-    echo "Error: Failed to dump databases."
-    exit 1
-  fi
-  
+  echo "Dumping Fineract databases from pod $POD_NAME (ns $NAMESPACE) to $DUMP_FILE"
+  : > "$DUMP_FILE"
+  for db in $FIN_DBS; do
+    echo "  -> dumping $db"
+    if ! pg_exec pg_dump -U "$PG_USER" -h 127.0.0.1 --create --clean --if-exists -d "$db" >> "$DUMP_FILE"; then
+      echo "Error: Failed to dump database $db."
+      exit 1
+    fi
+  done
   echo "Database dump saved to $DUMP_FILE"
 }
 
+# Restore all Fineract databases from the committed dump. The dump drops and
+# recreates each database, so any pre-existing (e.g. initdb-created) copies are
+# replaced. Fineract must NOT be connected during restore (mifosx.sh deletes the
+# old pod before this step).
 restore_databases() {
-    echo "Copying dump file from local machine to pod $POD_NAME in namespace $NAMESPACE..."
-    kubectl cp $RESTORE_FILE $NAMESPACE/$POD_NAME:/tmp/all_databases.sql
+  echo "Terminating any active connections to the Fineract databases..."
+  for db in $FIN_DBS; do
+    pg_exec psql -U "$PG_USER" -h 127.0.0.1 -d postgres -c \
+      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='$db' AND pid <> pg_backend_pid();" \
+      > /dev/null 2>&1
+  done
 
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to copy dump file to pod."
-        exit 1
-    fi
-
-    echo "Restoring all databases from dump file..."
-    kubectl exec -n $NAMESPACE $POD_NAME -- \
-        sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD < /tmp/all_databases.sql 2>/dev/null"
-
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to restore databases."
-        exit 1
-    fi
-
-    echo "Cleaning up dump file inside the pod..."
-    kubectl exec -n $NAMESPACE $POD_NAME -- rm /tmp/all_databases.sql
-
-    echo "Database restore completed from $DUMP_FILE"
+  echo "Restoring Fineract databases from $RESTORE_FILE ..."
+  if ! pg_exec_i psql -v ON_ERROR_STOP=1 -U "$PG_USER" -h 127.0.0.1 -d postgres < "$RESTORE_FILE"; then
+    echo "Error: Failed to restore databases."
+    exit 1
+  fi
+  echo "Database restore completed from $RESTORE_FILE"
 }
 
-
-# Function to remove all databases except system ones
+# Drop all Fineract user databases (leaves the postgres/template system DBs).
 remove_databases() {
-  echo "Removing all databases except system ones in pod $POD_NAME in namespace $NAMESPACE..."
-  
-  # Verify that only system databases are left
-  if [ $(kubectl exec -n "$NAMESPACE" "$POD_NAME" -- \
-    sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e 'SHOW DATABASES' 2>/dev/null | grep -v '^Database' | wc -l") -eq 3 ]; then
-    echo "There are no user databaases to remove as only system databases still exist."
-    exit 1
-  fi
-
-  # # Use kubectl exec to remove databases
-  # if ! kubectl exec -n "$NAMESPACE" "$POD_NAME" -- \
-  #   sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e 'SHOW DATABASES' | grep -v 'information_schema\|mysql\|performance_schema' | xargs -I {} mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e 'DROP DATABASE {}'"; then
-  #   echo "Error: Failed to remove databases."
-  #   exit 1
-  # fi
-  
-    # Use kubectl exec to remove databases
-  if ! kubectl exec -n "$NAMESPACE" "$POD_NAME" -- \
-    sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e 'SHOW DATABASES' 2>/dev/null | grep -v 'information_schema\|mysql\|performance_schema' | xargs -I {} -t mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e 'DROP DATABASE \`{}\`'"; then
-    echo "Error: Failed to remove databases."
-    exit 1
-  fi
-
+  echo "Removing Fineract databases in pod $POD_NAME (ns $NAMESPACE)..."
+  for db in $FIN_DBS; do
+    pg_exec psql -U "$PG_USER" -h 127.0.0.1 -d postgres -c \
+      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='$db' AND pid <> pg_backend_pid();" \
+      > /dev/null 2>&1
+    echo "  -> dropping $db"
+    pg_exec psql -U "$PG_USER" -h 127.0.0.1 -d postgres -c "DROP DATABASE IF EXISTS \"$db\";"
+  done
   echo "Database removal completed"
 }
 
-
 # Parse command information
-while getopts ":drthR" opt; do
+while getopts ":drhR" opt; do
   case $opt in
     d) dump_databases;;
     r) restore_databases;;
-    t) truncate_databases;;
     R) remove_databases;;
-    h) 
-      echo "Usage: $0 [-d] (dump) [-r] (restore) [-t] (truncate) [-R] (remove) [-h] (help)"
+    h)
+      echo "Usage: $0 [-d] (dump) [-r] (restore) [-R] (remove) [-h] (help)"
       exit 0
       ;;
-    \?) 
+    \?)
       echo "Invalid option: -$OPTARG"
       exit 1
       ;;
@@ -100,6 +87,6 @@ done
 
 # If no options were passed, show usage
 if [ $OPTIND -eq 1 ]; then
-  echo "Usage: $0 [-d] (dump) [-r] (restore) [-h] (help)"
+  echo "Usage: $0 [-d] (dump) [-r] (restore) [-R] (remove) [-h] (help)"
   exit 1
 fi
