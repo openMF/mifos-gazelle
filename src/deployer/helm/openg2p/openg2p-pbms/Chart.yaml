@@ -1,0 +1,13 @@
+apiVersion: v2
+description: OpenG2P PBMS for Mifos Gazelle
+name: gazelle-openg2p-pbms
+version: 0.1.0
+home: https://github.com/openMF/mifos-gazelle
+sources:
+- https://github.com/openMF/mifos-gazelle
+
+dependencies:
+- name: openg2p-pbms
+  alias: pbms
+  version: "3.0.0"
+  repository: https://openg2p.github.io/openg2p-helm
