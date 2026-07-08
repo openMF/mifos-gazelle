@@ -407,6 +407,7 @@ apply_domain_to_file() {
 
     update_fqdn "$file" "mifos.gazelle.test" "$new_domain"
     update_fqdn "$file" "mifos.gazelle.localhost" "$new_domain"
+    update_fqdn "$file" "mifos.gazelle.local" "$new_domain"
     if [ -n "$prev_domain" ] && [ "$prev_domain" != "$new_domain" ]; then
         log_with_verbose_check "$debug" "$DEBUG" "Also replacing previous domain '$prev_domain' → '$new_domain' in $(basename "$file")"
         update_fqdn "$file" "$prev_domain" "$new_domain"
@@ -416,6 +417,7 @@ apply_domain_to_file() {
 # Replace canonical baselines AND the previously applied domain across a directory tree.
 # Usage: apply_domain_to_dir <directory> <new_domain> [extra_old_fqdn]
 #   extra_old_fqdn: additional baseline to replace first (e.g. "local" for vNext manifests)
+# Canonical baselines: mifos.gazelle.test, mifos.gazelle.localhost, mifos.gazelle.local
 apply_domain_to_dir() {
     local directory="$1"
     local new_domain="$2"
@@ -426,6 +428,7 @@ apply_domain_to_dir() {
     [ -n "$extra_old_fqdn" ] && update_fqdn_batch "$directory" "$extra_old_fqdn" "$new_domain"
     update_fqdn_batch "$directory" "mifos.gazelle.test" "$new_domain"
     update_fqdn_batch "$directory" "mifos.gazelle.localhost" "$new_domain"
+    update_fqdn_batch "$directory" "mifos.gazelle.local" "$new_domain"
     if [ -n "$prev_domain" ] && [ "$prev_domain" != "$new_domain" ]; then
         log_with_verbose_check "$debug" "$DEBUG" "Also replacing previous domain '$prev_domain' → '$new_domain' in $directory"
         update_fqdn_batch "$directory" "$prev_domain" "$new_domain"
