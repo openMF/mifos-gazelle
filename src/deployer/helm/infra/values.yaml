@@ -210,7 +210,7 @@ mongodb:
 # mongo express config
 mongo-express:
   fullnameOverride: mongo-express
-  enabled: false   # GAZ-305: mongo-admin UI disabled to trim memory (Mongo itself stays)
+  enabled: true
 
   # image:
   #   tag: 1.0.0
@@ -326,15 +326,7 @@ elasticsearch:
       tls:
         enabled: false
 
-############### MySQL — REMOVED in GAZ-305 ####################
-# MySQL/MariaDB was the old MifosX backend. MifosX now runs on Postgres (below),
-# so the shared infra MySQL is removed. PaymentHub is unaffected — it uses its
-# own operationsmysql in the paymenthub-infra chart.
-
-############### PostgreSQL (GAZ-305 — MifosX MySQL->Postgres) ####################
-# Runs alongside MySQL during the migration. MySQL is removed only after
-# Postgres is verified (Phase 6). Image pinned to 16.6 (the released 25.12.25
-# MifosX bundle target); chart 15.5.38 is the PG-16-era bitnami chart.
+## GAZ-305 (MifosX moved from MySQL to Postgres) 
 postgresql:
   enabled: true
   fullnameOverride: "postgres"   # -> postgres.infra.svc.cluster.local:5432
@@ -350,7 +342,7 @@ postgresql:
       requests:
         memory: "256Mi"
       limits:
-        memory: "1Gi"          # > MySQL's fatal 512Mi, to avoid a repeat OOM under Liquibase load
+        memory: "512Mi"
     # Create the two bootstrap DBs Fineract needs on first init, mirroring the
     # upstream mifosx-platform postgresql/ init script. Tenant DBs (greenbank/
     # bluebank/redbank) are created later by the ported update-mifos-tenants.sh.

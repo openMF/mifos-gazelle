@@ -73,9 +73,7 @@ dependencies:
   - vNext
   - elasticsearch
   version: 19.13.5
-# MySQL removed in GAZ-305 — MifosX migrated to Postgres; PaymentHub uses its
-# own operationsmysql in the paymenthub-infra chart, not this shared instance.
-## PostgreSQL (GAZ-305 — MifosX MySQL->Postgres migration)
+## PostgreSQL
 - name: postgresql
   alias: postgresql
   condition: postgresql.enabled
