@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 #------------------------------------------------------------------------------
-# setup-pbms-phee.sh -- enable the OpenG2P g2p_payment_phee connector on a running
-# Gazelle PBMS (Odoo) so PBMS can issue payment batches to Payment Hub EE.
+# setup-pbms-phee.sh -- set up the PBMS demo environment on a running Gazelle
+# PBMS (Odoo): activate the OpenG2P Odoo modules (g2p_theme, g2p_programs,
+# g2p_payment_phee, ...) and wire the g2p_payment_phee connector so PBMS can issue
+# payment batches to Payment Hub EE. (More demo-setup steps, e.g. demo-data
+# population, will be added here later.)
+#
+# "Activate" == Odoo's install: the Odoo 17 Apps-list "Activate" button just calls
+# ir.module.module.button_immediate_install(), which is what step 3 does for every
+# module in PBMS_MODULES — so this script automates the manual per-module Activate
+# clicks a user would otherwise do in the Odoo web UI after each deploy.
 #
 # Runs a sequence of idempotent steps against the live cluster, driven via
 # `kubectl exec ... odoo shell` on the running pbms-odoo pod. Called from
@@ -14,9 +22,16 @@
 #   2   Cast amount_issued to int in payment_manager.py (PHEE's parseInt throws on
 #       the float, silently zeroing the batch total). Patched before the install so
 #       the single post-install restart reloads the patched source too.
-#   3   Stub the Enterprise-only base.module_payment_sepa_direct_debit xmlid that
+#   3   Install the addon Python deps into the running pod (they must be present BEFORE
+#       the install, since the modules import them at load time — see step_stub_and_install),
+#       stub the Enterprise-only base.module_payment_sepa_direct_debit xmlid that
 #       g2p_programs references but Community lacks (else install crashes), then
-#       install PBMS_MODULES.
+#       install (== activate) PBMS_MODULES. Restarts Odoo after, then verifies the
+#       registry isn't stale (res.partner reachable) — a module can finish installing
+#       in the DB after the serving pod's workers already cached their registry,
+#       which otherwise leaves Registry/Programs pages throwing a stale-model
+#       KeyError (observed with the baked-in OCA spp_area module) despite /web/login
+#       and the module's own DB state looking fine. Retries the restart once if stale.
 #   4   Set batch_type_header=csv on the PHEE payment manager (default "type" makes
 #       PHEE 500).
 #------------------------------------------------------------------------------
@@ -35,10 +50,16 @@ ADDON_REPOS=(
   "openg2p-program:17.0-1.3"
 )
 ADDONS_DIR="/bitnami/odoo/extraaddons"
-# Modules to install (the rest are baked into the image). Installing g2p_payment_phee
-# pulls the full g2p_programs tree transitively (slow). pbms_theme_extension is
-# deliberately excluded — it depends on `website` and 500s the Community login page.
-PBMS_MODULES=(g2p_social_registry_importer g2p_payment_phee)
+# Modules to install (== activate). These are the OpenG2P Odoo modules a user would
+# otherwise click "Activate" on in the Apps UI after deploy:
+#   g2p_programs, g2p_payment_phee   payment path (later steps patch/config PHEE)
+#   g2p_theme                        backend/login restyle; depends on base/web/
+#                                    auth_signup (NOT `website`), applies on install
+#                                    with no separate theme-apply step
+#   g2p_social_registry_importer     registry importer PBMS needs
+# g2p_theme is listed last so the payment path is installed before the theme.
+# Already-installed modules are skipped by the install loop, so this is idempotent.
+PBMS_MODULES=(g2p_social_registry_importer g2p_programs g2p_payment_phee g2p_theme)
 # The float->int patch target inside the downloaded addon (step 2).
 PHEE_PM_FILE="${ADDONS_DIR}/openg2p-program/g2p_payment_phee/models/payment_manager.py"
 ODOO_DB="pbmsdb"
@@ -70,6 +91,23 @@ _odoo_shell() {
     | grep -q "$sentinel"
 }
 
+# Same as _odoo_shell, but keeps stderr and prints the tail of the odoo shell's full
+# output when the sentinel is not found — used for the module install, which failed
+# with a bare "exit code 1" and no visible cause on a couple of freshly-deployed pods
+# (kubectl exec against an odoo process that isn't fully warmed up yet). Returns 0
+# only if the sentinel appears; on failure the caller sees why.
+_odoo_shell_verbose() {
+  local pod="$1" sentinel="$2" out
+  out="$(kubectl exec -i -n "$NS" "$pod" -- \
+    bash -lc "odoo shell -c /etc/odoo/odoo.conf -d '$ODOO_DB' --no-http" 2>&1)"
+  if echo "$out" | grep -q "$sentinel"; then
+    return 0
+  fi
+  log_warn "odoo shell output (last 20 lines):"
+  echo "$out" | tail -20 >&2
+  return 1
+}
+
 _restart_odoo() {
   log_step "Restarting $ODOO_DEPLOY to reload modules/source"
   if kubectl rollout restart "deploy/$ODOO_DEPLOY" -n "$NS" >/dev/null 2>&1 \
@@ -78,6 +116,26 @@ _restart_odoo() {
   else
     log_warn "rollout of $ODOO_DEPLOY did not complete — restart it manually so new modules/source load"
   fi
+}
+
+# /web/login only proves nginx+odoo answer HTTP — it does NOT touch res.partner, so it
+# cannot catch a stale-registry KeyError (e.g. "spp.area") left behind when a module
+# finishes installing in the DB after the serving pod's workers already cached their
+# registry (observed: g2p_theme/g2p_programs/spp_area installed fine, but Registry/
+# Programs pages 500'd until a fresh restart). Exercise res.partner directly via a new
+# `odoo shell` process (its own fresh registry load, same as a restarted web worker
+# would do) as a real proxy for "the running pod's registry is not stale".
+_registry_healthy() {
+  local pod="$1"
+  kubectl exec -i -n "$NS" "$pod" -- \
+    bash -lc "odoo shell -c /etc/odoo/odoo.conf -d '$ODOO_DB' --no-http 2>/dev/null" \
+    <<'PYEOF' 2>/dev/null | grep -q REGISTRY_HEALTHY
+try:
+    env["res.partner"].sudo().search_count([("is_registrant", "=", True)])
+    print("REGISTRY_HEALTHY")
+except Exception as e:
+    print("REGISTRY_BROKEN", type(e).__name__, str(e)[:120])
+PYEOF
 }
 
 # The bg-task deployments write ir_module_module periodically; a concurrent write during
@@ -160,13 +218,23 @@ step_check_addons_dir() {
 #------------------------------------------------------------------------------
 step_stub_and_install() {
   local pod="$1"
+  # Install the addon repos' Python deps (schwifty, rstr, ...) into the RUNNING pod
+  # BEFORE button_immediate_install() below — g2p_payment_phee/g2p_programs import them
+  # at module-load time, so a missing dep fails the install. This is the fresh-deploy
+  # trap: the pod's postStart hook pip-installs from the addon requirements.txt, but on
+  # first boot the addon dirs were still empty (step_download_addons hadn't run yet), so
+  # postStart installed nothing; the download step doesn't re-fire postStart on the live
+  # pod. Hence the deps must be installed directly here, after the download. Idempotent
+  # (skips fast when already present), so it's a near-no-op on re-runs and post-restart.
+  _pip_install_addon_deps "$pod"
   # Eliminate DB write contention for the duration of the install (see _bgtask_scale).
   log_step "Scaling down PBMS bg-task during install"
   _bgtask_scale 0 && log_ok || log_warn "could not scale bg-task down — install may hit serialization errors"
   log_step "Stubbing enterprise xmlid + installing PBMS modules (slow: ~10-15m)"
   # MODULES python list is built from PBMS_MODULES: first element quoted, then
-  # ', "elem"' for the rest — yields ["a", "b", ...] inside the heredoc.
-  _odoo_shell "$pod" PHEE_MODULES_OK <<PYEOF
+  # ', "elem"' for the rest — yields ["a", "b", ...] inside the payload.
+  local install_py
+  install_py="$(cat <<PYEOF
 try:
     env.ref("base.module_payment_sepa_direct_debit")
 except Exception:
@@ -200,11 +268,47 @@ for name in MODULES:
     env.cr.commit()
 print("PHEE_MODULES_OK")
 PYEOF
-  if [[ $? -eq 0 ]]; then log_ok; else log_warn "module install did not complete — check odoo logs on $pod, then re-run"; fi
+)"
+  # Retry the install itself (not just the post-install restart) to ride out transient
+  # kubectl-exec / odoo-shell hiccups right after the pod goes Ready (a first exec can
+  # fail with a bare exit 1 while an identical call moments later succeeds). NOTE: the
+  # historical "first deploy fails, second run works" symptom was NOT this race — it was
+  # the addon Python deps being absent at install time; that is fixed by the
+  # _pip_install_addon_deps call at the top of this function. Each attempt is safe to
+  # repeat — the loop above skips modules already installed/to-install.
+  local install_attempt install_ok=false
+  for install_attempt in 1 2 3; do
+    if [[ "$install_attempt" -gt 1 ]]; then
+      log_warn "module install attempt $((install_attempt - 1)) failed — retrying ($install_attempt/3) in 15s"
+      sleep 15
+    fi
+    if echo "$install_py" | _odoo_shell_verbose "$pod" PHEE_MODULES_OK; then
+      install_ok=true
+      break
+    fi
+  done
+  if [[ "$install_ok" == true ]]; then log_ok; else log_warn "module install did not complete after 3 attempts — check odoo logs on $pod, then re-run"; fi
   # Web workers hold a stale registry after install; restart so new models load.
   _restart_odoo
   # Ensure the addon deps are on the new pod (postStart usually does this; belt-and-suspenders).
   pod="$(_find_pbms_pod)"; [[ -n "$pod" ]] || { log_error "pbms-odoo pod gone after restart"; return 1; }
+  log_step "Verifying registry is not stale (res.partner reachable)"
+  if _registry_healthy "$pod"; then
+    log_ok
+  else
+    log_warn "registry still stale after restart — retrying restart once"
+    _restart_odoo
+    pod="$(_find_pbms_pod)"; [[ -n "$pod" ]] || { log_error "pbms-odoo pod gone after retry restart"; return 1; }
+    log_step "Re-verifying registry is not stale"
+    if _registry_healthy "$pod"; then
+      log_ok
+    else
+      log_warn "registry still stale after a second restart — run manually: kubectl rollout restart deploy/$ODOO_DEPLOY -n $NS"
+    fi
+  fi
+  # Belt-and-suspenders: the restart above rolled a fresh pod whose postStart now finds
+  # the downloaded repos and pip-installs the deps — but that can race pod-Ready, so
+  # ensure them here too. Idempotent: skips fast when postStart already installed them.
   _pip_install_addon_deps "$pod"
   # Restore bg-task now that the heavy install is done.
   log_step "Scaling PBMS bg-task back up"
