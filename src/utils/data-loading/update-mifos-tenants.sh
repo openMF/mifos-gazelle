@@ -8,7 +8,6 @@ BASE_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 CONFIG_DIR="$BASE_DIR/config"
 DEFAULT_CSV="$CONFIG_DIR/mifos-tenant-config.csv"
 
-# GAZ-305: MifosX now runs on Postgres (was MySQL/MariaDB).
 POSTGRES_NAMESPACE="infra"
 POSTGRES_POD="postgres-0"
 POSTGRES_SUPERUSER="postgres"

@@ -1,7 +1,4 @@
 #!/bin/bash
-#
-# GAZ-305: Postgres port of the Fineract DB dump/restore helper (was MySQL).
-# Dumps/restores the Fineract databases in the infra Postgres pod.
 
 # Variables
 BASE_DIR="$(cd "$(dirname "$0")"/../../..; pwd)"

@@ -32,8 +32,6 @@ spec:
                     -Dnetworkaddress.cache.negative.ttl=10
             - name: FINERACT_DEFAULT_TENANTDB_DESCRIPTION
               value: "Default Demo Tenant"
-            # GAZ-305: MifosX migrated from MySQL/MariaDB to Postgres.
-            # DB backend is now postgres.infra.svc.cluster.local:5432 (was mysql.infra:3306).
             - name: FINERACT_DEFAULT_TENANTDB_HOSTNAME
               value: "postgres.infra.svc.cluster.local"
             - name: FINERACT_DEFAULT_TENANTDB_IDENTIFIER
