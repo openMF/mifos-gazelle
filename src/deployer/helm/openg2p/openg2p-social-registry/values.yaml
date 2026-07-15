@@ -1,0 +1,245 @@
+############################################################
+# OpenG2P Social Registry (own helm release: social-registry)
+# Requires openg2p-commons (Postgres @ openg2p-commons-postgresql, Keycloak).
+# Domain baseline: mifos.gazelle.test — patched to live GAZELLE_DOMAIN at deploy time.
+############################################################
+
+socialregistry:
+  global:
+    keycloakBaseUrl: "https://keycloak.mifos.gazelle.test"
+    keycloakIssuerUrl: "https://keycloak.mifos.gazelle.test/realms/master"
+    sysAdminEmail: admin@mifos.gazelle.test
+    srAdminHostname: "social-registry.mifos.gazelle.test"
+    srOdkCentralHostname: "odk-sr.mifos.gazelle.test"
+    srMinioHostname: "minio-sr.mifos.gazelle.test"
+    srOpensearchHostname: "opensearch-sr.mifos.gazelle.test"
+    srKafkaUiHostname: "kafka-sr.mifos.gazelle.test"
+    srLandingPageHostname: "social-registry.mifos.gazelle.test"
+
+  ############################################################
+  # Odoo — the SR web UI (core registry).
+  ############################################################
+  odoo:
+    hostname: "social-registry.mifos.gazelle.test"
+    # DEMO-ONLY fixed admin login (do not use on a shared/exposed cluster), same
+    # value as PBMS. Makes the odoo subchart write this into the
+    # 'social-registry-odoo' secret instead of generating a random one. Only
+    # takes effect on a FRESH install (the subchart won't overwrite an existing
+    # secret on upgrade).
+    odooEmail: "admin@openg2p.org"
+    odooPassword: "adminopeng2p"
+    minio:
+      hostname: "minio-sr.mifos.gazelle.test"
+    # bitnami-style ingress schema: single 'hostname' + 'tls'/'extraTls' (NOT a hosts[] array)
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      hostname: "social-registry.mifos.gazelle.test"
+      path: /
+      pathType: Prefix
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+        nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+      tls: true
+      extraTls:
+        - hosts:
+            - "social-registry.mifos.gazelle.test"
+          secretName: openg2p-tls
+    istio:
+      enabled: false
+    postgresql:
+      istio:
+        enabled: false
+      # Additional DB users for the kernel/keymanager/esignet/odk services.
+      # Upstream leaves these blank, which makes postgres-init create users
+      # whose password doesn't match what the apps send ("password auth failed").
+      additionalDbs:
+        enabled: true
+        userPasswords:
+          kerneluser: kernel123
+          keymgruser: keymgr123
+          esignetuser: esignet123
+          odkuser: odk123
+          mockidsystemuser: mockid123
+          superset: superset
+
+  ############################################################
+  # Disabled subcharts — not needed for the pre-loaded-data Gazelle demo, or
+  # broken upstream. None of these are hard dependencies of the core registry.
+  ############################################################
+
+  # SMTP relay pins ixdotai/smtp:v0.5.2, deleted from Docker Hub (ImagePullBackOff).
+  mail:
+    enabled: false
+
+  # Crashes on an upstream JVM/Tomcat bug (NoClassDefFoundError: MBeanFactory) in
+  # the MOSIP image. Only powers crypto/identity-signing features.
+  keymanager:
+    enabled: false
+
+  # MOSIP kernel fails to auth as "kerneluser" — reads DB creds from the upstream
+  # mosip-config server, not the chart secret, so the password never matches.
+  idgenerator:
+    enabled: false
+
+  # Admin UI requires OIDC against the EXTERNAL keycloak hostname, which doesn't
+  # resolve from inside the cluster (UnknownHostException).
+  kafkaUi:
+    enabled: false
+
+  # No consumer in Gazelle — esignet, keymanager and idgenerator (softhsm's only
+  # clients) are all disabled above.
+  softhsm:
+    enabled: false
+
+  # ODK Central is the form-based data-collection front door (backend, frontend,
+  # enketo, pyxform + 2 redis). This demo pre-loads registry data instead, so
+  # it's dead weight — and enketo OOMKilled / failed its startup probe
+  # repeatedly regardless of limit. Nothing in the core registry depends on it
+  # (only dead SR_ODK_URL deep-links in the Odoo UI).
+  odk-central:
+    enabled: false
+  odk-central-enketo-redis-main:
+    enabled: false
+  odk-central-enketo-redis-cache:
+    enabled: false
+
+  ############################################################
+  # MinIO — SR object store.
+  ############################################################
+  minio:
+    hostname: "minio-sr.mifos.gazelle.test"
+    istio:
+      enabled: false
+    # Upstream ships no resource limits at all.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    # Upstream requests 16Gi; halved for the demo VM's local-path volume.
+    persistence:
+      size: 8Gi
+
+  ############################################################
+  # OpenSearch — search/index only. Dashboards UI + its reporting-init job are
+  # disabled: the dashboards OIDC callback doesn't resolve in-cluster. The
+  # 'reporting' CDC pipeline (debezium + opensearch-kafka-connector) below is
+  # independent and stays on.
+  ############################################################
+  opensearch:
+    istio:
+      enabled: false
+    loggingOutput:
+      enabled: false
+    dashboards:
+      enabled: false
+
+  # Imports index patterns/dashboards INTO opensearch-dashboards; with the
+  # dashboards UI disabled, that Service doesn't exist and the job hangs until
+  # timeout.
+  reporting-init:
+    enabled: false
+
+  ############################################################
+  # Resource caps — upstream ships most of these workloads with NO memory limit
+  # (bitnami `resourcesPreset: none` / custom charts' `resources: {}`), so they
+  # rank first for eviction under node memory pressure on a shared cluster.
+  # Sizes below are calibrated against live `kubectl top` usage on this cluster,
+  # not upstream guesses.
+  ############################################################
+
+  superset:
+    istio:
+      enabled: false
+    # Global default — applies to the web pod (live usage ~210Mi, 1Gi is ample).
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        memory: 1Gi
+    # The celery worker runs heavier than the web pod (live usage ~803Mi) and has
+    # its own key that overrides the global resources above.
+    supersetWorker:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 1536Mi
+
+  landing:
+    istio:
+      enabled: false
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+  kafka:
+    controller:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+
+  reporting:
+    debezium:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 256Mi
+        limits:
+          memory: 768Mi
+    opensearch-kafka-connector:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 256Mi
+        limits:
+          memory: 768Mi
+
+  # producer + worker Deployments (unbounded upstream). The bg-tasks redis is a
+  # SEPARATE top-level chart aliased `bgTasksRedis` below, not nested here.
+  openg2p-registry-bg-tasks:
+    producer:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 256Mi
+        # Live usage ~450Mi.
+        limits:
+          memory: 768Mi
+    worker:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 768Mi
+
+  # Redis instances are top-level aliases in the SR Chart.yaml (bgTasksRedis,
+  # supersetRedis), NOT sub-keys of their consuming charts.
+  bgTasksRedis:
+    master:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 192Mi
+  supersetRedis:
+    master:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 192Mi
