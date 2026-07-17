@@ -1,0 +1,13 @@
+apiVersion: v2
+description: OpenG2P commons layer for Mifos Gazelle — Postgres, Keycloak, MinIO, Kafka-init
+name: gazelle-openg2p-commons
+version: 0.1.0
+home: https://github.com/openMF/mifos-gazelle
+sources:
+- https://github.com/openMF/mifos-gazelle
+
+dependencies:
+- name: openg2p-commons-base
+  alias: commons
+  version: "2.0.1"
+  repository: https://openg2p.github.io/openg2p-helm

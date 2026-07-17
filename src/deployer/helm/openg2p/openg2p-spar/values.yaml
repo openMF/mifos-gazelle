@@ -1,0 +1,66 @@
+############################################################
+# OpenG2P SPAR (own helm release: spar)
+# Requires openg2p-commons (Postgres @ openg2p-commons-postgresql, Keycloak).
+# Domain baseline: mifos.gazelle.test — patched to live GAZELLE_DOMAIN at deploy time.
+############################################################
+
+spar:
+  global:
+    keycloakBaseUrl: "https://keycloak.mifos.gazelle.test"
+    keycloakIssuerUrl: "https://keycloak.mifos.gazelle.test/realms/master"
+    postgresqlHost: "openg2p-commons-postgresql"
+
+  # postgres-init reads the commons superuser password from existingSecret; upstream
+  # defaults to 'commons-postgresql' but Gazelle's commons release names it
+  # 'openg2p-commons-postgresql'. Without this override the postgres-init Job dies
+  # with "secret commons-postgresql not found", never creates the spar DB/user, and
+  # mapper-api/bene-portal-api fail with "password authentication failed for spar_user".
+  postgres-init:
+    postgresql:
+      existingSecret: "openg2p-commons-postgresql"
+
+  # keycloak-init reads the Keycloak admin password from existingSecret; same naming
+  # mismatch — upstream default 'commons-keycloak' vs actual 'openg2p-commons-keycloak'.
+  keycloak-init:
+    keycloak:
+      existingSecret: "openg2p-commons-keycloak"
+
+  sparMapperAPI:
+    hostname: "spar.mifos.gazelle.test"
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+        nginx.ingress.kubernetes.io/rewrite-target: /$2
+      hosts:
+        - host: "spar.mifos.gazelle.test"
+          paths:
+            - path: /api/mapper(/|$)(.*)
+              pathType: ImplementationSpecific
+      tls:
+        - hosts:
+            - "spar.mifos.gazelle.test"
+          secretName: openg2p-tls
+    istio:
+      enabled: false
+
+  benePortalAPI:
+    benePortalHostname: "spar.mifos.gazelle.test"
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+        nginx.ingress.kubernetes.io/rewrite-target: /$2
+      hosts:
+        - host: "spar.mifos.gazelle.test"
+          paths:
+            - path: /api/bene(/|$)(.*)
+              pathType: ImplementationSpecific
+      tls:
+        - hosts:
+            - "spar.mifos.gazelle.test"
+          secretName: openg2p-tls
+    istio:
+      enabled: false

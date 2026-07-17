@@ -6,6 +6,7 @@ source "$RUN_DIR/src/deployer/vnext.sh" || { echo "FATAL: Could not source vnext
 source "$RUN_DIR/src/deployer/mifosx.sh" || { echo "FATAL: Could not source mifosx.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/paymenthub.sh" || { echo "FATAL: Could not source paymenthub.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/mastercard.sh" || { echo "FATAL: Could not source mastercard.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/deployer/openg2p.sh" || { echo "FATAL: Could not source openg2p.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/utils/helpers.sh" || { echo "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 
 #------------------------------------------------------------
@@ -290,6 +291,9 @@ delete_apps() {
         cleanup
         log_ok
         ;;
+      "openg2p")
+        clean_openg2p
+        ;;
       *)
         log_error "Invalid app '$app' for deletion. This should have been caught by validate_inputs."
         show_usage
@@ -352,6 +356,9 @@ deploy_apps() {
         fi
         log_with_verbose_check "$debug" "$DEBUG" "MASTERCARD_CBS_HOME=$MASTERCARD_CBS_HOME"
         deploy_mastercard
+        ;;
+      "openg2p")
+        deploy_openg2p
         ;;
       *)
         log_error "Unknown application '$app'. This should have been caught by validation."

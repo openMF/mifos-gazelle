@@ -1,0 +1,88 @@
+############################################################
+# OpenG2P G2P Bridge (own helm release: g2p-bridge)
+# Requires openg2p-commons (Postgres @ openg2p-commons-postgresql, Keycloak)
+# and openg2p-spar (mapper @ spar-mapper-api).
+# Domain baseline: mifos.gazelle.test — patched to live GAZELLE_DOMAIN at deploy time.
+############################################################
+
+g2pbridge:
+  global:
+    postgresqlHost: "openg2p-commons-postgresql"
+    keycloakBaseUrl: "https://keycloak.mifos.gazelle.test"
+    keycloakIssuerUrl: "https://keycloak.mifos.gazelle.test/realms/master"
+    g2pBridgeHostname: "g2p-bridge.mifos.gazelle.test"
+    g2pBridgeMapperBaseUrl: "http://spar-mapper-api/sync"
+    keymanagerInstallationName: "openg2p-commons-keymanager"
+
+  # postgres-init reads the commons superuser password from existingSecret; upstream
+  # defaults to 'commons-postgresql' but Gazelle names it 'openg2p-commons-postgresql'.
+  # Without this override postgres-init dies: "secret commons-postgresql not found",
+  # never creates the g2p-bridge DB/user, and the api/celery init containers fail too.
+  postgres-init:
+    postgresql:
+      existingSecret: "openg2p-commons-postgresql"
+
+  # NOTE: secrets 'pbms' (key: pbms-db-user) and 'registry' (key: registry-db-user) must
+  # exist in the openg2p namespace before this chart deploys — the init container mounts
+  # them unconditionally. Until Gazelle provisions proper cross-module DB users, create
+  # them as stubs (placeholder passwords). The cross-module DB queries will fail at runtime
+  # but pods will start. See: deploy_openg2p / _deploy_openg2p_release for where to add
+  # a pre-flight secret creation step once the DB users are provisioned.
+
+  ############################################################
+  # g2pBridgeApi — main API + ingress.
+  # The bridge celery-worker reads cross-module DB passwords from secrets named 'pbms'
+  # (key: pbms-db-user) and 'registry' (key: registry-db-user). In the upstream monolithic
+  # install these are created by a shared postgres-init. In Gazelle, pbms and social-registry
+  # are SEPARATE releases each with their own postgres, so the DB hostnames below point at
+  # the actual per-module postgres services instead of the shared commons-postgresql upstream assumes.
+  ############################################################
+  g2pBridgeApi:
+    hostname: "g2p-bridge.mifos.gazelle.test"
+    envVars:
+      G2P_BRIDGE_DB_HOSTNAME: "openg2p-commons-postgresql"
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+        nginx.ingress.kubernetes.io/rewrite-target: /$2
+      hosts:
+        - host: "g2p-bridge.mifos.gazelle.test"
+          paths:
+            - path: /g2pCashTransferBridge/v1(/|$)(.*)
+              pathType: ImplementationSpecific
+      tls:
+        - hosts:
+            - "g2p-bridge.mifos.gazelle.test"
+          secretName: openg2p-tls
+    istio:
+      enabled: false
+
+  celeryWorker:
+    envVars:
+      G2P_BRIDGE_CELERY_WORKERS_DB_HOSTNAME_PBMS: "pbms-postgresql"
+      G2P_BRIDGE_CELERY_WORKERS_DB_HOSTNAME_REGISTRY: "social-registry-postgresql"
+      G2P_BRIDGE_GEO_RESOLVER_DB_HOSTNAME_REGISTRY: "social-registry-postgresql"
+      G2P_BRIDGE_MAPPER_CONNECTORS_DB_HOSTNAME_REGISTRY: "social-registry-postgresql"
+      G2P_BRIDGE_AGENCY_ALLOCATOR_DB_HOSTNAME_PBMS: "pbms-postgresql"
+      G2P_BRIDGE_WAREHOUSE_ALLOCATOR_DB_HOSTNAME_PBMS: "pbms-postgresql"
+
+  openg2pG2pBridgeBenePortalApi:
+    hostname: "g2p-bridge.mifos.gazelle.test"
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      hosts:
+        - host: "g2p-bridge.mifos.gazelle.test"
+          paths:
+            - path: /bene-portal
+              pathType: Prefix
+      tls:
+        - hosts:
+            - "g2p-bridge.mifos.gazelle.test"
+          secretName: openg2p-tls
+    istio:
+      enabled: false
