@@ -1,0 +1,171 @@
+############################################################
+# OpenG2P PBMS (own helm release: pbms) — Payment & Beneficiary Management.
+# Requires openg2p-commons (Postgres @ openg2p-commons-postgresql, Keycloak).
+# Domain baseline: mifos.gazelle.test — patched to live GAZELLE_DOMAIN at deploy time.
+############################################################
+
+pbms:
+  global:
+    keycloakBaseUrl: "https://keycloak.mifos.gazelle.test"
+    keycloakIssuerUrl: "https://keycloak.mifos.gazelle.test/realms/master"
+    sysAdminEmail: admin@mifos.gazelle.test
+    # bg-task subcharts reach the social-registry DB via
+    # "{{ global.registryInstallationName }}-postgresql" (hostname + secret name).
+    # Upstream defaults this to 'registry', which only exists when pbms and
+    # social-registry share one install. In Gazelle they are separate releases,
+    # so the SR Postgres secret is "social-registry-postgresql" — without this
+    # override the bg-task init container dies: secret "registry-postgresql" not found.
+    registryInstallationName: 'social-registry'
+
+  hostname: "pbms.mifos.gazelle.test"
+
+  # PBMS uses a top-level istio toggle for its main gateway/virtualservice
+  istio:
+    enabled: false
+
+  ############################################################
+  # Odoo — the PBMS web UI.
+  ############################################################
+  odoo:
+    hostname: "pbms.mifos.gazelle.test"
+    # DEMO-ONLY fixed admin login (do not use on a shared/exposed cluster). Makes
+    # the odoo subchart write this into the 'pbms-odoo' secret instead of
+    # generating a random one. _openg2p_pbms_fix_admin_login (src/deployer/openg2p.sh)
+    # aligns Odoo's stored admin password to it post-deploy — the pbms-core image
+    # does not apply ODOO_PASSWORD to the existing admin row on its own. Only takes
+    # effect on a FRESH install (bitnami won't overwrite an existing secret on upgrade).
+    odooEmail: "admin@openg2p.org"
+    odooPassword: "adminopeng2p"
+
+    # --- g2p_payment_phee enablement (see src/utils/openg2p/setup-pbms-phee.sh) ---
+    # The payment addons (openg2p-registry, openg2p-program -> g2p_payment_phee) are
+    # downloaded as tarballs into the persistent PVC by that script; these keys point
+    # Odoo at them. We do NOT use EXTRA_ADDONS_URLS_TO_PULL: its startup path
+    # git-clones, and the pbms-core image ships no `git`, so a non-empty value
+    # crash-loops the pod. Kept set (harmless when the dirs are empty) so they
+    # survive helm upgrades once setup-pbms-phee.sh has fetched the repos.
+    extraEnvVars:
+      - name: EXTRA_ADDONS_URLS_TO_PULL
+        value: ""
+      - name: ODOO_ADDONS_DIR
+        value: "/bitnami/odoo/extraaddons/openg2p-registry,/bitnami/odoo/extraaddons/openg2p-program"
+
+    # The addon repos' Python deps install into /usr/local/lib (ephemeral), so they
+    # must be reinstalled on every pod start. mkdir runs first: ODOO_ADDONS_DIR puts
+    # these paths on Odoo's addons_path, and a missing path 500s every /web asset
+    # (blank, unstyled login page). No-op (`|| true`) when the repos aren't present yet.
+    lifecycleHooks:
+      postStart:
+        exec:
+          command:
+            - /bin/sh
+            - "-c"
+            - >-
+              mkdir -p /bitnami/odoo/extraaddons/openg2p-registry
+              /bitnami/odoo/extraaddons/openg2p-program;
+              (unset SSL_CERT_FILE REQUESTS_CA_BUNDLE;
+              pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org
+              -r /bitnami/odoo/extraaddons/openg2p-registry/requirements.txt
+              -r /bitnami/odoo/extraaddons/openg2p-program/requirements.txt
+              rstr) > /tmp/postStart-pip.log 2>&1 || true
+
+    # Odoo is the heaviest PBMS pod (Python asset build spikes memory on boot).
+    # Upstream reserves 2Gi/1cpu; request eased so it schedules alongside the
+    # other DPGs on a shared node, limit kept at 3Gi for the asset-build spike.
+    resources:
+      requests:
+        cpu: 250m
+        memory: 768Mi
+      limits:
+        cpu: "1.5"
+        memory: 3Gi
+
+    # odoo subchart's S3_URL env resolves .Values.minio.hostname in odoo scope
+    minio:
+      hostname: "minio-pbms.mifos.gazelle.test"
+
+    # The odoo subchart uses the bitnami-style ingress schema: a single 'hostname' +
+    # 'path'/'pathType' + 'tls'/'extraTls' — NOT a hosts[] array. With hosts[] the
+    # chart ignored our host and fell back to 'odoo.local' (404 from NGINX).
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      hostname: "pbms.mifos.gazelle.test"
+      path: /
+      pathType: Prefix
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+        nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+      tls: true
+      extraTls:
+        - hosts:
+            - "pbms.mifos.gazelle.test"
+          secretName: openg2p-tls
+
+    postgresql:
+      istio:
+        enabled: false
+      # Upstream's bitnami/postgresql:16.3.0-debian-12-r16 tag was deleted from
+      # Docker Hub (ImagePullBackOff: NotFound). Repoint to OpenG2P's mirror of
+      # the same image (same fix as the social-registry release).
+      image:
+        registry: docker.io
+        repository: openg2p/postgresql
+        tag: 16.3.0-debian-12-r16
+      # Upstream reserves 2Gi/1cpu, limit 3Gi — a demo DB needs far less; mirror
+      # the commons Postgres sizing.
+      primary:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            memory: 1Gi
+
+  ############################################################
+  # MinIO — PBMS/odoo S3 object store.
+  ############################################################
+  minio:
+    hostname: "minio-pbms.mifos.gazelle.test"
+    istio:
+      enabled: false
+    # Upstream ships no resource limits at all.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    # Upstream requests 16Gi; halved for the demo VM's local-path volume.
+    persistence:
+      size: 8Gi
+
+  ############################################################
+  # Background task workers (api, celery-beat-producer, celery-worker) — ship
+  # with no resource limits upstream. celery-worker gets the most headroom
+  # (processes batches); api and the beat producer are light coordinators.
+  ############################################################
+  openg2p-pbms-bg-task-api:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+
+  openg2p-pbms-bg-task-celery-beat-producers:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+
+  openg2p-pbms-bg-task-celery-workers:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 768Mi

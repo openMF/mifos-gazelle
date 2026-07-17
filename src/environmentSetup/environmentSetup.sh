@@ -157,6 +157,9 @@ add_hosts() {
 
         local MIFOSXHOSTS=( mifos.$DOMAIN )
         local ALL_GAZELLE_HOSTS=( "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" )
+        local OPENG2PHOSTS=( openg2p.$DOMAIN social-registry.$DOMAIN \
+            pbms.$DOMAIN spar.$DOMAIN g2p-bridge.$DOMAIN \
+            keycloak.$DOMAIN minio.$DOMAIN )
 
         # Determine which IP to use.
         #

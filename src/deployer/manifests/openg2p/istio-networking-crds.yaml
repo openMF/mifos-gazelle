@@ -1,0 +1,63 @@
+# Minimal Istio networking CRDs for OpenG2P.
+# OpenG2P's Keycloak subchart emits Gateway and VirtualService objects unconditionally.
+# Gazelle uses NGINX ingress (not Istio), so these CRDs let those objects land
+# harmlessly with no Istio control plane. No field validation needed — open schema.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: gateways.networking.istio.io
+spec:
+  group: networking.istio.io
+  names:
+    kind: Gateway
+    listKind: GatewayList
+    plural: gateways
+    singular: gateway
+    shortNames:
+    - gw
+  scope: Namespaced
+  versions:
+  - name: v1alpha3
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+  - name: v1beta1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: virtualservices.networking.istio.io
+spec:
+  group: networking.istio.io
+  names:
+    kind: VirtualService
+    listKind: VirtualServiceList
+    plural: virtualservices
+    singular: virtualservice
+    shortNames:
+    - vs
+  scope: Namespaced
+  versions:
+  - name: v1alpha3
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+  - name: v1beta1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true

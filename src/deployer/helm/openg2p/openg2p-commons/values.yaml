@@ -1,0 +1,107 @@
+############################################################
+# OpenG2P commons — shared infra for all OpenG2P modules.
+# Deploys into the openg2p namespace: Postgres, Keycloak (+keycloak-init),
+# MinIO, Kafka + Kafka-UI, OpenSearch (search/index only), Redis + Redis-auth,
+# SoftHSM, and the postgres-init DB jobs.
+# Domain baseline: mifos.gazelle.test — patched to live GAZELLE_DOMAIN at deploy time.
+#
+# Istio note: every service that emits an Istio Gateway/VirtualService has an
+# <service>.istio.enabled toggle, set false here EXCEPT keycloak, whose
+# Gateway/VirtualService render unconditionally on keycloak.enabled. openg2p.sh
+# installs the minimal Istio networking CRDs so those two objects apply
+# harmlessly; real traffic is routed via the NGINX ingress below.
+############################################################
+
+commons:
+  global:
+    baseDomain: mifos.gazelle.test
+    keycloakBaseUrl: "https://keycloak.mifos.gazelle.test"
+    keycloakInternalUrl: "http://openg2p-commons-keycloak:80"
+    sysAdminEmail: admin@mifos.gazelle.test
+    kafkaUiHostname: "kafka.mifos.gazelle.test"
+    opensearchHostname: "opensearch.mifos.gazelle.test"
+    minioHostname: "minio.mifos.gazelle.test"
+
+  ############################################################
+  # Keycloak — shared SSO for all OpenG2P modules.
+  ############################################################
+  keycloak:
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+        nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+      hostname: "keycloak.mifos.gazelle.test"
+      tls: true
+      extraTls:
+        - hosts:
+            - "keycloak.mifos.gazelle.test"
+          secretName: openg2p-tls
+    extraEnvVars:
+      - name: KC_HOSTNAME
+        value: "keycloak.mifos.gazelle.test"
+      - name: KC_HOSTNAME_STRICT
+        value: "false"
+    # Upstream ships no memory limit (request-only), so Keycloak is first in line
+    # for eviction under node memory pressure. Live usage ~1.6Gi; cap with headroom.
+    # Do NOT set JAVA_OPTS_APPEND — it clobbers the chart's JGroups DNS discovery.
+    resources:
+      limits:
+        memory: 2560Mi
+
+  postgresql:
+    istio:
+      enabled: false
+
+  ############################################################
+  # MinIO — shared object store.
+  ############################################################
+  minio:
+    hostname: "minio.mifos.gazelle.test"
+    # Upstream requests 16Gi; halved for the demo VM's local-path volume.
+    persistence:
+      size: 8Gi
+    istio:
+      enabled: false
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      hostname: "minio.mifos.gazelle.test"
+      tls: true
+      extraTls:
+        - hosts:
+            - "minio.mifos.gazelle.test"
+          secretName: openg2p-tls
+
+  ############################################################
+  # OpenSearch — search/index only. Dashboards UI + its reporting jobs are
+  # disabled: the dashboards OIDC callback doesn't resolve in-cluster (mirrors
+  # the same fix in openg2p-social-registry/values.yaml).
+  ############################################################
+  opensearch:
+    istio:
+      enabled: false
+    # banzaicloud Logging Operator Flow/Output CRDs are not installed in Gazelle
+    loggingOutput:
+      enabled: false
+    dashboards:
+      enabled: false
+    # These jobs import saved searches/ISM policy/index templates INTO
+    # opensearch-dashboards; with dashboards disabled they hang until timeout.
+    savedSearch:
+      enabled: false
+    ismPolicy:
+      enabled: false
+    indexTemplate:
+      enabled: false
+    # Upstream requests 8Gi; halved for the demo VM's local-path volume.
+    master:
+      persistence:
+        size: 4Gi
+
+  kafkaUi:
+    istio:
+      enabled: false
