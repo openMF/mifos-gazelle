@@ -1,0 +1,22 @@
+# ClusterIP Service for Odoo (HTTP + longpolling). External exposure via the NGINX ingress is
+# added separately; the longpolling port requires the WebSocket upgrade annotation there.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openspp.fullname" . }}-odoo
+  labels:
+    {{- include "openspp.labels" . | nindent 4 }}
+    {{- include "openspp.odoo.selectorLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.odoo.ports.http }}
+      targetPort: http
+      protocol: TCP
+    - name: longpolling
+      port: {{ .Values.odoo.ports.longpolling }}
+      targetPort: longpolling
+      protocol: TCP
+  selector:
+    {{- include "openspp.odoo.selectorLabels" . | nindent 4 }}
