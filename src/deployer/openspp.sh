@@ -82,6 +82,9 @@ openspp_deploy_chart() {
     db_pw=$(openspp_resolve_secret "${OPENSPP_DB_PASSWORD_FILE:-}" "openspp")
     admin_pw=$(openspp_resolve_secret "${OPENSPP_ADMIN_PASSWORD_FILE:-}" "admin")
 
+    # Ingress host, formed like every other Gazelle service: <name>.${GAZELLE_DOMAIN}.
+    local openspp_host="openspp.${GAZELLE_DOMAIN:-mifos.gazelle.test}"
+
     local helm_args=(
         upgrade --install "$OPENSPP_RELEASE_NAME" "$chart_dir"
         -n "$OPENSPP_NAMESPACE" --create-namespace
@@ -90,6 +93,10 @@ openspp_deploy_chart() {
         --set "odoo.image.tag=${OPENSPP_IMAGE_TAG}"
         --set "secrets.dbPassword=${db_pw}"
         --set "secrets.odooAdminPassword=${admin_pw}"
+        --set "ingress.enabled=true"
+        --set "ingress.host=${openspp_host}"
+        --set "ingress.tls.secretName=openspp-tls"
+        --set "odoo.env.PROXY_MODE=true"
     )
 
     if [[ "$debug" == "true" ]]; then
@@ -164,6 +171,13 @@ deploy_openspp() {
     log_section "Deploying OpenSPP"
     openspp_check_prerequisites
     log_with_verbose_check "$debug" "$DEBUG" "Namespace: $OPENSPP_NAMESPACE  Release: $OPENSPP_RELEASE_NAME"
+
+    # Self-signed TLS cert for the ingress (mastercard.sh / paymenthub.sh pattern). The namespace
+    # must exist before the Secret, so create it first (helm --create-namespace runs later).
+    local openspp_host="openspp.${GAZELLE_DOMAIN:-mifos.gazelle.test}"
+    kubectl create namespace "$OPENSPP_NAMESPACE" --dry-run=client -o yaml 2>/dev/null | kubectl apply -f - > /dev/null 2>&1
+    create_ingress_secret "$OPENSPP_NAMESPACE" "$openspp_host" "openspp-tls" \
+        "${openspp_host},*.${GAZELLE_DOMAIN:-mifos.gazelle.test},localhost"
 
     log_step "Deploying OpenSPP Helm chart (installs modules on first boot; this can take a few minutes)"
     openspp_deploy_chart
