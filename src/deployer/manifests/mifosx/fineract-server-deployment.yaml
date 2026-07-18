@@ -108,7 +108,7 @@ spec:
               value: "false"
           #image: openmf/fineract:develop
           #image: openmf/fineract:1.11
-          image: openmf/fineract:1.11.0
+          image: openmf/fineract:1.14.0
           imagePullPolicy: IfNotPresent
           livenessProbe:
             httpGet:
