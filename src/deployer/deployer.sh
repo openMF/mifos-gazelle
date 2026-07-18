@@ -6,6 +6,8 @@ source "$RUN_DIR/src/deployer/vnext.sh" || { echo "FATAL: Could not source vnext
 source "$RUN_DIR/src/deployer/mifosx.sh" || { echo "FATAL: Could not source mifosx.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/paymenthub.sh" || { echo "FATAL: Could not source paymenthub.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/mastercard.sh" || { echo "FATAL: Could not source mastercard.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/deployer/openg2p.sh" || { echo "FATAL: Could not source openg2p.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/deployer/openspp.sh" || { echo "FATAL: Could not source openspp.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/utils/helpers.sh" || { echo "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 
 #------------------------------------------------------------
@@ -290,6 +292,14 @@ delete_apps() {
         cleanup
         log_ok
         ;;
+      "openg2p")
+        clean_openg2p
+        ;;
+      "openspp")
+        log_step "Removing OpenSPP"
+        cleanup_openspp
+        log_ok
+        ;;
       *)
         log_error "Invalid app '$app' for deletion. This should have been caught by validate_inputs."
         show_usage
@@ -316,7 +326,9 @@ deploy_apps() {
   # Ensure infra is up before any DPG deployment. The idempotency guard inside
   # deploy_infrastructure makes this a no-op if infra is already running.
   # Skip when infra itself is being deployed — its case arm handles that below.
-  if [[ "$appsToDeploy" != *"infra"* ]]; then
+  # Also skip for an OpenSPP-only deploy: OpenSPP brings its own PostGIS DB and does not use
+  # the shared infra chart.
+  if [[ "$appsToDeploy" != *"infra"* && "$appsToDeploy" != "openspp" ]]; then
     deploy_infrastructure "false"
   fi
 
@@ -352,6 +364,15 @@ deploy_apps() {
         fi
         log_with_verbose_check "$debug" "$DEBUG" "MASTERCARD_CBS_HOME=$MASTERCARD_CBS_HOME"
         deploy_mastercard
+        ;;
+      "openg2p")
+        deploy_openg2p
+        ;;
+      "openspp")
+        if [[ "$redeploy" == "true" ]]; then
+          cleanup_openspp
+        fi
+        deploy_openspp
         ;;
       *)
         log_error "Unknown application '$app'. This should have been caught by validation."
