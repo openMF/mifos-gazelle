@@ -7,6 +7,6 @@
 # tenant_id,tenant_identifier,tenant_name,tenant_timezone,db_host,db_port,db_name,db_user,db_password
 #
 tenant_id,tenant_identifier,tenant_name,tenant_timezone,db_host,db_port,db_name,db_user,db_password
-2,greenbank,Greenbank tenant,Australia/Adelaide,mysql.infra.svc.cluster.local,3306,greenbank,root,mysqlpw
-3,bluebank,Bluebank tenant,Australia/Adelaide,mysql.infra.svc.cluster.local,3306,bluebank,root,mysqlpw
-4,redbank,Redbank tenant,Australia/Adelaide,mysql.infra.svc.cluster.local,3306,redbank,root,mysqlpw
+2,greenbank,Greenbank tenant,Australia/Adelaide,postgres.infra.svc.cluster.local,5432,greenbank,postgres,postgrespw
+3,bluebank,Bluebank tenant,Australia/Adelaide,postgres.infra.svc.cluster.local,5432,bluebank,postgres,postgrespw
+4,redbank,Redbank tenant,Australia/Adelaide,postgres.infra.svc.cluster.local,5432,redbank,postgres,postgrespw
