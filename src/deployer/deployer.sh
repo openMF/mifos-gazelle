@@ -394,14 +394,26 @@ deploy_apps() {
 #------------------------------------------------------------
 check_pods_ready() {
   local namespace="$1"
-  local not_ready
+  local kubectl_output
+  local kubectl_exit_code
 
-  not_ready=$(run_as_user "kubectl get pods -n \"$namespace\" --no-headers 2>/dev/null" \
-    | grep -v -E "Running|Completed|Succeeded" | wc -l)
+  kubectl_output=$(run_as_user "kubectl get pods -n \"$namespace\" --no-headers 2>/dev/null")
+  kubectl_exit_code=$?
+
+  if [[ $kubectl_exit_code -ne 0 ]]; then
+    log_error "Namespace '$namespace': kubectl failed (cluster down or namespace missing)"
+    if [[ -f "$UTILS_DIR/k8s-error-summary.py" ]]; then
+      python3 "$UTILS_DIR/k8s-error-summary.py" "$namespace" || true
+    fi
+    return 1
+  fi
+
+  local not_ready
+  not_ready=$(echo "$kubectl_output" | grep -v -E "Running|Completed|Succeeded" | wc -l)
 
   if [[ "$not_ready" -gt 0 ]]; then
     log_error "Namespace '$namespace': $not_ready pod(s) not Running/Completed:"
-    run_as_user "kubectl get pods -n \"$namespace\""
+    echo "$kubectl_output"
     if [[ -f "$UTILS_DIR/k8s-error-summary.py" ]]; then
       python3 "$UTILS_DIR/k8s-error-summary.py" "$namespace" || true
     fi
@@ -422,7 +434,8 @@ check_endpoint() {
   local url="$2"
   local http_code
 
-  http_code=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
+  local timeout="${health_check_timeout:-30}"
+  http_code=$(curl -sk --max-time "$timeout" -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
 
   if [[ "$http_code" =~ ^[23] ]]; then
     log_ok
@@ -525,6 +538,7 @@ test_apps() {
       *)
         log_error "Unknown app '$app' for testing. Valid: infra, mifosx, phee, vnext."
         overall_rc=1
+        # Loop continues — remaining valid apps in $appsToTest will still be tested
         ;;
     esac
   done
