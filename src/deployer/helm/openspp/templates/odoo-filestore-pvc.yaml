@@ -1,0 +1,16 @@
+# PersistentVolumeClaim for the Odoo filestore (/var/lib/odoo). The Odoo workload is a Deployment
+# (not a StatefulSet), so its PVC is a standalone object referenced by name.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "openspp.fullname" . }}-filestore
+  labels:
+    {{- include "openspp.labels" . | nindent 4 }}
+    {{- include "openspp.odoo.selectorLabels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.odoo.filestore.accessMode }}
+  storageClassName: {{ .Values.odoo.filestore.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.odoo.filestore.size }}

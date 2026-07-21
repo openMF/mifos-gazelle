@@ -1,0 +1,18 @@
+# Headless Service (clusterIP: None) that gives the PostGIS StatefulSet a stable in-cluster DNS
+# name for the Odoo pod and the jobworker to connect to.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openspp.postgis.serviceName" . }}
+  labels:
+    {{- include "openspp.labels" . | nindent 4 }}
+    {{- include "openspp.postgis.selectorLabels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - name: postgres
+      port: {{ .Values.postgis.port }}
+      targetPort: postgres
+      protocol: TCP
+  selector:
+    {{- include "openspp.postgis.selectorLabels" . | nindent 4 }}

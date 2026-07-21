@@ -155,7 +155,7 @@ load_config_from_file() {
 
     # Read app enablement flags and construct the 'apps' variable
     local enabled_apps_list=""
-    local valid_apps=("infra" "vnext" "paymenthub" "mifosx" "mastercard-demo" "openg2p")
+    local valid_apps=("infra" "vnext" "paymenthub" "mifosx" "mastercard-demo" "openg2p" "openspp")
 
     for app_name in "${valid_apps[@]}"; do
         local app_enabled=$(crudini --get "$config_path" "$app_name" enabled 2>/dev/null)
@@ -237,7 +237,7 @@ show_usage() {
     -m mode .............. deploy|cleanapps (required)
     -u user .............. non-root user for k8s operations (optional, defaults to \$USER)
     -a apps .............. Comma-separated list of apps or 'all' (optional)
-                           Valid: vnext paymenthub mifosx infra mastercard-demo openg2p setup-data all
+                           Valid: vnext paymenthub mifosx infra mastercard-demo openg2p openspp setup-data all
     -e environment ....... local (default) | remote
     -d debug ............. true|false (optional, default=false)
     -r redeploy .......... true|false (optional, default=true)
@@ -310,7 +310,7 @@ validate_inputs() {
             log_warn "No apps specified via -a or config file. Defaulting to 'all'."
             apps="all"
         fi
-        local ALL_VALID_APPS="infra vnext paymenthub mifosx mastercard-demo openg2p setup-data all"
+        local ALL_VALID_APPS="infra vnext paymenthub mifosx mastercard-demo openg2p openspp setup-data all"
         local CORE_APPS="infra vnext paymenthub mifosx openg2p"
 
         local current_apps_array

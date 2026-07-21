@@ -351,10 +351,12 @@ Features: split-panel interface (instructions on the left, live DPG iframe on th
 
 Mifos Gazelle deploys four default tenants: `default`, `greenbank`, `bluebank` and `redbank`.
 
-1. Edit `config/mifos-tenant-config.csv` — add your tenant names
+1. Edit `config/mifos-tenant-config.csv` — add your tenant rows (DB host `postgres.infra.svc.cluster.local`, port `5432`, user `postgres`).
 2. Apply: `src/utils/data-loading/update-mifos-tenants.sh -f ./config/mifos-tenant-config.csv`
-3. Restart fineract-server in k9s (`Ctrl-k` on the pod) — Kubernetes will recreate it
-4. Watch Liquibase create the new schema: in k9s, select the new pod and press `l` for logs
+
+3. The script handles everything else automatically: it creates each tenant's Postgres database, registers it in the `fineract_tenants` store, then **temporarily enables Liquibase and restarts fineract-server** so the new tenant schemas are built, and disables Liquibase again when done. No manual pod restart is needed.
+
+4. Pass `-n` to skip the DB dump step (create + register + migrate only).
 
 ---
 
