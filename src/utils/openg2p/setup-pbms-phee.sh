@@ -75,27 +75,46 @@ NS="$OPENG2P_NAMESPACE"
 debug="${debug:-false}"
 
 #------------------------------------------------------------------------------
-# Helpers
+# Function : _find_pbms_pod
+# Description: Finds the running pbms-odoo pod in the OpenG2P namespace.
+# Returns: pod name on stdout, or empty if none is Running.
 #------------------------------------------------------------------------------
 _find_pbms_pod() {
   kubectl get pods -n "$NS" --no-headers 2>/dev/null \
     | awk '/^pbms-odoo-/ && $3=="Running"{print $1; exit}'
 }
 
-# Pipe a python heredoc (on stdin) into `odoo shell` in the pod, succeeding only
-# when $2 (sentinel) is printed. $1 = pod. Mirrors _openg2p_pbms_fix_admin_login.
+#------------------------------------------------------------------------------
+# Function : _odoo_shell
+# Description: Pipes a python heredoc (on stdin) into `odoo shell` in the pod.
+#              Mirrors _openg2p_pbms_fix_admin_login.
+# Parameters:
+#   $1 - pod name
+#   $2 - sentinel string the heredoc must print for success
+# Returns: 0 if the sentinel was seen in the shell's output, 1 otherwise.
+#------------------------------------------------------------------------------
 _odoo_shell() {
   local pod="$1" sentinel="$2"
+  # Use `grep` (not `grep -q`): -q exits on first match, which SIGPIPEs the
+  # upstream kubectl exec and — under `set -o pipefail` — would surface as a
+  # false failure. Plain grep drains all output, so $? reflects match/no-match.
   kubectl exec -i -n "$NS" "$pod" -- \
     bash -lc "odoo shell -c /etc/odoo/odoo.conf -d '$ODOO_DB' --no-http 2>/dev/null" \
-    | grep -q "$sentinel"
+    | grep "$sentinel" >/dev/null
 }
 
-# Same as _odoo_shell, but keeps stderr and prints the tail of the odoo shell's full
-# output when the sentinel is not found — used for the module install, which failed
-# with a bare "exit code 1" and no visible cause on a couple of freshly-deployed pods
-# (kubectl exec against an odoo process that isn't fully warmed up yet). Returns 0
-# only if the sentinel appears; on failure the caller sees why.
+#------------------------------------------------------------------------------
+# Function : _odoo_shell_verbose
+# Description: Same as _odoo_shell, but keeps stderr and prints the tail of the
+#              odoo shell's full output when the sentinel is not found — used for
+#              the module install, which failed with a bare "exit code 1" and no
+#              visible cause on a couple of freshly-deployed pods (kubectl exec
+#              against an odoo process that isn't fully warmed up yet).
+# Parameters:
+#   $1 - pod name
+#   $2 - sentinel string the heredoc must print for success
+# Returns: 0 only if the sentinel appears; on failure the caller sees why.
+#------------------------------------------------------------------------------
 _odoo_shell_verbose() {
   local pod="$1" sentinel="$2" out
   out="$(kubectl exec -i -n "$NS" "$pod" -- \
@@ -108,6 +127,12 @@ _odoo_shell_verbose() {
   return 1
 }
 
+#------------------------------------------------------------------------------
+# Function : _restart_odoo
+# Description: Rolls the pbms-odoo Deployment so freshly-installed modules /
+#              patched source are reloaded. Non-fatal: warns if the rollout
+#              doesn't complete.
+#------------------------------------------------------------------------------
 _restart_odoo() {
   log_step "Restarting $ODOO_DEPLOY to reload modules/source"
   if kubectl rollout restart "deploy/$ODOO_DEPLOY" -n "$NS" >/dev/null 2>&1 \
@@ -118,13 +143,21 @@ _restart_odoo() {
   fi
 }
 
-# /web/login only proves nginx+odoo answer HTTP — it does NOT touch res.partner, so it
-# cannot catch a stale-registry KeyError (e.g. "spp.area") left behind when a module
-# finishes installing in the DB after the serving pod's workers already cached their
-# registry (observed: g2p_theme/g2p_programs/spp_area installed fine, but Registry/
-# Programs pages 500'd until a fresh restart). Exercise res.partner directly via a new
-# `odoo shell` process (its own fresh registry load, same as a restarted web worker
-# would do) as a real proxy for "the running pod's registry is not stale".
+#------------------------------------------------------------------------------
+# Function : _registry_healthy
+# Description: Proxy for "the running pod's Odoo registry is not stale". /web/login
+#              only proves nginx+odoo answer HTTP — it does NOT touch res.partner,
+#              so it cannot catch a stale-registry KeyError (e.g. "spp.area") left
+#              behind when a module finishes installing in the DB after the serving
+#              pod's workers already cached their registry (observed: g2p_theme/
+#              g2p_programs/spp_area installed fine, but Registry/Programs pages
+#              500'd until a fresh restart). Exercises res.partner directly via a
+#              new `odoo shell` process (its own fresh registry load, like a
+#              restarted web worker would do).
+# Parameters:
+#   $1 - pod name
+# Returns: 0 if res.partner is reachable (registry healthy), 1 otherwise.
+#------------------------------------------------------------------------------
 _registry_healthy() {
   local pod="$1"
   kubectl exec -i -n "$NS" "$pod" -- \
@@ -138,19 +171,34 @@ except Exception as e:
 PYEOF
 }
 
-# The bg-task deployments write ir_module_module periodically; a concurrent write during
-# a module install triggers Postgres "could not serialize access" and aborts it. Scale
-# them to 0 for the install, back up after.
+# Deployments whose periodic ir_module_module writes contend with a module install.
 BGTASK_DEPLOYS=(pbms-api pbms-celery-beat-producer pbms-celery-worker)
+
+#------------------------------------------------------------------------------
+# Function : _bgtask_scale
+# Description: Scales the PBMS bg-task deployments. They write ir_module_module
+#              periodically; a concurrent write during a module install triggers
+#              Postgres "could not serialize access" and aborts it — so scale them
+#              to 0 for the install and back to 1 after.
+# Parameters:
+#   $1 - replica count to scale the bg-task deployments to
+#------------------------------------------------------------------------------
 _bgtask_scale() {
   local replicas="$1"
   kubectl scale deploy "${BGTASK_DEPLOYS[@]}" -n "$NS" --replicas="$replicas" >/dev/null 2>&1
 }
 
-# The addon repos' Python deps (schwifty, rstr, cbor2, ...) install into ephemeral
-# /usr/local/lib, so a freshly-rolled odoo pod is missing them until the values.yaml
-# postStart hook runs. Skip fast when the hook already installed them (import check),
-# else install so this works on a pre-redeploy pod without the hook.
+#------------------------------------------------------------------------------
+# Function : _pip_install_addon_deps
+# Description: Installs the addon repos' Python deps (schwifty, rstr, cbor2, ...)
+#              into the running pod. They install into ephemeral /usr/local/lib, so
+#              a freshly-rolled odoo pod is missing them until the values.yaml
+#              postStart hook runs. Skips fast when already present (import check),
+#              else installs — so this also works on a pre-redeploy pod without the
+#              hook. Non-fatal: warns on failure.
+# Parameters:
+#   $1 - pod name
+#------------------------------------------------------------------------------
 _pip_install_addon_deps() {
   local pod="$1"
   if kubectl exec -n "$NS" "$pod" -- python3 -c 'import schwifty, rstr' >/dev/null 2>&1; then
@@ -167,8 +215,12 @@ _pip_install_addon_deps() {
 }
 
 #------------------------------------------------------------------------------
-# Step 1 — download addon repos into the PVC. Idempotent: skips a repo that
-# already has content. curl+tar because the image has no git.
+# Function : step_download_addons
+# Description: Step 1 — downloads the addon repos into the PVC. Idempotent: skips
+#              a repo that already has content. Uses curl+tar because the image
+#              has no git.
+# Parameters:
+#   $1 - pod name (running pbms-odoo pod)
 #------------------------------------------------------------------------------
 step_download_addons() {
   local pod="$1" entry repo branch url
@@ -196,8 +248,12 @@ step_download_addons() {
 }
 
 #------------------------------------------------------------------------------
-# Step 1b — confirm Odoo is pointed at the addon dirs (ODOO_ADDONS_DIR is set in
-# values.yaml; here we only check, since a live env edit would be reverted on upgrade).
+# Function : step_check_addons_dir
+# Description: Step 1b — confirms Odoo is pointed at the addon dirs. ODOO_ADDONS_DIR
+#              is set in values.yaml; here we only check (a live env edit would be
+#              reverted on the next upgrade), warning with the fix if it's missing.
+# Parameters:
+#   $1 - pod name (running pbms-odoo pod)
 #------------------------------------------------------------------------------
 step_check_addons_dir() {
   local pod="$1" env_val
@@ -213,8 +269,15 @@ step_check_addons_dir() {
 }
 
 #------------------------------------------------------------------------------
-# Step 3 — enterprise stub + module install. Refreshes the module list, stubs the
-# missing xmlid, then installs PBMS_MODULES. Idempotent (skips installed).
+# Function : step_stub_and_install
+# Description: Step 3 — enterprise stub + module install. Installs the addon
+#              Python deps into the running pod, refreshes the module list, stubs
+#              the Enterprise-only xmlid that g2p_programs references but Community
+#              lacks, then installs PBMS_MODULES (scaling bg-task to 0 during the
+#              install to avoid write contention). Restarts Odoo after and verifies
+#              the registry isn't stale. Idempotent (skips already-installed modules).
+# Parameters:
+#   $1 - pod name (running pbms-odoo pod)
 #------------------------------------------------------------------------------
 step_stub_and_install() {
   local pod="$1"
@@ -316,9 +379,13 @@ PYEOF
 }
 
 #------------------------------------------------------------------------------
-# Step 4 — batch_type_header=csv on the PHEE payment manager(s). Default "type"
-# makes PHEE 500. Also aligns payee_id_type to phone (proven default). Idempotent.
-# Managers may not exist yet (created via UI) — that's fine.
+# Function : step_batch_header
+# Description: Step 4 — sets batch_type_header=csv on the PHEE payment manager(s)
+#              (the default "type" makes PHEE 500), and aligns payee_id_type to
+#              phone (the proven default). Idempotent. Managers may not exist yet
+#              (created via the UI) — that's fine, the loop just does nothing.
+# Parameters:
+#   $1 - pod name (running pbms-odoo pod)
 #------------------------------------------------------------------------------
 step_batch_header() {
   local pod="$1"
@@ -342,10 +409,14 @@ PYEOF
 }
 
 #------------------------------------------------------------------------------
-# Step 2 — float->int amount patch: wrap the CSV-row payment_id.amount_issued in
-# int(). Idempotent. Runs BEFORE the install (step 3) so the single post-install
-# restart reloads the patched source too — the downloaded file already exists from
-# step 1.
+# Function : step_patch_amount
+# Description: Step 2 — float->int amount patch: wraps the CSV-row
+#              payment_id.amount_issued in int() (PHEE's parseInt throws on the
+#              float, silently zeroing the batch total). Idempotent. Runs BEFORE
+#              the install (step 3) so the single post-install restart reloads the
+#              patched source too — the downloaded file already exists from step 1.
+# Parameters:
+#   $1 - pod name (running pbms-odoo pod)
 #------------------------------------------------------------------------------
 step_patch_amount() {
   local pod="$1"

@@ -12,12 +12,34 @@ OPENG2P_CRDS_DIR="${BASE_DIR}/src/deployer/manifests/openg2p"
 OPENG2P_MODULES=(social-registry pbms spar g2p-bridge)
 
 #------------------------------------------------------------------------------
+# Function : _openg2p_check_arch
+# Description: OpenG2P's upstream container images are published for linux/amd64
+#              only — there are no arm64/aarch64 variants. On an ARM host the pods
+#              would fail to schedule/run ("exec format error"), so we refuse to
+#              deploy up front with a clear message instead of failing deep in.
+# Returns: 0 on amd64 (x86_64); 1 on arm64/aarch64 (or anything non-amd64).
+#------------------------------------------------------------------------------
+_openg2p_check_arch() {
+  local arch
+  arch=$(uname -m)
+  if [[ "$arch" != "x86_64" ]]; then
+    log_error "OpenG2P is not supported on '${arch}' — its upstream images are amd64/x86_64 only."
+    log_error "Deploy OpenG2P on an amd64 host, or disable it (config.ini [openg2p] enabled=false)."
+    return 1
+  fi
+  return 0
+}
+
+#------------------------------------------------------------------------------
 # Function : deploy_openg2p
 # Description: Top-level entry point — deploys commons, then each enabled module
 #              as its own helm release into the openg2p namespace on GAZELLE_DOMAIN.
 #------------------------------------------------------------------------------
 deploy_openg2p() {
   log_section "Deploying OpenG2P"
+
+  # OpenG2P images are amd64-only — bail early on ARM rather than fail mid-deploy.
+  _openg2p_check_arch || return 1
 
   if is_app_running "$OPENG2P_NAMESPACE"; then
     if [[ "$redeploy" == "false" ]]; then
