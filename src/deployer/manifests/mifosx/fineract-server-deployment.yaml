@@ -18,6 +18,53 @@ spec:
         app: fineract-server
         tier: backend
     spec:
+      initContainers:
+        - name: fetch-reporting-plugin
+          image: alpine:3.20
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              apk add --no-cache curl python3 font-dejavu fontconfig >/dev/null
+              echo "Downloading MifosReportingPlugin-1.14.0..."
+              curl -fsSL -o /tmp/mrp.zip \
+                "https://sourceforge.net/projects/mifos/files/mifos-plugins/MifosReportingPlugin/MifosReportingPlugin-1.14.0.zip/download"
+              python3 /dev/stdin <<'PYEOF'
+              import zipfile, os
+              z=zipfile.ZipFile("/tmp/mrp.zip"); base="MifosReportingPlugin-1.14.0"
+              jn=rn=0
+              for n in z.namelist():
+                  if n.startswith(base+"/") and n.endswith(".jar") and "/" not in n[len(base)+1:]:
+                      open("/plugins/"+os.path.basename(n),"wb").write(z.read(n)); jn+=1
+                  p=base+"/Postgresql/"
+                  if n.startswith(p) and not n.endswith("/"):
+                      name=n[len(p):]
+                      if "/" in name: continue
+                      open("/reports/"+name,"wb").write(z.read(n))
+                      if name.endswith(".prpt"): rn+=1
+              print("Staged jars:",jn," reports:",rn, flush=True)
+              PYEOF
+              echo "Staging fonts + fontconfig closure..."
+              mkdir -p /fonts /etcfonts /nativelibs
+              cp -a /usr/share/fonts/. /fonts/ 2>/dev/null || true
+              cp -a /etc/fonts/. /etcfonts/ 2>/dev/null || true
+              cp -L /usr/lib/libfontconfig.so* /nativelibs/ 2>/dev/null || true
+              for l in $(ldd /usr/lib/libfontconfig.so.1 2>/dev/null | awk '{print $3}'); do
+                case "$l" in */ld-musl*|*/libc.*) : ;; *) cp -L "$l" /nativelibs/ 2>/dev/null || true ;; esac
+              done
+              echo "fonts:$(find /fonts -name '*.ttf' | wc -l) nativelibs:$(ls /nativelibs | wc -l)"
+          volumeMounts:
+            - mountPath: /plugins
+              name: fineract-plugins
+            - mountPath: /reports
+              name: fineract-reports
+            - mountPath: /fonts
+              name: fineract-fonts
+            - mountPath: /etcfonts
+              name: fineract-etcfonts
+            - mountPath: /nativelibs
+              name: fineract-nativelibs
       containers:
         - env:
             - name: JAVA_TOOL_OPTIONS
@@ -83,6 +130,12 @@ spec:
               value: "true"
             - name: FINERACT_LIQUIBASE_ENABLED
               value: "false"
+            - name: FINERACT_PENTAHO_REPORTS_PATH
+              value: "/app/reports/pentaho"
+            - name: LD_LIBRARY_PATH
+              value: "/opt/nativelibs"
+            - name: FONTCONFIG_PATH
+              value: "/etc/fonts"
           #image: openmf/fineract:develop
           #image: openmf/fineract:1.11
           image: openmf/fineract:1.14.0
@@ -114,8 +167,28 @@ spec:
           volumeMounts:
             - mountPath: /data
               name: fineract-server-claim0
+            - mountPath: /app/plugins
+              name: fineract-plugins
+            - mountPath: /app/reports/pentaho
+              name: fineract-reports
+            - mountPath: /usr/share/fonts
+              name: fineract-fonts
+            - mountPath: /etc/fonts
+              name: fineract-etcfonts
+            - mountPath: /opt/nativelibs
+              name: fineract-nativelibs
       restartPolicy: Always
       volumes:
         - name: fineract-server-claim0
           persistentVolumeClaim:
             claimName: fineract-server-claim0
+        - name: fineract-plugins
+          emptyDir: {}
+        - name: fineract-reports
+          emptyDir: {}
+        - name: fineract-fonts
+          emptyDir: {}
+        - name: fineract-etcfonts
+          emptyDir: {}
+        - name: fineract-nativelibs
+          emptyDir: {}
