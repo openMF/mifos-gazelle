@@ -71,6 +71,28 @@ commands:
             chmod +x src/utils/make-payment.sh
             echo "10" | src/utils/make-payment.sh
 
+  deploy_and_verify_openspp:
+    description: "Build the OpenSPP2 image, deploy OpenSPP, and run its smoke test (amd64 only)"
+    steps:
+      - run:
+          name: Environment setup (k3s)
+          command: |
+            chmod +x ./setup-env.sh ./run.sh
+            sudo ./setup-env.sh -e local -u "$USER" -d true -y
+      - run:
+          name: Build and import the OpenSPP2 image (build-only, not published)
+          command: |
+            git clone --branch v19.0.2.0.0 --depth 1 https://github.com/OpenSPP/OpenSPP2.git repos/OpenSPP2
+            docker build --target production -t ghcr.io/openmf/openspp:19.0 \
+              -f repos/OpenSPP2/docker/Dockerfile repos/OpenSPP2
+            docker save ghcr.io/openmf/openspp:19.0 | sudo k3s ctr images import -
+      - run:
+          name: Deploy OpenSPP
+          command: ./run.sh -m deploy -a openspp -d true
+      - run:
+          name: Smoke test
+          command: bash tests/openspp/smoke.sh
+
 jobs:
   deploy-test-amd64:
     machine:
@@ -88,9 +110,19 @@ jobs:
       - checkout
       - deploy_and_verify
 
+  # OpenSPP2 is amd64-only (postgis/postgis:18-3.6-alpine has no arm64), so it has no arm64 job.
+  deploy-test-openspp-amd64:
+    machine:
+      image: ubuntu-2004:current
+    resource_class: large
+    steps:
+      - checkout
+      - deploy_and_verify_openspp
+
 workflows:
   version: 2
   test-multi-arch:
     jobs:
       - deploy-test-amd64
       # - deploy-test-arm64
+      - deploy-test-openspp-amd64
