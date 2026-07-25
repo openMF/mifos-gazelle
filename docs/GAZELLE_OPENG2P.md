@@ -133,7 +133,7 @@ Printed at the end of a successful deploy. With the default config (PBMS enabled
 |---|---|
 | PBMS (Odoo) | https://pbms.mifos.gazelle.test |
 | Keycloak | https://keycloak.mifos.gazelle.test |
-| MinIO | https://minio.mifos.gazelle.test |
+| MinIO | https://minio-og2p.mifos.gazelle.test |
 
 If enabled, `social-registry`, `spar`, and `g2p-bridge` are reachable the same way at `https://<module>.mifos.gazelle.test`.
 
@@ -144,7 +144,7 @@ PBMS and social-registry Odoo login is `admin@openg2p.org` / `adminopeng2p`.
 These hostnames must resolve to the cluster's ingress IP. `sudo ./setup-env.sh` adds them **automatically** for a local (k3s/Colima) deploy, so on a standard install there is nothing to do. On a **remote / pre-existing cluster** (`setup-env.sh -e remote`), or if you manage `/etc/hosts` yourself, add the OpenG2P block — one line, all seven hosts pointing at your ingress IP (replace `<INGRESS-IP>`; use `127.0.0.1` for a local single-node cluster, the Colima VM IP on macOS, or the node/LB IP for remote):
 
 ```
-<INGRESS-IP>  openg2p.mifos.gazelle.test social-registry.mifos.gazelle.test pbms.mifos.gazelle.test spar.mifos.gazelle.test g2p-bridge.mifos.gazelle.test keycloak.mifos.gazelle.test minio.mifos.gazelle.test
+<INGRESS-IP>  openg2p.mifos.gazelle.test social-registry.mifos.gazelle.test pbms.mifos.gazelle.test spar.mifos.gazelle.test g2p-bridge.mifos.gazelle.test keycloak.mifos.gazelle.test minio-og2p.mifos.gazelle.test
 ```
 
 | Hostname | Serves |
@@ -154,7 +154,7 @@ These hostnames must resolve to the cluster's ingress IP. `sudo ./setup-env.sh` 
 | `spar.mifos.gazelle.test` | SPAR mapper API (if enabled) |
 | `g2p-bridge.mifos.gazelle.test` | G2P Bridge API (if enabled) |
 | `keycloak.mifos.gazelle.test` | Keycloak (shared commons) |
-| `minio.mifos.gazelle.test` | MinIO console (shared commons) |
+| `minio-og2p.mifos.gazelle.test` | MinIO console (shared commons; `minio.` is PaymentHub's) |
 | `openg2p.mifos.gazelle.test` | OpenG2P TLS SAN / base host |
 
 > All seven are covered by the `openg2p-tls` ingress cert (created in `deploy_openg2p`), and match the `OPENG2PHOSTS` list in `src/environmentSetup/environmentSetup.sh`. Substitute your own domain for `mifos.gazelle.test` if you changed `GAZELLE_DOMAIN`.

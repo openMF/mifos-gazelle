@@ -50,15 +50,23 @@ ODOO_DB="pbmsdb"
 # redbank is NOT registered as a vNext participant, so payments to redbank payees fail
 # at party lookup ("No destination participant found for fspId: redbank"). Mirroring
 # only bluebank clients keeps every registrant payable end-to-end.
-# (greenbank's payer client is excluded by MSISDN below regardless.)
+# (The greenbank payer client is excluded by its resolved MSISDN — see
+# PHEE_PAYER_TENANT / resolve_payer_msisdn — even if it ever appears here.)
 FINERACT_TENANTS=(bluebank)
 # mifos:password — same basic-auth the data-loading scripts use against Fineract.
 FINERACT_AUTH="Basic bWlmb3M6cGFzc3dvcmQ="
 
+# The payer tenant (a Fineract tenant, NOT an MSISDN). greenbank is the demo payer.
+# Its client's MSISDN is looked up from Fineract at runtime (resolve_payer_msisdn),
+# not hardcoded — the demo dump's MSISDNs are regenerated periodically, so a fixed
+# number goes stale. That resolved MSISDN feeds both EXCLUDE_MSISDNS (below) and the
+# PHEE payment manager's payer_id (step 4).
+PHEE_PAYER_TENANT="greenbank"
+
 # Clients to exclude from the registry — payers/registering institutions, not
 # beneficiaries. Identified by MSISDN (digits only; unique and stable, unlike names).
-# 0413509790 = Sebastian Moore (greenbank), the demo payer.
-EXCLUDE_MSISDNS=(0413509790)
+# Populated at runtime in main() with the resolved PHEE_PAYER_TENANT MSISDN.
+EXCLUDE_MSISDNS=()
 
 # Demo program config. The eligibility domain selects registrants whose age falls in
 # [ELIG_MIN_AGE, ELIG_MAX_AGE]; registrants outside the band are the "filtered out" set.
@@ -78,11 +86,12 @@ PROGRAM_FUND_AMOUNT=1000.0
 # + Type:csv; it does NOT do the OAuth dance in this version, so auth/status/details
 # URLs + authorization/grant_type are required-but-unused placeholders.
 # In-cluster service DNS is used (the *.gazelle.test ingress host does not resolve
-# from inside the pbms pod). Payer = greenbank (Sebastian Moore, MSISDN 0413509790).
+# from inside the pbms pod). Payer = the PHEE_PAYER_TENANT (greenbank) client, whose
+# MSISDN (PHEE_PAYER_ID) is resolved from Fineract at runtime — see main().
 PHEE_PAYMENT_ENDPOINT="http://ph-ee-bulk-processor.paymenthub:80/batchtransactions"
-PHEE_TENANT_ID="greenbank"
+PHEE_TENANT_ID="$PHEE_PAYER_TENANT"
 PHEE_PAYER_ID_TYPE="msisdn"
-PHEE_PAYER_ID="0413509790"
+PHEE_PAYER_ID=""            # resolved at runtime from PHEE_PAYER_TENANT (main)
 PHEE_PAYEE_ID_TYPE="phone"
 
 OPENG2P_NAMESPACE="$(crudini --get "$CONFIG_FILE" openg2p OPENG2P_NAMESPACE 2>/dev/null || echo openg2p)"
@@ -247,6 +256,33 @@ for c in data.get("pageItems", []):
 }
 
 #------------------------------------------------------------------------------
+# Function : resolve_payer_msisdn
+# Description: Looks up the payer tenant's client MSISDN from Fineract, so the demo
+#              payer number is never hardcoded (the demo dump's MSISDNs are
+#              regenerated periodically — a fixed value goes stale). Returns the
+#              first client with a mobile number in PHEE_PAYER_TENANT (the demo
+#              seeds exactly one payer client there), digits only.
+# Returns: the payer MSISDN (digits) on stdout, or empty if none found.
+#------------------------------------------------------------------------------
+resolve_payer_msisdn() {
+  curl -s -k -H "Fineract-Platform-TenantId: ${PHEE_PAYER_TENANT}" \
+       -H "Authorization: ${FINERACT_AUTH}" \
+       "${FINERACT_BASE}/clients?limit=1000" 2>/dev/null \
+    | python3 -c '
+import sys, json
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for c in data.get("pageItems", []):
+    m = "".join(ch for ch in (c.get("mobileNo") or "") if ch.isdigit())
+    if m:
+        print(m)
+        break
+'
+}
+
+#------------------------------------------------------------------------------
 # Function : create_registrants
 # Description: Step 2 — creates registrants in PBMS from the client TSV built
 #              in step 1. Idempotent (matched on phone); excludes payer MSISDNs.
@@ -260,8 +296,12 @@ create_registrants() {
   # The unquoted heredoc lets bash expand $clients_tsv (a python-literal string of
   # the TSV) into the script before it is piped into odoo shell.
   # Build a python set literal of excluded MSISDNs (digits only) for the heredoc.
-  local exclude_py
-  exclude_py="$(printf '"%s",' "${EXCLUDE_MSISDNS[@]}")"
+  # Guard the empty case: printf on an empty array would emit a bogus '"",' entry,
+  # putting an empty string in the python set — harmless but sloppy. Emit nothing.
+  local exclude_py=""
+  if [[ "${#EXCLUDE_MSISDNS[@]}" -gt 0 ]]; then
+    exclude_py="$(printf '"%s",' "${EXCLUDE_MSISDNS[@]}")"
+  fi
   _odoo_shell "$pod" REGISTRANTS_OK <<PYEOF
 import hashlib, datetime
 
@@ -738,6 +778,19 @@ main() {
   fi
   log_with_level "$INFO" "Using pod: $pod"
   log_with_level "$INFO" "Reading clients from Fineract at ${FINERACT_BASE}"
+
+  # Resolve the demo payer MSISDN from Fineract (never hardcoded — see
+  # resolve_payer_msisdn / PHEE_PAYER_TENANT). It drives BOTH the registry exclude
+  # list (the payer is not a beneficiary) and the PHEE payment manager's payer_id.
+  log_step "Resolving payer MSISDN from Fineract tenant '${PHEE_PAYER_TENANT}'"
+  PHEE_PAYER_ID="$(resolve_payer_msisdn)"
+  if [[ -z "$PHEE_PAYER_ID" ]]; then
+    log_warn "no client with a mobile number found in tenant '${PHEE_PAYER_TENANT}' — payer will not be excluded/wired (is MifosX seeded?)"
+  else
+    EXCLUDE_MSISDNS=("$PHEE_PAYER_ID")
+    log_ok
+    log_with_level "$INFO" "Payer: ${PHEE_PAYER_TENANT} MSISDN ${PHEE_PAYER_ID}"
+  fi
 
   # Step 1 — fetch clients from Fineract.
   log_step "Fetching clients from Fineract (${FINERACT_TENANTS[*]})"

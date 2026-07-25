@@ -1,0 +1,87 @@
+# PostGIS 18 database as a StatefulSet: a stable network identity and a per-replica PVC via
+# volumeClaimTemplates.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "openspp.postgis.serviceName" . }}
+  labels:
+    {{- include "openspp.labels" . | nindent 4 }}
+    {{- include "openspp.postgis.selectorLabels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "openspp.postgis.serviceName" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "openspp.postgis.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openspp.labels" . | nindent 8 }}
+        {{- include "openspp.postgis.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.arch }}
+      nodeSelector:
+        kubernetes.io/arch: {{ .Values.arch }}   # postgis/postgis:18-3.6-alpine is amd64-only
+      {{- end }}
+      containers:
+        - name: postgis
+          image: "{{ .Values.postgis.image.repository }}:{{ .Values.postgis.image.tag }}"
+          imagePullPolicy: {{ .Values.postgis.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.postgis.port }}
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgis.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgis.user | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openspp.secretName" . }}
+                  key: db-password
+            # initdb args on first init (upstream production setting).
+            - name: POSTGRES_INITDB_ARGS
+              value: {{ .Values.postgis.initdbArgs | quote }}
+          volumeMounts:
+            # Mount the PVC at /var/lib/postgresql (as the upstream compose), letting the image use
+            # its default PGDATA subdir under it.
+            - name: data
+              mountPath: /var/lib/postgresql
+            # Shared memory at /dev/shm (in-memory emptyDir); PostGIS can crash on large queries
+            # without enough shared memory.
+            - name: dshm
+              mountPath: /dev/shm
+          # Health checks via pg_isready.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgis.user | quote }}, "-d", {{ .Values.postgis.database | quote }}]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgis.user | quote }}, "-d", {{ .Values.postgis.database | quote }}]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.postgis.resources | nindent 12 }}
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.postgis.shmSize }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - {{ .Values.postgis.storage.accessMode }}
+        storageClassName: {{ .Values.postgis.storage.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.postgis.storage.size }}

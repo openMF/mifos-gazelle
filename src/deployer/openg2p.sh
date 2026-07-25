@@ -56,7 +56,7 @@ deploy_openg2p() {
   create_ingress_secret "$OPENG2P_NAMESPACE" \
     "openg2p.$GAZELLE_DOMAIN" \
     "openg2p-tls" \
-    "social-registry.$GAZELLE_DOMAIN,pbms.$GAZELLE_DOMAIN,spar.$GAZELLE_DOMAIN,g2p-bridge.$GAZELLE_DOMAIN,keycloak.$GAZELLE_DOMAIN,minio.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN"
+    "social-registry.$GAZELLE_DOMAIN,pbms.$GAZELLE_DOMAIN,spar.$GAZELLE_DOMAIN,g2p-bridge.$GAZELLE_DOMAIN,keycloak.$GAZELLE_DOMAIN,minio-og2p.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN"
   log_ok
 
   # OpenG2P charts emit Istio/logging/monitoring objects Gazelle has no controllers for.
@@ -135,7 +135,7 @@ _openg2p_print_urls() {
     printf "$fmt" "G2P Bridge (API):" "https://g2p-bridge.$d"
   # Shared commons services (always present once commons is deployed)
   printf "$fmt" "Keycloak:"           "https://keycloak.$d"
-  printf "$fmt" "MinIO:"              "https://minio.$d"
+  printf "$fmt" "MinIO:"              "https://minio-og2p.$d"
 }
 
 #------------------------------------------------------------------------------
