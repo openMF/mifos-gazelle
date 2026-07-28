@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    description: "Service for the MifosX Workflow Engine (Flowable)"
+  labels:
+    app: mifos-workflow
+    tier: backend
+  name: mifos-workflow
+spec:
+  # GAZ-308: ClusterIP (internal only). No in-cluster consumer needs it and the
+  # API is state-changing; reach it for testing via:
+  #   kubectl -n mifosx port-forward svc/mifos-workflow 8081:8081
+  # Flip to an ingress path later if external/browser access is wanted.
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
+  selector:
+    app: mifos-workflow
