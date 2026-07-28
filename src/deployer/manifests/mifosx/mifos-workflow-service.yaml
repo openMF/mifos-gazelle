@@ -8,7 +8,7 @@ metadata:
     tier: backend
   name: mifos-workflow
 spec:
-  # GAZ-308: ClusterIP (internal only). No in-cluster consumer needs it and the
+  # ClusterIP (internal only). No in-cluster consumer needs it and the
   # API is state-changing; reach it for testing via:
   #   kubectl -n mifosx port-forward svc/mifos-workflow 8081:8081
   # Flip to an ingress path later if external/browser access is wanted.

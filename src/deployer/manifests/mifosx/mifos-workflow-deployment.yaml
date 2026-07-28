@@ -18,7 +18,7 @@ spec:
         app: mifos-workflow
         tier: backend
     spec:
-      # GAZ-308: startup ordering. The Workflow Engine must not start until (1) the
+      # Startup ordering: the Workflow Engine must not start until (1) the
       # shared Postgres (which hosts mifos_flowable) is reachable and (2) Fineract is
       # ready — otherwise Flowable schema-create races a cold DB and the Fineract
       # client fails auth against a not-yet-migrated tenant.
@@ -49,8 +49,6 @@ spec:
               echo "Fineract is ready."
       containers:
         - name: mifos-workflow
-          # TEMPORARY (GAZ-308): personal namespace until kanishksingh23 has openmf
-          # org push access. Re-pin to openmf/mifos-workflow:27072026 once published there.
           image: kanishksingh23/mifos-workflow:27072026
           imagePullPolicy: IfNotPresent
           env:
@@ -63,7 +61,7 @@ spec:
                     -XX:+HeapDumpOnOutOfMemoryError
             - name: SERVER_PORT
               value: "8081"
-            # --- Database: shared infra Postgres, dedicated mifos_flowable DB (GAZ-308) ---
+            # --- Database: shared infra Postgres, dedicated mifos_flowable DB 
             - name: SPRING_DATASOURCE_URL
               value: "jdbc:postgresql://postgres.infra.svc.cluster.local:5432/mifos_flowable"
             - name: SPRING_DATASOURCE_USERNAME

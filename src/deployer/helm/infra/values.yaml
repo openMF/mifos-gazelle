@@ -340,11 +340,11 @@ postgresql:
   primary:
     resources:
       requests:
-        # GAZ-308: bumped 256Mi -> 384Mi; this instance now also hosts the
+        # bumped 256Mi -> 384Mi; this instance now also hosts the
         # mifos_flowable schema for the Workflow Engine (Flowable).
         memory: "384Mi"
       limits:
-        # GAZ-308: bumped 512Mi -> 768Mi (see requests note above).
+        # (see requests note above).
         memory: "768Mi"
     # Create the two bootstrap DBs Fineract needs on first init, mirroring the
     # upstream mifosx-platform postgresql/ init script. Tenant DBs (greenbank/
@@ -354,7 +354,7 @@ postgresql:
         01-create-fineract-dbs.sql: |
           CREATE DATABASE fineract_tenants;
           CREATE DATABASE fineract_default;
-        # GAZ-308: Workflow Engine (Flowable) DB. Flowable auto-creates its own
+        # Workflow Engine (Flowable) DB. Flowable auto-creates its own
         # tables inside this database on first startup (schema-update=true).
         02-create-workflow-db.sql: |
           CREATE DATABASE mifos_flowable;
