@@ -44,7 +44,11 @@ error() {
 
 set_user() {
     # set the k8s_user
-    k8s_user=$(who am i | cut -d " " -f1)
+    # $SUDO_USER is set when the script is run with sudo, which is how it is normally invoked.
+    # Fall back to the session record for a plain root shell; 'who am i' is empty without a tty,
+    # so on its own it fails over a non-interactive ssh or in CI.
+    k8s_user="${SUDO_USER:-$(who am i | cut -d " " -f1)}"
+    [[ -z "$k8s_user" ]] && error "Cannot determine the user that owns the docker images. Run this with sudo."
     log "k8s_user = $k8s_user"
 }
 
@@ -92,7 +96,9 @@ printf "*************** << START >> *******************\n\n"
 set_user
 
 # Define tarfile path
-tarfile="/tmp/${IMAGE_NAME}.tar"
+# A registry-qualified image name contains slashes (ghcr.io/openmf/openspp), and those cannot go
+# straight into a file path: docker save would fail with "invalid output path". Flatten them.
+tarfile="/tmp/$(echo "$IMAGE_NAME" | tr '/' '_').tar"
 
 # Clean up any existing tarfile
 if [[ -f "$tarfile" ]]; then
