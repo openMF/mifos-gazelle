@@ -139,6 +139,10 @@ bash tests/openspp/smoke.sh        # override the namespace with OPENSPP_NAMESPA
 
 Checks the pods are Ready, the base module is really installed, and `/web/health` returns 200.
 
+A CircleCI job that builds the image, deploys OpenSPP and runs this smoke test is kept in
+`tests/openspp/circleci-job.yml`. It is not wired into `.circleci/config.yml`, so CircleCI does not run
+it; the file explains how to enable it.
+
 ## Teardown
 
 ```bash
@@ -147,8 +151,9 @@ Checks the pods are Ready, the base module is really installed, and `/web/health
 
 ## Notes / limitations
 
-- **amd64 only** for now: `postgis/postgis:18-3.6-alpine` is amd64-only, so the chart pins
-  `kubernetes.io/arch: amd64`.
+- **amd64 by default**: the official `postgis/postgis:18-3.6-alpine` publishes a `linux/amd64` manifest
+  only, so the chart pins the pods to amd64 nodes through the `arch` value in `values.yaml`. Running on
+  arm64 needs both an arm64 PostGIS image (`postgis.image.*`) and an arm64 build of the OpenSPP image.
 - **Image is build-only.** An official OpenSPP2 image (Docker Hub / GHCR) is not published yet; once it
   is, set `OPENSPP_IMAGE_*` to pull it instead of building locally.
 - The async **job worker** runs as a separate Deployment (it starts after Odoo has initialised the DB).
