@@ -1,0 +1,13 @@
+{
+  "program": {
+    "name": "Agri subsidy Q3",
+    "description": "Quarterly crop-input subsidy for eligible smallholder farmers.",
+    "currency": "USD",
+    "amount_per_beneficiary": 200.0,
+    "target_type": "group",
+    "eligibility": {
+      "zone": "Region I",
+      "crop_in": ["rice", "maize", "cassava"]
+    }
+  }
+}
