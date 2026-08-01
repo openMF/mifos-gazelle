@@ -37,6 +37,7 @@ sudo ./setup-env.sh -e local -u $USER
 | [GovStack Architecture](docs/GOVSTACK.md) | G2P bulk disbursement design and troubleshooting |
 | [OpenG2P](docs/GAZELLE_OPENG2P.md) | Deploy OpenG2P G2P payments (commons, PBMS, social-registry, SPAR, g2p-bridge) |
 | [OpenSPP](docs/OPENSPP.md) | Deploy OpenSPP2 (Odoo 19) social registry: quick start, configuration and first steps |
+| [OpenG2P Demo Walkthrough](docs/OPENG2P_DEMO.md) | Step-by-step G2P bulk disbursement demo through the PBMS UI, with screenshots |
 | [Local Development](docs/LOCALDEV.md) | hostPath mounts for iterating on Payment Hub EE code |
 | [vNext Standalone](docs/VNEXT-README.md) | Deploy Mojaloop vNext on its own |
 | [Raspberry Pi](docs/RASPBERRY-PI-README.md) | Ubuntu setup on Raspberry Pi 5 |
