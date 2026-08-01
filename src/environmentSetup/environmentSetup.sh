@@ -141,7 +141,7 @@ add_hosts() {
         local ALL_GAZELLE_HOSTS=( "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" "${OPENSPPHOSTS[@]}" )
         local OPENG2PHOSTS=( openg2p.$DOMAIN social-registry.$DOMAIN \
             pbms.$DOMAIN spar.$DOMAIN g2p-bridge.$DOMAIN \
-            keycloak.$DOMAIN minio.$DOMAIN )
+            keycloak.$DOMAIN minio-og2p.$DOMAIN )
 
         # Determine which IP to use.
         #

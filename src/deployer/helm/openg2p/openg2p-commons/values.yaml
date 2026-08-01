@@ -20,7 +20,10 @@ commons:
     sysAdminEmail: admin@mifos.gazelle.test
     kafkaUiHostname: "kafka.mifos.gazelle.test"
     opensearchHostname: "opensearch.mifos.gazelle.test"
-    minioHostname: "minio.mifos.gazelle.test"
+    # minio-og2p (not minio.): PaymentHub already owns minio.mifos.gazelle.test and
+    # the NGINX admission webhook rejects a duplicate host+path. Mirrors PBMS's own
+    # minio-pbms host. Keep in sync with the TLS SAN in openg2p.sh + /etc/hosts.
+    minioHostname: "minio-og2p.mifos.gazelle.test"
 
   ############################################################
   # Keycloak — shared SSO for all OpenG2P modules.
@@ -58,7 +61,7 @@ commons:
   # MinIO — shared object store.
   ############################################################
   minio:
-    hostname: "minio.mifos.gazelle.test"
+    hostname: "minio-og2p.mifos.gazelle.test"
     # Upstream requests 16Gi; halved for the demo VM's local-path volume.
     persistence:
       size: 8Gi
@@ -69,11 +72,11 @@ commons:
       ingressClassName: nginx
       annotations:
         nginx.ingress.kubernetes.io/ssl-redirect: "true"
-      hostname: "minio.mifos.gazelle.test"
+      hostname: "minio-og2p.mifos.gazelle.test"
       tls: true
       extraTls:
         - hosts:
-            - "minio.mifos.gazelle.test"
+            - "minio-og2p.mifos.gazelle.test"
           secretName: openg2p-tls
 
   ############################################################
