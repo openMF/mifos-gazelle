@@ -351,4 +351,5 @@ postgresql:
         01-create-fineract-dbs.sql: |
           CREATE DATABASE fineract_tenants;
           CREATE DATABASE fineract_default;
+          CREATE DATABASE creditbureau;
 

@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: credit-bureau
+    tier: backend
+  name: credit-bureau
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: credit-bureau
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: credit-bureau
+        tier: backend
+    spec:
+      initContainers:
+        - name: ensure-creditbureau-db
+          image: postgres:16-alpine
+          env:
+            - name: PGPASSWORD
+              value: "postgrespw"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              until pg_isready -h postgres.infra.svc.cluster.local -p 5432 -U postgres; do
+                echo "waiting for postgres..."; sleep 3
+              done
+              if psql -h postgres.infra.svc.cluster.local -U postgres -tAc \
+                   "SELECT 1 FROM pg_database WHERE datname='creditbureau'" | grep -q 1; then
+                echo "creditbureau DB already exists"
+              else
+                echo "creating creditbureau DB"
+                createdb -h postgres.infra.svc.cluster.local -U postgres creditbureau
+              fi
+        - name: wait-for-fineract
+          image: curlimages/curl:8.10.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for Fineract readiness..."
+              until curl -fsS "http://fineract-server:8080/fineract-provider/actuator/health/readiness" >/dev/null; do
+                echo "Fineract not ready yet, retrying in 5s..."; sleep 5
+              done
+              echo "Fineract ready — starting Credit Bureau."
+      containers:
+        - name: credit-bureau
+          image: kanishksingh23/mifos-credit-bureau:30072026
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres.infra.svc.cluster.local:5432/creditbureau"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "postgres"
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "postgrespw"
+            - name: SPRING_DATASOURCE_DRIVER_CLASS_NAME
+              value: "org.postgresql.Driver"
+            # Inlined to match Gazelle's manifest convention (cf. Fineract DB creds);
+            # use a Secret in prod. The app will not boot without this.
+            - name: MIFOS_SECURITY_ENCRYPTION_KEY
+              value: "JWBOssr9ibP3tJJ05TgLdAyRbfVy1eEpjzWhZpTcPME="
+            - name: CDC_MOCK_ENABLED
+              value: "true"
+            - name: FINERACT_CLIENT_URL
+              value: "http://fineract-server:8080/fineract-provider/api/v1/clients/"
+            - name: FINERACT_ADDRESS_URL
+              value: "http://fineract-server:8080/fineract-provider/api/v1/clients/"
+            - name: FINERACT_USERNAME
+              value: "mifos"
+            - name: FINERACT_PASSWORD
+              value: "password"
+          ports:
+            - containerPort: 8081
+              protocol: TCP
+          # Readiness hits /credit-bureaus, not /actuator/health: the app maps Jersey to
+          # /* which shadows the actuator servlet (/actuator/* -> 404). Liveness is a TCP
+          # check so a transient DB blip can't restart-loop the pod.
+          readinessProbe:
+            httpGet:
+              path: /credit-bureaus
+              port: 8081
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      restartPolicy: Always
