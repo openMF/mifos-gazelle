@@ -8,8 +8,9 @@
 #   --push  : build for one or more platforms and push to a registry.
 #
 # Why the default path is single-architecture: a multi-platform build produces a manifest
-# list, which only a registry can store. It cannot be exported with 'docker save', so it
-# cannot be imported into k3s. Ask for --push when you want a multi-platform image.
+# list, and Docker's classic image store cannot load one. Even where it can, the local
+# import takes a single platform unless asked for all of them, and building the other
+# architecture here means emulation. Ask for --push when you want a multi-platform image.
 #
 # The import step reuses src/utils/import-local-image-to-k3s.sh instead of duplicating it.
 
@@ -35,6 +36,8 @@ showUsage() {
     cat << EOF
 Usage: $(basename "$0") [OPTIONS]
 Build a container image with docker buildx and load it into the local k3s cluster.
+By default the image is built for the host architecture and imported into k3s.
+Use --no-import to build only, or --push to publish to a registry instead.
 
 Required:
     -n, --name         image name, e.g. ghcr.io/openmf/openspp
@@ -46,7 +49,8 @@ Optional:
         --target       build stage to stop at, e.g. production
         --platform     platform list (default: linux/<host arch>)
         --push         push to the registry instead of importing into k3s
-                       (required for a multi-platform build)
+                       (required for a multi-platform build;
+                        run 'docker login <registry>' first)
         --build-arg    build argument, repeatable, e.g. --build-arg FOO=bar
         --builder      buildx builder to use (default: the built-in "default" builder)
         --no-import    build only, do not import into k3s
@@ -120,8 +124,8 @@ HOST_ARCH="$(detect_arch)"
 # instead of producing something that cannot be imported into k3s.
 if [[ "$PLATFORM" == *,* && "$PUSH" != true ]]; then
     error "Multi-platform build requested ($PLATFORM) without --push.
-A multi-platform build produces a manifest list, which only a registry can store: it cannot be
-exported with 'docker save' and therefore cannot be imported into k3s.
+A multi-platform build produces a manifest list. Docker's classic image store cannot load one, and the
+local import takes a single platform, so the extra builds would cost resources and not be used.
 Either add --push, or build a single platform (default: linux/${HOST_ARCH})."
 fi
 
