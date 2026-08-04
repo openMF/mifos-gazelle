@@ -354,6 +354,7 @@ postgresql:
         01-create-fineract-dbs.sql: |
           CREATE DATABASE fineract_tenants;
           CREATE DATABASE fineract_default;
+          CREATE DATABASE creditbureau;
         # Workflow Engine (Flowable) DB. Flowable auto-creates its own
         # tables inside this database on first startup (schema-update=true).
         02-create-workflow-db.sql: |
