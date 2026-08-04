@@ -48,19 +48,28 @@ in `ODOO_INIT_MODULES`), so there is **no separate init Job**.
 ## Prerequisites
 
 1. A running cluster. On a fresh machine: `sudo ./setup-env.sh -u $USER` (installs k3s + tools).
-2. The OpenSPP2 image **loaded into the cluster**. It is build-only (no published image yet), so build
-   the Dockerfile `production` target from the OpenSPP2 source and import it into k3s:
+2. `docker` with the buildx plugin, because the OpenSPP2 image is not published anywhere yet and the
+   deploy builds it. See [Building images](BUILDING-IMAGES.md).
 
-   ```bash
-   git clone --branch v19.0.2.0.0 --depth 1 https://github.com/OpenSPP/OpenSPP2.git repos/OpenSPP2
-   cd repos/OpenSPP2
-   docker build --target production -t ghcr.io/openmf/openspp:19.0 -f docker/Dockerfile .
-   docker save ghcr.io/openmf/openspp:19.0 | sudo k3s ctr images import -
-   ```
-   (`src/utils/import-local-image-to-k3s.sh` helps with the import step.)
+The deploy checks three things in order and picks the cheapest that works: the image is already in the
+cluster, the image can be pulled from its registry, or it has to be built. Only the third one costs
+anything, about **30 minutes and 3 GB of disk** the first time, and the import step asks for `sudo`.
+Both the source checkout and the image are reused, so a second deploy does neither.
 
-   > Keep the node's `/` disk below ~85%, or k3s image garbage collection may evict this build-only
-   > image (it is not pullable from a registry).
+To build it by hand instead, or to look at what the deploy runs:
+
+```bash
+src/utils/build-and-import-image.sh -n ghcr.io/openmf/openspp -t 19.0 \
+    -c <OpenSPP2 checkout> -f <OpenSPP2 checkout>/docker/Dockerfile --target production
+```
+
+> The import loads the image into the container runtime of a k3s cluster **on this machine**, so it
+> does not work against a remote cluster, nor on macOS where the cluster lives inside the Colima VM.
+> There, build the image and `--push` it to a registry, or build it on the cluster node itself. The
+> deploy reports this before it starts building.
+
+> Keep the node's `/` disk below ~85%, or k3s image garbage collection may evict the image, which
+> cannot be pulled back.
 
 ## Configuration
 
@@ -69,7 +78,9 @@ in `ODOO_INIT_MODULES`), so there is **no separate init Job**.
 | Key | Default | Notes |
 |-----|---------|-------|
 | `enabled` | `false` | Optional DPG; deploy explicitly with `-a openspp`. |
-| `OPENSPP_IMAGE_REPOSITORY` / `OPENSPP_IMAGE_TAG` | `ghcr.io/openmf/openspp` / `19.0` | Image loaded above. |
+| `OPENSPP_IMAGE_REPOSITORY` / `OPENSPP_IMAGE_TAG` | `ghcr.io/openmf/openspp` / `19.0` | The image the pods run. Point these at a published image and nothing else has to change. |
+| `OPENSPP_BUILD_IF_MISSING` | `true` | Build during the deploy when the image is neither in the cluster nor pullable. `false` stops instead, printing the build command. |
+| `OPENSPP_SOURCE_REPO` / `OPENSPP_SOURCE_REF` | OpenSPP2 upstream / `v19.0.2.0.0` | Source used for that build. Only read when a build is needed. |
 | `OPENSPP_NAMESPACE` / `OPENSPP_RELEASE_NAME` | `openspp` | Namespace and Helm release. |
 | `OPENSPP_DB_PASSWORD_FILE` / `OPENSPP_ADMIN_PASSWORD_FILE` | empty | File paths for real secrets (prod/remote). Empty = local-dev defaults. |
 
@@ -83,9 +94,15 @@ holding real secrets.
 ./run.sh -m deploy -a openspp
 ```
 
-This deploys PostGIS, Odoo and the job worker, waits for them to be Ready, and runs a smoke test
-(`/web/login` returns 200 **and** the base module is installed). Re-deploying is idempotent (no
-`cleanapps` needed).
+This makes sure the image is available, deploys PostGIS, Odoo and the job worker, waits for them to be
+Ready, and runs `tests/openspp/smoke.sh`.
+
+Running it again is safe, but by default it removes the deployment and creates it new, so the database
+does not survive. Add `-r false` to upgrade the existing release and keep the data:
+
+```bash
+./run.sh -m deploy -a openspp -r false
+```
 
 ## Access
 
