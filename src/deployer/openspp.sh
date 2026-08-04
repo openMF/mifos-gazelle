@@ -37,11 +37,25 @@ openspp_resolve_secret() {
     fi
 }
 
+# Host architecture in Kubernetes naming, used for the chart's nodeSelector.
+# Same mapping as src/environmentSetup/k8s.sh. Set OPENSPP_ARCH to override, or to ""
+# to deploy without a nodeSelector.
+openspp_detect_arch() {
+    case "$(uname -m)" in
+        x86_64)        echo "amd64" ;;
+        aarch64|arm64) echo "arm64" ;;
+        *)             echo "" ;;
+    esac
+}
+
 openspp_check_prerequisites() {
     OPENSPP_NAMESPACE="${OPENSPP_NAMESPACE:-openspp}"
     OPENSPP_RELEASE_NAME="${OPENSPP_RELEASE_NAME:-openspp}"
     OPENSPP_IMAGE_REPOSITORY="${OPENSPP_IMAGE_REPOSITORY:-ghcr.io/openmf/openspp}"
     OPENSPP_IMAGE_TAG="${OPENSPP_IMAGE_TAG:-19.0}"
+    OPENSPP_ARCH="${OPENSPP_ARCH-$(openspp_detect_arch)}"
+    OPENSPP_POSTGIS_REPOSITORY="${OPENSPP_POSTGIS_REPOSITORY:-postgis/postgis}"
+    OPENSPP_POSTGIS_TAG="${OPENSPP_POSTGIS_TAG:-18-3.6-alpine}"
 
     if ! command -v kubectl &> /dev/null; then
         log_error "kubectl not found. Please install kubectl (or run setup-env.sh first)."
@@ -60,10 +74,12 @@ openspp_check_prerequisites() {
     if ! kubectl get nodes -o jsonpath='{.items[*].status.images[*].names[*]}' 2>/dev/null \
         | tr ' ' '\n' | grep -qx "${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG}"; then
         log_error "Image ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} not found in the cluster (build-only)."
-        log_error "Import it and redeploy:  docker save ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} | sudo k3s ctr images import -"
+        log_error "Build and import it with:  src/utils/build-and-import-image.sh -n ${OPENSPP_IMAGE_REPOSITORY} -t ${OPENSPP_IMAGE_TAG} -c <OpenSPP2 checkout> -f <OpenSPP2 checkout>/docker/Dockerfile --target production"
+        log_error "Or import an image you already built:  docker save ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} | sudo k3s ctr images import -"
         exit 1
     fi
     log_with_verbose_check "$debug" "$INFO" "Using image ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG}"
+    log_with_verbose_check "$debug" "$INFO" "Node architecture: ${OPENSPP_ARCH:-any} (db image ${OPENSPP_POSTGIS_REPOSITORY}:${OPENSPP_POSTGIS_TAG})"
 }
 
 # Deploy the Helm chart with helm upgrade --install (idempotent) and WITHOUT --wait.
@@ -82,14 +98,24 @@ openspp_deploy_chart() {
     db_pw=$(openspp_resolve_secret "${OPENSPP_DB_PASSWORD_FILE:-}" "openspp")
     admin_pw=$(openspp_resolve_secret "${OPENSPP_ADMIN_PASSWORD_FILE:-}" "admin")
 
+    # Ingress host, formed like every other Gazelle service: <name>.${GAZELLE_DOMAIN}.
+    local openspp_host="openspp.${GAZELLE_DOMAIN:-mifos.gazelle.test}"
+
     local helm_args=(
         upgrade --install "$OPENSPP_RELEASE_NAME" "$chart_dir"
         -n "$OPENSPP_NAMESPACE" --create-namespace
         --timeout "${startup_timeout:-900}s"
+        --set "arch=${OPENSPP_ARCH}"
         --set "odoo.image.repository=${OPENSPP_IMAGE_REPOSITORY}"
         --set "odoo.image.tag=${OPENSPP_IMAGE_TAG}"
+        --set "postgis.image.repository=${OPENSPP_POSTGIS_REPOSITORY}"
+        --set "postgis.image.tag=${OPENSPP_POSTGIS_TAG}"
         --set "secrets.dbPassword=${db_pw}"
         --set "secrets.odooAdminPassword=${admin_pw}"
+        --set "ingress.enabled=true"
+        --set "ingress.host=${openspp_host}"
+        --set "ingress.tls.secretName=openspp-tls"
+        --set "odoo.env.PROXY_MODE=true"
     )
 
     if [[ "$debug" == "true" ]]; then
@@ -164,6 +190,13 @@ deploy_openspp() {
     log_section "Deploying OpenSPP"
     openspp_check_prerequisites
     log_with_verbose_check "$debug" "$DEBUG" "Namespace: $OPENSPP_NAMESPACE  Release: $OPENSPP_RELEASE_NAME"
+
+    # Self-signed TLS cert for the ingress (mastercard.sh / paymenthub.sh pattern). The namespace
+    # must exist before the Secret, so create it first (helm --create-namespace runs later).
+    local openspp_host="openspp.${GAZELLE_DOMAIN:-mifos.gazelle.test}"
+    kubectl create namespace "$OPENSPP_NAMESPACE" --dry-run=client -o yaml 2>/dev/null | kubectl apply -f - > /dev/null 2>&1
+    create_ingress_secret "$OPENSPP_NAMESPACE" "$openspp_host" "openspp-tls" \
+        "${openspp_host},*.${GAZELLE_DOMAIN:-mifos.gazelle.test},localhost"
 
     log_step "Deploying OpenSPP Helm chart (installs modules on first boot; this can take a few minutes)"
     openspp_deploy_chart

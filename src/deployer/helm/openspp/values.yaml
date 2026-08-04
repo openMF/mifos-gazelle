@@ -102,3 +102,16 @@ secrets:
   existingSecret: ""
   dbPassword: "CHANGE_ME"
   odooAdminPassword: "CHANGE_ME"
+
+# --- Ingress (NGINX) ----------------------------------------------------------------------
+# Exposes Odoo over HTTPS via the shared ingress-nginx. Enabled + host are set by openspp.sh at
+# deploy time (host = OPENSPP_DOMAIN from config.ini, which defaults to openspp.${GAZELLE_DOMAIN});
+# the self-signed TLS secret is created there too. The host is left empty here on purpose so there
+# is no hardcoded domain in the chart.
+ingress:
+  enabled: false
+  className: nginx
+  host: ""
+  annotations: {}
+  tls:
+    secretName: openspp-tls
