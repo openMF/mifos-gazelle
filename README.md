@@ -42,6 +42,7 @@ sudo ./setup-env.sh -e local -u $USER
 | [PHEE Release History](docs/PHEE-RELEASE-HISTORY.md) | reference for PaymentHub EE component versions  |
 | [Mastercard CBS](docs/mastercard/MASTERCARD.md) | Cross-border payment connector for Payment Hub EE — overview, integration, and quick start |
 | [Mastercard CBS — Operator Guide](docs/mastercard/OPERATOR_DEPLOYMENT_GUIDE.md) | Full config reference, CR spec, operator lifecycle, and troubleshooting |
+| [Building Images](docs/BUILDING-IMAGES.md) | Build an image for the host architecture and load it into the cluster |
 
 ## Companion Tools
 
