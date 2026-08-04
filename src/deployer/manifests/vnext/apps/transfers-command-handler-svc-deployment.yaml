@@ -49,7 +49,7 @@ spec:
         - name: SETTLEMENTS_SVC_URL
           value: http://settlements-api-svc:3600
         - name: SCHEDULING_SVC_URL
-          value: http://scheduling-svc:1234
+          value: http://scheduling-api-svc:3150
         image: mojaloop/transfers-bc-command-handler-svc:0.5.1
         name: transfers-command-handler-svc
         resources: {}
