@@ -54,11 +54,11 @@ openspp_image_in_cluster() {
         | tr ' ' '\n' | grep -qx "${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG}"
 }
 
-# True when the image can be pulled from its registry. Only the manifest is requested, so no
-# layer is downloaded. A failure means "not pullable from here", not "does not exist".
+# Asks the registry for the manifest only: 0 pullable, 1 not there, 2 nothing here to ask with.
+# The node does the pulling, so a missing local docker is not an answer about the image.
 openspp_image_pullable() {
-    command -v docker &> /dev/null || return 1
-    docker manifest inspect "${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG}" &> /dev/null
+    command -v docker &> /dev/null || return 2
+    docker manifest inspect "${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG}" &> /dev/null || return 1
 }
 
 # True when an image built here can be loaded into this cluster. The import runs 'k3s ctr' on
@@ -119,8 +119,14 @@ openspp_build_image() {
 openspp_ensure_image() {
     openspp_image_in_cluster && return 0
 
-    if openspp_image_pullable; then
+    local pullable=0
+    openspp_image_pullable || pullable=$?
+    if [[ $pullable -eq 0 ]]; then
         log_with_level "$INFO" "Image ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} is not loaded but can be pulled. Letting Kubernetes pull it."
+        return 0
+    fi
+    if [[ $pullable -eq 2 ]]; then
+        log_with_level "$INFO" "Image ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} is not loaded and cannot be checked from here (no docker). Letting Kubernetes pull it; an unreachable image shows up as ImagePullBackOff while waiting for the pods."
         return 0
     fi
 
