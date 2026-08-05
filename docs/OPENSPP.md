@@ -1,5 +1,16 @@
 # OpenSPP2 on Mifos Gazelle
 
+- [What this is](#what-this-is)
+- [Prerequisites](#prerequisites)
+- [Configuration](#configuration)
+- [Deploy](#deploy)
+- [Access](#access)
+- [Using it once deployed](#using-it-once-deployed)
+- [The agri demo: OpenSPP to Payment Hub to MifosX](#the-agri-demo-openspp-to-payment-hub-to-mifosx)
+- [Smoke test](#smoke-test)
+- [Teardown](#teardown)
+- [Notes / limitations](#notes--limitations)
+
 ## What this is
 
 [OpenSPP](https://openspp.org) is an open source social protection platform. It is the **social
@@ -147,6 +158,91 @@ Useful starting points in **Apps**:
 
 Modules can also be installed at deploy time instead of by hand, with the `modules` value of the chart
 (comma-separated, no spaces), so a fresh deploy comes up with everything already installed.
+
+## The agri demo: OpenSPP to Payment Hub to MifosX
+
+Deploying OpenSPP on its own does not show much. Gazelle exists to show the DPGs working together, and
+this demo runs the whole line with one command: five farmer households registered in OpenSPP receive a
+crop subsidy, the payment crosses Payment Hub and the money lands in each beneficiary's savings account
+in MifosX. Then it checks in core banking that it really arrived, and writes the result back into
+OpenSPP so the programme shows the subsidies as paid.
+
+It is a demo for a deployed machine, not a test: it needs a real cluster and it moves real balances in
+the deployed core banking.
+
+### What you need
+
+The **whole stack**, not just OpenSPP. The demo checks this first and stops if a namespace is missing:
+
+| Namespace | Why |
+|-----------|-----|
+| `openspp` | The registry: programme, beneficiaries and entitlements |
+| `mifosx` | Core banking, where the money ends up |
+| `paymenthub` | Orchestrates the payment |
+| `vnext` | The switch that routes it, and the account lookup |
+
+```bash
+./run.sh -m deploy -a all       # the core apps
+./run.sh -m deploy -a openspp   # OpenSPP is optional, so it is deployed on its own
+```
+
+### Run it
+
+```bash
+bash demos/openspp/run_demo.sh
+```
+
+It prints each step as it goes and finishes with the result:
+
+```console
+==> Pay approved entitlements via PHEE channel/transfer, one at a time
+  OK Farm Household Santos (0495700001) acct 6: credited USD 200 - marked Paid in OpenSPP
+  ...
+OK: 5/5 agri subsidies disbursed & confirmed in MifosX.
+
+==> Verify subsidy credited in MifosX (bluebank)
+  OK 0495700001: credited USD 200.00 (acct 6)
+  ...
+OK E2E demo PASSED - 5 subsidies paid this run
+```
+
+Run it again and it pays nothing, because only entitlements that are still approved are paid. It still
+reports success, with `0 subsidies paid this run`. That is what makes it safe to re-run.
+
+### What it looks like afterwards
+
+In OpenSPP, the programme cycle lists the five payments as reconciled and paid:
+
+![OpenSPP payments for the cycle, five subsidies reconciled and paid](openspp-demo-images/paid-openspp.png)
+
+And in MifosX, the beneficiary's savings account holds the subsidy. Each run adds one deposit of the
+subsidy amount, on top of the balance the account already had:
+
+![MifosX savings account of a beneficiary, showing the subsidy deposit](openspp-demo-images/deposit-mifosx.png)
+
+The two screens are linked by the account number, `000000002` here, which appears in both.
+
+### How it reaches OpenSPP
+
+Over the Gazelle ingress, `https://openspp.${GAZELLE_DOMAIN}`, the same way it reaches MifosX and
+Payment Hub. If that hostname does not resolve, the demo opens a `kubectl port-forward` instead and says
+so. That fallback could have been dropped, and it is kept for three cases: a machine set up against a
+remote cluster has no Gazelle entries in `/etc/hosts` at all, a deployment made before the ingress
+shipped answers 404, and a cluster with a different ingress controller does not match the class the
+chart asks for. In the normal case the demo behaves like every other part of Gazelle. Set `OPENSPP_URL`
+to point it somewhere else.
+
+### If something fails
+
+| Symptom | Cause |
+|---------|-------|
+| `namespace <name> missing` | Part of the stack is not deployed. See the table above. |
+| `OpenSPP did not answer` | Odoo is still starting. It can take about a minute after a fresh deploy. |
+| `transfer HTTP 403 insufficient balance` | The payer ran out of demo money. The demo tops it up itself; check the `greenbank` client in MifosX. |
+| `transfer sent but credit not seen` | The payment is still in flight, or a Payment Hub connector is not Ready. `kubectl get pods -n paymenthub`. |
+
+The data it loads comes from `demos/openspp/fixtures/`: edit `beneficiaries.csv` to change the
+households or the amounts.
 
 ## Smoke test
 
