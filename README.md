@@ -18,7 +18,7 @@ See [Deployment Guide](docs/MIFOS-GAZELLE-README.md) for prerequisites and full 
 
 To also deploy OpenG2P (Government-to-Person payments), enable it in `config/config.ini` and run `./run.sh -m deploy -a openg2p`. See [OpenG2P](docs/GAZELLE_OPENG2P.md) for details.
 
-To deploy OpenSPP (social registry, OpenSPP2 / Odoo 19) run `./run.sh -m deploy -a openspp`. It is off by default and needs its image loaded into the cluster first. See [OpenSPP](docs/OPENSPP.md) for details.
+To deploy OpenSPP (social registry, OpenSPP2 / Odoo 19) run `./run.sh -m deploy -a openspp`. It is off by default and needs its image loaded into the cluster first. With the whole stack up, `bash demos/openspp/run_demo.sh` runs an agri subsidy end to end, from OpenSPP through Payment Hub into MifosX. See [OpenSPP](docs/OPENSPP.md) for details.
 
 For Latest Development Release (May not be stable):
 ```bash
@@ -36,7 +36,7 @@ sudo ./setup-env.sh -e local -u $USER
 | [Bulk Payment Tools](docs/BULK.md) | Submit/verify G2P batch payments, GovStack mode |
 | [GovStack Architecture](docs/GOVSTACK.md) | G2P bulk disbursement design and troubleshooting |
 | [OpenG2P](docs/GAZELLE_OPENG2P.md) | Deploy OpenG2P G2P payments (commons, PBMS, social-registry, SPAR, g2p-bridge) |
-| [OpenSPP](docs/OPENSPP.md) | Deploy OpenSPP2 (Odoo 19) social registry: quick start, configuration and first steps |
+| [OpenSPP](docs/OPENSPP.md) | Deploy OpenSPP2 (Odoo 19) social registry: quick start, configuration, first steps and the agri demo |
 | [OpenG2P Demo Walkthrough](docs/OPENG2P_DEMO.md) | Step-by-step G2P bulk disbursement demo through the PBMS UI, with screenshots |
 | [Local Development](docs/LOCALDEV.md) | hostPath mounts for iterating on Payment Hub EE code |
 | [vNext Standalone](docs/VNEXT-README.md) | Deploy Mojaloop vNext on its own |
