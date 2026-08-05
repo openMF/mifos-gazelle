@@ -59,8 +59,10 @@ in `ODOO_INIT_MODULES`), so there is **no separate init Job**.
 ## Prerequisites
 
 1. A running cluster. On a fresh machine: `sudo ./setup-env.sh -u $USER` (installs k3s + tools).
-2. `docker` with the buildx plugin, because the OpenSPP2 image is not published anywhere yet and the
-   deploy builds it. See [Building images](BUILDING-IMAGES.md).
+2. `docker` with the buildx plugin, needed only when the image has to be built. Upstream OpenSPP2
+   publishes no image, so that is the default path. Point `OPENSPP_IMAGE_REPOSITORY` at a published
+   image and the cluster pulls it instead, with no build and no `docker` here. See
+   [Building images](BUILDING-IMAGES.md).
 
 The deploy checks three things in order and picks the cheapest that works: the image is already in the
 cluster, the image can be pulled from its registry, or it has to be built. Only the third one costs
