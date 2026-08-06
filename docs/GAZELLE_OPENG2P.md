@@ -37,10 +37,9 @@ At deploy time (`_deploy_openg2p_release()`), each chart is copied to a scratch 
 │  Mifos Gazelle — openg2p namespace                           │
 │                                                                │
 │                     ┌─────────────────┐                       │
-│                     │  openg2p-commons │  (always deployed)   │
+│                     │  openg2p-commons │  (when needed)       │
 │                     │  Postgres        │                       │
 │                     │  Keycloak (SSO)  │                       │
-│                     │  MinIO           │                       │
 │                     └────────┬─────────┘                       │
 │               ┌──────────────┼──────────────┬───────────────┐ │
 │               ▼              ▼              ▼               ▼ │
@@ -57,7 +56,7 @@ Modules:
 
 | Module | Helm chart | Enabled by default | Purpose |
 |---|---|---|---|
-| commons | `openg2p-commons` | always | Postgres, Keycloak (SSO/OIDC), MinIO — shared foundation every other module connects to |
+| commons | `openg2p-commons` | when needed | Postgres, Keycloak (SSO/OIDC) + DB init jobs — shared foundation for `social-registry`/`spar`/`g2p-bridge`. Deployed **only when one of those is enabled**; a PBMS-only run skips it entirely (PBMS is self-contained). MinIO, Kafka and OpenSearch ship in this chart but have no consumer and stay disabled |
 | social-registry | `openg2p-social-registry` | false | Beneficiary/registrant data management |
 | pbms | `openg2p-pbms` | true | Payment Batch Management System (Odoo) — creates and issues G2P payment batches |
 | spar | `openg2p-spar` | false | Social Registry mapper/API |
@@ -69,7 +68,7 @@ Once PBMS is up, Gazelle enables the `g2p_payment_phee` Odoo addon (`src/utils/o
 
 ### NGINX ingress instead of Istio
 
-OpenG2P's Keycloak subchart unconditionally emits Istio `Gateway` and `VirtualService` objects for routing. Gazelle standardizes on NGINX ingress across all DPGs, so no Istio control plane is installed. Rather than patching the upstream chart to strip these objects, they're allowed to apply harmlessly (see CRDs below) and real traffic is routed through Gazelle's existing NGINX ingress + per-module TLS secrets instead.
+Several OpenG2P subcharts (Keycloak, and the module charts) unconditionally emit Istio `Gateway` and `VirtualService` objects for routing. Gazelle standardizes on NGINX ingress across all DPGs, so no Istio control plane is installed. Rather than patching the upstream charts to strip these objects, they're allowed to apply harmlessly (see CRDs below) and real traffic is routed through Gazelle's existing NGINX ingress + per-module TLS secrets instead. The prerequisite CRDs are installed up front regardless of which modules are enabled — so a PBMS-only run (which deploys no Istio-emitting chart at all) is unaffected, and turning on any other module later needs no further setup.
 
 ### Why CRDs are needed
 
@@ -132,19 +131,17 @@ Printed at the end of a successful deploy. With the default config (PBMS enabled
 | Console | URL |
 |---|---|
 | PBMS (Odoo) | https://pbms.mifos.gazelle.test |
-| Keycloak | https://keycloak.mifos.gazelle.test |
-| MinIO | https://minio-og2p.mifos.gazelle.test |
 
-If enabled, `social-registry`, `spar`, and `g2p-bridge` are reachable the same way at `https://<module>.mifos.gazelle.test`.
+If enabled, `social-registry`, `spar`, and `g2p-bridge` are reachable the same way at `https://<module>.mifos.gazelle.test`. When one of those modules is enabled, commons (and its **Keycloak** SSO console at `https://keycloak.mifos.gazelle.test`) is deployed and printed too; a PBMS-only run deploys no commons, so no Keycloak URL is shown.
 
 PBMS and social-registry Odoo login is `admin@openg2p.org` / `adminopeng2p`.
 
 ### /etc/hosts entries
 
-These hostnames must resolve to the cluster's ingress IP. `sudo ./setup-env.sh` adds them **automatically** for a local (k3s/Colima) deploy, so on a standard install there is nothing to do. On a **remote / pre-existing cluster** (`setup-env.sh -e remote`), or if you manage `/etc/hosts` yourself, add the OpenG2P block — one line, all seven hosts pointing at your ingress IP (replace `<INGRESS-IP>`; use `127.0.0.1` for a local single-node cluster, the Colima VM IP on macOS, or the node/LB IP for remote):
+These hostnames must resolve to the cluster's ingress IP. `sudo ./setup-env.sh` adds them **automatically** for a local (k3s/Colima) deploy, so on a standard install there is nothing to do. On a **remote / pre-existing cluster** (`setup-env.sh -e remote`), or if you manage `/etc/hosts` yourself, add the OpenG2P block — one line, all six hosts pointing at your ingress IP (replace `<INGRESS-IP>`; use `127.0.0.1` for a local single-node cluster, the Colima VM IP on macOS, or the node/LB IP for remote):
 
 ```
-<INGRESS-IP>  openg2p.mifos.gazelle.test social-registry.mifos.gazelle.test pbms.mifos.gazelle.test spar.mifos.gazelle.test g2p-bridge.mifos.gazelle.test keycloak.mifos.gazelle.test minio-og2p.mifos.gazelle.test
+<INGRESS-IP>  openg2p.mifos.gazelle.test social-registry.mifos.gazelle.test pbms.mifos.gazelle.test spar.mifos.gazelle.test g2p-bridge.mifos.gazelle.test keycloak.mifos.gazelle.test
 ```
 
 | Hostname | Serves |
@@ -153,11 +150,10 @@ These hostnames must resolve to the cluster's ingress IP. `sudo ./setup-env.sh` 
 | `social-registry.mifos.gazelle.test` | Social Registry UI (if enabled) |
 | `spar.mifos.gazelle.test` | SPAR mapper API (if enabled) |
 | `g2p-bridge.mifos.gazelle.test` | G2P Bridge API (if enabled) |
-| `keycloak.mifos.gazelle.test` | Keycloak (shared commons) |
-| `minio-og2p.mifos.gazelle.test` | MinIO console (shared commons; `minio.` is PaymentHub's) |
+| `keycloak.mifos.gazelle.test` | Keycloak SSO (shared commons; served only when a commons-using module is enabled) |
 | `openg2p.mifos.gazelle.test` | OpenG2P TLS SAN / base host |
 
-> All seven are covered by the `openg2p-tls` ingress cert (created in `deploy_openg2p`), and match the `OPENG2PHOSTS` list in `src/environmentSetup/environmentSetup.sh`. Substitute your own domain for `mifos.gazelle.test` if you changed `GAZELLE_DOMAIN`.
+> All six are covered by the `openg2p-tls` ingress cert (created in `deploy_openg2p`), and match the `OPENG2PHOSTS` list in `src/environmentSetup/environmentSetup.sh`. `keycloak.` is listed unconditionally (like the module hosts) — harmless when commons is skipped, ready when it isn't. Substitute your own domain for `mifos.gazelle.test` if you changed `GAZELLE_DOMAIN`.
 
 ---
 
@@ -187,8 +183,9 @@ All patches are idempotent — safe to re-run against an already-patched deploym
 
 ## Known Limitations
 
-- **Keycloak is a hard dependency of `openg2p-commons`** and always deploys when OpenG2P is enabled — it is not a per-module toggle. PBMS's own login uses local Odoo auth and doesn't require it; Keycloak backs MinIO console SSO and is required if `social-registry`/`spar`/`g2p-bridge` are enabled.
-- Resource footprint (Postgres + Keycloak + MinIO + per-module services) has not yet been tuned for low-resource targets (e.g. Raspberry Pi) the way the other three DPGs have been.
+- **Commons (Postgres + Keycloak) deploys conditionally.** It is the shared DB/SSO foundation for `social-registry`/`spar`/`g2p-bridge`; PBMS is self-contained (its own odoo Postgres + bg-task DBs, local Odoo auth). `deploy_openg2p()` therefore deploys commons only when one of those modules is enabled (`_openg2p_commons_needed`) and **skips it entirely for a PBMS-only run** — an empty commons release would otherwise hang the readiness gate for `startup_timeout` before failing. Enabling any of those modules brings commons (with Keycloak) back automatically; no per-service toggle to flip.
+- **ARM:** the only custom amd64-only OpenG2P images (`keycloak` `24.0.5-…-r1-g2p1`, `keycloak-init`, `postgres-init`) all live in commons. Because a PBMS-only deploy skips commons, that path pulls no amd64-only image except `openg2p-pbms-core` — so making a full PBMS demo ARM-native reduces to rebuilding that one app image. A deploy that enables `social-registry`/`spar`/`g2p-bridge` is still amd64-only.
+- Resource footprint (per-module services, plus commons Postgres/Keycloak when deployed) has not yet been tuned for low-resource targets (e.g. Raspberry Pi) the way the other three DPGs have been.
 - The `g2p_payment_phee` Enterprise-module stub compensates for an Odoo-core artifact rather than an OpenG2P-published fix — re-verify it if the pinned Odoo/OpenG2P addon versions change.
 
 ## Troubleshooting
