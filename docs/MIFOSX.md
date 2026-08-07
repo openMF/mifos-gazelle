@@ -18,6 +18,7 @@ This document describes each component Gazelle deploys, how to use it, and where
 - [Components](#components)
   - [Apache Fineract — core banking engine](#apache-fineract--core-banking-engine)
   - [Web App — Angular user interface](#web-app--angular-user-interface)
+  - [PostgreSQL — shared database](#postgresql--shared-database)
   - [Reports Module (Pentaho)](#reports-module-pentaho)
   - [Workflow Engine (Flowable)](#workflow-engine-flowable)
   - [Credit Bureau Integration](#credit-bureau-integration)
@@ -120,13 +121,13 @@ PostgreSQL is shared with the rest of Gazelle and lives in the `infra` namespace
 
 ### Apache Fineract — core banking engine
 
-The core platform and API. Multi-tenant: each tenant has its own schema, and every API call must carry a tenant header.
+The core platform and API. Multi-tenant: each tenant has its own database, and every API call must carry a tenant header.
 
 | | |
 |---|---|
 | In-cluster URL | `http://fineract-server:8080/fineract-provider/api/v1/` |
 | External URL | `https://mifos.<GAZELLE_DOMAIN>/fineract-provider/api/v1/` |
-| Database | shared PostgreSQL, one schema per tenant |
+| Database | shared PostgreSQL, one database per tenant |
 | TLS | disabled in-cluster (`FINERACT_SERVER_SSL_ENABLED=false`); TLS terminates at the NGINX ingress |
 | Tenants | `greenbank`, `bluebank`, `redbank` (from `FINERACT_TENANTS` in `config.ini`), plus `default` |
 
@@ -146,6 +147,19 @@ The pinned image is a `dev-` tag rather than the `1.12` release image because th
 
 The web app's tenant selector is configured with `greenbank`, `bluebank` and `default`. Note that `redbank` **is** a seeded tenant that Gazelle waits on at deploy time, but it is not in the selector — it is reachable through the API only.
 
+### PostgreSQL — shared database
+
+Every MifosX component stores its data in one shared PostgreSQL instance. It is deployed as part of Gazelle's `infra` chart, so it lives in the `infra` namespace rather than in `mifosx`.
+
+| | |
+|---|---|
+| Image | `bitnamilegacy/postgresql:16.6.0` |
+| In-cluster host | `postgres.infra.svc.cluster.local:5432` |
+| Fineract databases | `fineract_tenants`, plus one per tenant — `greenbank`, `bluebank`, `redbank`, `fineract_default` |
+| Module databases | `mifos_flowable` (Workflow Engine) · `creditbureau` (Credit Bureau) |
+
+MifosX ran on MySQL/MariaDB before Gazelle standardised on PostgreSQL. Sharing a single instance rather than giving each module its own database pod is what keeps the deployment inside Gazelle's 16GB memory budget. Gazelle still runs MySQL, but only for Payment Hub EE — no MifosX component uses it.
+
 ### Reports Module (Pentaho)
 
 Pentaho reporting is **not a separate pod** — the plugin is staged into the `fineract-server` pod at startup. Source: [openMF/mifos-reporting-plugin](https://github.com/openMF/mifos-reporting-plugin); releases are published on [SourceForge](https://sourceforge.net/projects/mifos/files/mifos-plugins/MifosReportingPlugin/).
@@ -160,16 +174,18 @@ An initContainer in `fineract-server-deployment.yaml` therefore runs on every de
 # HTML output
 curl -k -u mifos:password \
   -H 'Fineract-Platform-TenantId: greenbank' \
-  'https://mifos.<GAZELLE_DOMAIN>/fineract-provider/api/v1/runreports/Client%20Listing(Pentaho)?R_selectOffice=1&output-type=HTML'
+  'https://mifos.<GAZELLE_DOMAIN>/fineract-provider/api/v1/runreports/Client%20Listing(Pentaho)?R_selectOffice=1&output-type=HTML&locale=en'
 
 # PDF output
 curl -k -u mifos:password \
   -H 'Fineract-Platform-TenantId: greenbank' \
-  'https://mifos.<GAZELLE_DOMAIN>/fineract-provider/api/v1/runreports/Trial%20Balance(Pentaho)?output-type=PDF' \
+  'https://mifos.<GAZELLE_DOMAIN>/fineract-provider/api/v1/runreports/Trial%20Balance(Pentaho)?output-type=PDF&locale=en' \
   -o trial-balance.pdf
 ```
 
-Date parameters must be supplied as `dd MMMM yyyy`, for example `01 January 2026`.
+`locale` is required — without it the call fails with a 500 and `NullPointerException: ... "locale" is null`. Date parameters must be supplied as `dd MMMM yyyy`, for example `01 January 2026`.
+
+**On a stock deploy these calls currently return 403 `Pentaho failed: Failed to execute query`.** The plugin is staged and registered, but the published artifact cannot resolve the tenant datasource — see [Known Limitations](#known-limitations). The calls above are the correct form for once a fixed plugin release ships.
 
 Upstream documentation: <https://docs.mifos.org/core-banking-and-embedded-finance/core-banking/pentaho-reporting-plugin>
 
@@ -304,23 +320,25 @@ Most MifosX components run published images. The **Workflow Engine** and the **C
 
 `./run.sh -m deploy -a mifosx` checks that every image referenced by the manifests can be found in a registry and warns, naming any it cannot. The check is advisory and never blocks the deploy — a rate-limited or private registry is indistinguishable from a missing image — but it tells you to build before the pods fail to pull.
 
-Build and publish with [`src/utils/build-and-import-image.sh`](BUILDING-IMAGES.md), the same builder the rest of Gazelle uses. Log in to the registry first (`docker login`), then:
+Build and publish with [`src/utils/build-and-import-image.sh`](BUILDING-IMAGES.md), the same builder the rest of Gazelle uses. Log in to the registry first (`docker login`), then — substituting a `<namespace>` you can push to, and matching the `<tag>` to the pin in the module's manifest:
 
 ```bash
 # Workflow Engine — multi-architecture, pushed to the registry
 git clone https://github.com/openMF/mifos-workflow.git
 src/utils/build-and-import-image.sh \
-    -n openmf/mifos-workflow -t <tag> \
+    -n <namespace>/mifos-workflow -t <tag> \
     -c mifos-workflow -f mifos-workflow/Dockerfile \
     --platform linux/amd64,linux/arm64 --push
 
 # Credit Bureau — multi-architecture, pushed to the registry
 git clone https://github.com/openMF/mifos-x-credit-bureau-plugin.git
 src/utils/build-and-import-image.sh \
-    -n openmf/mifos-credit-bureau -t <tag> \
+    -n <namespace>/mifos-credit-bureau -t <tag> \
     -c mifos-x-credit-bureau-plugin -f mifos-x-credit-bureau-plugin/Dockerfile \
     --platform linux/amd64,linux/arm64 --push
 ```
+
+The manifests currently pin these images to a personal namespace, because pushing to `openmf` needs Mifos DockerHub access. Once they are published under `openmf`, change `<namespace>` to `openmf` here and update the `image:` pins to match.
 
 `--platform linux/amd64,linux/arm64` is what keeps Apple Silicon and Raspberry Pi working, and it requires `--push` — a multi-platform build produces a manifest list, which only a registry can hold.
 
@@ -328,7 +346,7 @@ To iterate locally instead, drop `--platform` and `--push`: the script then buil
 
 ```bash
 src/utils/build-and-import-image.sh \
-    -n openmf/mifos-workflow -t <tag> \
+    -n <namespace>/mifos-workflow -t <tag> \
     -c mifos-workflow -f mifos-workflow/Dockerfile
 ```
 
@@ -379,7 +397,9 @@ kubectl -n mifosx logs <pod-name> -c wait-fineract
 kubectl -n mifosx logs <pod-name> -c wait-postgres
 ```
 
-**A Pentaho report returns 403 "Failed to execute query"** — the plugin's datasource did not resolve for the tenant; see the per-tenant limitation above. Confirm the plugin itself loaded:
+**A Pentaho report returns 500 with `NullPointerException: ... "locale" is null`** — the request is missing the required `locale` parameter. Add `&locale=en`.
+
+**A Pentaho report returns 403 "Failed to execute query"** — the plugin's datasource did not resolve for the tenant; see the per-tenant limitation above. This is the expected result on a stock deploy until a fixed plugin release ships. Confirm the plugin itself loaded:
 ```bash
 kubectl -n mifosx logs <fineract-pod> -c fetch-reporting-plugin
 kubectl -n mifosx exec <fineract-pod> -- ls /app/plugins | wc -l   # expect 71 jars
