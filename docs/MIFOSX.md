@@ -10,9 +10,32 @@ This document describes each component Gazelle deploys, how to use it, and where
 
 ---
 
+## Table of Contents
+
+- [What It Is](#what-it-is)
+- [Deployment Method](#deployment-method)
+- [How It Fits into Mifos Gazelle](#how-it-fits-into-mifos-gazelle)
+- [Components](#components)
+  - [Apache Fineract — core banking engine](#apache-fineract--core-banking-engine)
+  - [Web App — Angular user interface](#web-app--angular-user-interface)
+  - [Reports Module (Pentaho)](#reports-module-pentaho)
+  - [Workflow Engine (Flowable)](#workflow-engine-flowable)
+  - [Credit Bureau Integration](#credit-bureau-integration)
+  - [SMS & Messaging Module — planned](#sms--messaging-module--planned)
+  - [Loan Assessment Module — planned](#loan-assessment-module--planned)
+- [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+- [Adding a New MifosX Module](#adding-a-new-mifosx-module)
+- [Version Pins](#version-pins)
+- [Known Limitations](#known-limitations)
+- [Troubleshooting](#troubleshooting)
+- [Further Reading](#further-reading)
+
+---
+
 ## Deployment Method
 
-Unlike OpenG2P and Payment Hub EE, MifosX is deployed from **vendored Kubernetes manifests** rather than Helm charts. Every manifest lives in `src/deployer/manifests/mifosx/` — no repo clone, no chart repository, no submodule.
+MifosX is deployed from **vendored Kubernetes manifests**, which live under `src/deployer/manifests/mifosx/`.
 
 At deploy time, `deploy_mifosx_from_yaml()` in `src/deployer/mifosx.sh` recreates the namespace, copies the manifest directory into a scratch working directory (`/tmp/gazelle-deploy/mifosx`), substitutes the real domain into the web app's deployment and ingress (`apply_domain_to_file`), restores the Fineract demo-data dump, and applies the whole directory with `apply_kube_manifests`. It then blocks in `wait_for_fineract_api_ready()` until every tenant listed in `FINERACT_TENANTS` answers on the Fineract API before reporting success.
 
@@ -62,9 +85,9 @@ The same architecture annotated to show which components Mifos Gazelle actually 
   └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
 
   Backend Solutions Used
-  ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
-  │ Apache Fineract[LIVE]│  │ PostgreSQL     [LIVE]│  │ MySQL / Kafka  [ -- ]│
-  └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
+  ┌──────────────────────┐  ┌──────────────────────┐
+  │ Apache Fineract[LIVE]│  │ PostgreSQL     [LIVE]│
+  └──────────────────────┘  └──────────────────────┘
 ```
 
 | Tag | Meaning |
@@ -76,7 +99,7 @@ The same architecture annotated to show which components Mifos Gazelle actually 
 
 \* Reports is integrated and rendering, with one upstream dependency outstanding — see [Reports Module](#reports-module-pentaho).
 
-MySQL and Kafka appear in the upstream architecture and Gazelle does run both, but for Payment Hub EE and vNext — MifosX itself uses neither since the move to PostgreSQL.
+MySQL and Kafka are not used by the MifosX Gazelle deployment.
 
 Components deployed into the `mifosx` namespace:
 
@@ -177,7 +200,7 @@ curl -u mifos:password -X POST http://localhost:8081/api/v1/workflow/client-onbo
   -H 'Content-Type: application/json' -d '{ ... }'
 ```
 
-**Why it runs on PostgreSQL.** The module was MySQL-only, while the move to PostgreSQL left Gazelle's shared infrastructure with no MySQL for MifosX to use. Adding a dedicated MySQL pod would have cost roughly 512Mi against the 16GB budget, and borrowing Payment Hub EE's MySQL would have stopped MifosX deploying standalone. Instead the module was made database-agnostic at source: the PostgreSQL driver was added *alongside* MySQL, the datasource made environment-overridable with MySQL still the default, and the hardcoded MySQL dialect removed so Hibernate auto-detects. One image runs on either database and the environment picks — so the change is additive and upstreamable rather than a fork. It is low-risk because the module defines no JPA entities of its own: the database holds only Flowable's tables, and Flowable ships per-database DDL.
+The module runs on PostgreSQL, in line with the move of MifosX to standardise on PostgreSQL.
 
 ### Credit Bureau Integration
 
@@ -286,7 +309,7 @@ All image tags are pinned — no `:latest`. The current pins live in the manifes
 ## Known Limitations
 
 - **Pentaho per-tenant routing needs a fixed plugin release.** The published plugin resolves its datasource in a way that can return another tenant's data. The fix is a two-line change, merged upstream into `openMF/mifos-reporting-plugin` ([PR #513](https://github.com/openMF/mifos-reporting-plugin/pull/513), `pentaho` branch), but **no fixed release has been published yet** and Gazelle installs the published artifact. Until a fixed release ships, treat multi-tenant report output as unreliable. Closing this needs either a new plugin release or a temporary class swap in the initContainer.
-- **Financial reports render empty on the seeded tenants.** Reports run, but totals come out zero because the seeded tenants have no posted general-ledger entries — Gazelle's demo data is payment-oriented (clients and savings accounts for transfers) rather than loan- and GL-heavy. This is a demo-data gap, not a reporting fault.
+- **Financial reports render empty on the seeded tenants.** Reports run, but totals come out zero because the seeded tenants have no posted general-ledger entries — Gazelle's demo data is payment-oriented (clients and savings accounts for transfers) rather than loan- and GL-heavy. This is a demo-data gap, not a reporting fault, and is a to-do for the data loading to remedy before release.
 - **The Workflow Engine and Credit Bureau images are temporary.** Neither project publishes a container image, so both are built from source and pushed to a personal DockerHub namespace. Both pins should move to `openMF` images once those are published.
 - **`redbank` is not selectable in the web app.** It is seeded and waited on at deploy time, but absent from the web app's tenant list, so it is reachable through the API only.
 - **MifosX is deployed from raw manifests, not Helm**, unlike OpenG2P and Payment Hub EE.
