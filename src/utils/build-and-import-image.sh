@@ -127,6 +127,11 @@ fi
 
 if [[ "$IMPORT" == true && "$PUSH" != true ]]; then
     [[ -x "$IMPORT_SCRIPT" ]] || error "Import script not found or not executable: $IMPORT_SCRIPT"
+    # The import runs 'k3s ctr' on this machine, so k3s has to be here. Checked before the
+    # build, which can take half an hour, and not after it.
+    command -v k3s &> /dev/null || error "k3s not found, so the image could not be imported after building it.
+The import loads the image into the container runtime of a k3s cluster running on this machine.
+Use --push to send the image to a registry instead, or --no-import to only build it."
 fi
 
 [[ -d "$BUILD_CONTEXT" ]] || error "Build context not found: $BUILD_CONTEXT"
