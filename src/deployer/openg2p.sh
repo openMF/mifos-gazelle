@@ -12,12 +12,34 @@ OPENG2P_CRDS_DIR="${BASE_DIR}/src/deployer/manifests/openg2p"
 OPENG2P_MODULES=(social-registry pbms spar g2p-bridge)
 
 #------------------------------------------------------------------------------
+# Function : _openg2p_check_arch
+# Description: OpenG2P's upstream container images are published for linux/amd64
+#              only — there are no arm64/aarch64 variants. On an ARM host the pods
+#              would fail to schedule/run ("exec format error"), so we refuse to
+#              deploy up front with a clear message instead of failing deep in.
+# Returns: 0 on amd64 (x86_64); 1 on arm64/aarch64 (or anything non-amd64).
+#------------------------------------------------------------------------------
+_openg2p_check_arch() {
+  local arch
+  arch=$(uname -m)
+  if [[ "$arch" != "x86_64" ]]; then
+    log_error "OpenG2P is not supported on '${arch}' — its upstream images are amd64/x86_64 only."
+    log_error "Deploy OpenG2P on an amd64 host, or disable it (config.ini [openg2p] enabled=false)."
+    return 1
+  fi
+  return 0
+}
+
+#------------------------------------------------------------------------------
 # Function : deploy_openg2p
 # Description: Top-level entry point — deploys commons, then each enabled module
 #              as its own helm release into the openg2p namespace on GAZELLE_DOMAIN.
 #------------------------------------------------------------------------------
 deploy_openg2p() {
   log_section "Deploying OpenG2P"
+
+  # OpenG2P images are amd64-only — bail early on ARM rather than fail mid-deploy.
+  _openg2p_check_arch || return 1
 
   if is_app_running "$OPENG2P_NAMESPACE"; then
     if [[ "$redeploy" == "false" ]]; then
@@ -34,7 +56,7 @@ deploy_openg2p() {
   create_ingress_secret "$OPENG2P_NAMESPACE" \
     "openg2p.$GAZELLE_DOMAIN" \
     "openg2p-tls" \
-    "social-registry.$GAZELLE_DOMAIN,pbms.$GAZELLE_DOMAIN,spar.$GAZELLE_DOMAIN,g2p-bridge.$GAZELLE_DOMAIN,keycloak.$GAZELLE_DOMAIN,minio.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN"
+    "social-registry.$GAZELLE_DOMAIN,pbms.$GAZELLE_DOMAIN,spar.$GAZELLE_DOMAIN,g2p-bridge.$GAZELLE_DOMAIN,keycloak.$GAZELLE_DOMAIN,minio-og2p.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN"
   log_ok
 
   # OpenG2P charts emit Istio/logging/monitoring objects Gazelle has no controllers for.
@@ -113,7 +135,7 @@ _openg2p_print_urls() {
     printf "$fmt" "G2P Bridge (API):" "https://g2p-bridge.$d"
   # Shared commons services (always present once commons is deployed)
   printf "$fmt" "Keycloak:"           "https://keycloak.$d"
-  printf "$fmt" "MinIO:"              "https://minio.$d"
+  printf "$fmt" "MinIO:"              "https://minio-og2p.$d"
 }
 
 #------------------------------------------------------------------------------
@@ -292,16 +314,31 @@ _openg2p_pbms_fix_admin_login() {
   log_step "Aligning PBMS Odoo admin login/password (login: admin or $email)"
   # Run inside the odoo pod via its shell so the password is hashed by Odoo itself.
   # base id 2 = the built-in admin user. Set login=email AND password; commit.
-  kubectl exec -n "$OPENG2P_NAMESPACE" "$pod" -- bash -lc "
-    odoo shell -c /etc/odoo/odoo.conf -d '$db' --no-http <<PYEOF 2>/dev/null | grep -q PBMS_ADMIN_OK && exit 0 || exit 1
+  #
+  # The login/password/db are passed as POSITIONAL ARGS to the pod's `bash -lc` (the
+  # trailing "$db" "$email" "$pw" become $0/$1/$2 inside), exported to the environment,
+  # and read from os.environ in the Python — they are NOT interpolated into the shell
+  # string or a Python '...' literal. `kubectl exec` has no --env flag, so args+export
+  # is the injection-safe path. The password comes from a k8s secret and can contain
+  # ', $, backticks, or newlines; interpolating it would break the Python literal
+  # (silent lockout) or shell-expand it. The Python heredoc is single-quoted ('PYEOF')
+  # so nothing expands inside it either.
+  kubectl exec -i -n "$OPENG2P_NAMESPACE" "$pod" -- \
+    bash -lc '
+      export ODOO_DB="$1" ODOO_LOGIN="$2" ODOO_PW="$3"
+      odoo shell -c /etc/odoo/odoo.conf -d "$ODOO_DB" --no-http 2>/dev/null | grep -q PBMS_ADMIN_OK
+    ' _ "$db" "$email" "$pw" <<'PYEOF' >/dev/null 2>&1
+import os
 u = env['res.users'].browse(2)
-u.write({'login': '$email', 'password': '$pw'})
+u.write({'login': os.environ['ODOO_LOGIN'], 'password': os.environ['ODOO_PW']})
 env.cr.commit()
 print('PBMS_ADMIN_OK')
 PYEOF
-  " >/dev/null 2>&1 \
-    && log_ok \
-    || log_warn "PBMS admin login fixup did not complete — set it manually (odoo shell on the pbms-odoo pod)"
+  if [[ $? -eq 0 ]]; then
+    log_ok
+  else
+    log_warn "PBMS admin login fixup did not complete — set it manually (odoo shell on the pbms-odoo pod)"
+  fi
 }
 
 #------------------------------------------------------------------------------
@@ -393,13 +430,17 @@ _openg2p_release_pods() {
 
 #------------------------------------------------------------------------------
 # Function : _openg2p_release_pods_healthy
-# Description: Returns 0 if the release has ≥1 pod and none are not-ready (ignoring
-#              Completed/Succeeded jobs). Point-in-time check.
+# Description: Returns 0 if the release has ≥1 Running+Ready workload pod AND no
+#              not-ready pods (ignoring Completed/Succeeded jobs). Point-in-time check.
+#              The ≥1-Running requirement matters: a release whose only pod is a
+#              completed hook/init Job (workload pods not scheduled yet) must NOT be
+#              called healthy just because "nothing is failing" — there's no serving
+#              pod. Without it, the readiness gate could settle on a job-only release.
 #   $1 = release name (pod name prefix)
 #------------------------------------------------------------------------------
 _openg2p_release_pods_healthy() {
   local release_name="$1"
-  local pods bad
+  local pods bad ready
   pods=$(_openg2p_release_pods "$release_name")
   [[ -z "$pods" ]] && return 1
   # Any pod not Running/Completed, or Running but not all containers Ready → unhealthy
@@ -407,7 +448,12 @@ _openg2p_release_pods_healthy() {
     $3=="Completed" || $3=="Succeeded" {next}
     $3!="Running" {print; next}
     {split($2,a,"/"); if (a[1]!=a[2] || a[1]==0) print}')
-  [[ -z "$bad" ]]
+  [[ -n "$bad" ]] && return 1
+  # Require at least one Running pod with all containers Ready — a set of only
+  # Completed/Succeeded job pods is not a healthy *workload*.
+  ready=$(echo "$pods" | awk '
+    $3=="Running" {split($2,a,"/"); if (a[1]==a[2] && a[1]>0) print}')
+  [[ -n "$ready" ]]
 }
 
 #------------------------------------------------------------------------------
@@ -515,11 +561,16 @@ _wait_for_openg2p_release_ready() {
 #------------------------------------------------------------------------------
 _promote_pending_release() {
   local release_name="$1"
-  # Newest release secret for this release (highest version)
+  # Newest release secret for this release (highest revision). Helm names these
+  # `sh.helm.release.v1.<name>.v<N>`; we must sort by the integer <N>, NOT by a
+  # dot-field index — field 5 is the (constant) release name and field 6 is `v<N>`
+  # whose leading `v` makes `sort -n` read it as 0 (so every revision ties). Split on
+  # the literal `.v` separator and sort on the trailing number.
   local secret
   secret=$(kubectl get secret -n "$OPENG2P_NAMESPACE" \
     -l "owner=helm,name=${release_name}" --no-headers 2>/dev/null \
-    | awk '{print $1}' | sort -t. -k5 -n | tail -1)
+    | awk '{print $1}' \
+    | awk -F'.v' '{print $NF"\t"$0}' | sort -n -k1,1 | tail -1 | cut -f2-)
   [[ -z "$secret" ]] && return 1
 
   # release data = base64(base64(gzip(json))); flip info.status to deployed, re-encode
