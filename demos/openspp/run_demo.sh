@@ -18,6 +18,9 @@ CONFIG="$REPO/config/config.ini"
 
 PAYEE_TENANT="bluebank"
 PROGRAM_NAME="Agri subsidy Q3"
+# Which rail pays. Empty leaves the choice to the payment script. Set to connector or
+# bridge to force one:  PAY_MODE=bridge bash demos/openspp/run_demo.sh
+PAY_MODE="${PAY_MODE:-}"
 DOMAIN="$(crudini --get "$CONFIG" general GAZELLE_DOMAIN 2>/dev/null || echo mifos.gazelle.test)"
 OPENSPP_HOST="openspp.$DOMAIN"
 
@@ -165,8 +168,11 @@ register_payees_in_oracle() {
 # Pays each approved entitlement through Payment Hub and prints the number of subsidies
 # paid on its last stdout line, which is what this function returns.
 bridge_to_phee() {
+    # Passed only when asked, so an empty value never overrides the script's own choice.
+    local rail=()
+    [[ -n "$PAY_MODE" ]] && rail=(--pay-mode "$PAY_MODE")
     python3 "$BRIDGE" --openspp-url "$OPENSPP_URL" --config "$CONFIG" \
-        --program-name "$PROGRAM_NAME" --payee-tenant "$PAYEE_TENANT" | tail -1
+        --program-name "$PROGRAM_NAME" --payee-tenant "$PAYEE_TENANT" "${rail[@]}" | tail -1
 }
 
 # Check each beneficiary got a deposit matching their subsidy amount in bluebank.
