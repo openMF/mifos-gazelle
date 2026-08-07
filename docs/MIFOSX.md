@@ -110,8 +110,8 @@ Components deployed into the `mifosx` namespace:
 | Fineract | `fineract-server` pod | `openmf/fineract:1.14.0` | Core banking engine and API |
 | Web App | `web-app` pod + ingress | `openmf/web-app:dev-10d24b8` | Angular user interface |
 | Reports | *inside* `fineract-server` | plugin staged by initContainer | Pentaho formatted reporting |
-| Workflow Engine | `mifos-workflow` pod + ingress | `kanishksingh23/mifos-workflow:27072026` | Flowable BPMN process orchestration |
-| Credit Bureau | `credit-bureau` pod + ingress | `kanishksingh23/mifos-credit-bureau:30072026` | Credit bureau integration |
+| Workflow Engine | `mifos-workflow` pod + ingress | `kanishksingh23/mifos-workflow:07082026` | Flowable BPMN process orchestration |
+| Credit Bureau | `credit-bureau` pod + ingress | `kanishksingh23/mifos-credit-bureau:07082026` | Credit bureau integration |
 
 PostgreSQL is shared with the rest of Gazelle and lives in the `infra` namespace, not in `mifosx`.
 
