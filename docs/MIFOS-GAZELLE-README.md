@@ -180,7 +180,7 @@ Once `kubectl get pods -A` or `~/local/bin/k9s` shows all pods running:
 ### DPG Documentation
 
 - vNext: https://github.com/mojaloop/platform-shared-tools/blob/main/packages/deployment/docker-compose-apps/README.md
-- MifosX: https://docs.mifos.org/core-banking-and-embedded-finance/core-banking
+- MifosX: [MIFOSX.md](MIFOSX.md) — components deployed by Gazelle and how to use them; upstream: https://docs.mifos.org/core-banking-and-embedded-finance/core-banking
 - Payment Hub EE: https://mifos.gitbook.io/docs/payment-hub-ee/business-overview/vision
 
 Join the `#mifos-gazelle` channel on [Mifos Slack](https://mifos.slack.com)
@@ -267,6 +267,8 @@ Add the following to your **local** `/etc/hosts` (or Windows `C:\Windows\System3
 ```
 
 Login at https://mifos.mifos.gazelle.test with user `mifos` / password `password`. Select tenant: `default`, `greenbank`, or `bluebank`.
+
+For the MifosX components Gazelle deploys — Fineract, the web app, reporting, the workflow engine and credit bureau integration — and how to use each, see [MIFOSX.md](MIFOSX.md).
 
 ### vNext
 
