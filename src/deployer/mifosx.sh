@@ -39,6 +39,8 @@ deploy_mifosx_from_yaml() {
     log_step "Updating FQDNs in manifests"
     apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/web-app-deployment.yaml" "$GAZELLE_DOMAIN"
     apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/web-app-ingress.yaml" "$GAZELLE_DOMAIN"
+    apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/mifos-workflow-ingress.yaml" "$GAZELLE_DOMAIN"
+    apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/credit-bureau-ingress.yaml" "$GAZELLE_DOMAIN"
     log_ok
 
     log_step "Restoring MifosX database dump"

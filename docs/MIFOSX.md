@@ -37,7 +37,7 @@ This document describes each component Gazelle deploys, how to use it, and where
 
 MifosX is deployed from **vendored Kubernetes manifests**, which live under `src/deployer/manifests/mifosx/`.
 
-At deploy time, `deploy_mifosx_from_yaml()` in `src/deployer/mifosx.sh` recreates the namespace, copies the manifest directory into a scratch working directory (`/tmp/gazelle-deploy/mifosx`), substitutes the real domain into the web app's deployment and ingress (`apply_domain_to_file`), restores the Fineract demo-data dump, and applies the whole directory with `apply_kube_manifests`. It then blocks in `wait_for_fineract_api_ready()` until every tenant listed in `FINERACT_TENANTS` answers on the Fineract API before reporting success.
+At deploy time, `deploy_mifosx_from_yaml()` in `src/deployer/mifosx.sh` recreates the namespace, copies the manifest directory into a scratch working directory (`/tmp/gazelle-deploy/mifosx`), substitutes the real domain into the web app's deployment and each ingress (`apply_domain_to_file`), restores the Fineract demo-data dump, and applies the whole directory with `apply_kube_manifests`. It then blocks in `wait_for_fineract_api_ready()` until every tenant listed in `FINERACT_TENANTS` answers on the Fineract API before reporting success.
 
 Because the entire directory is applied, **adding a module is a matter of adding its manifests** — `mifosx.sh` needs no code change. That is how the reporting, workflow and credit bureau modules were integrated, and it is why per-module setup logic (downloading a plugin, creating a database, waiting on a dependency) is expressed as initContainers in the manifests rather than as shell steps in the deployer.
 
@@ -108,8 +108,8 @@ Components deployed into the `mifosx` namespace:
 | Fineract | `fineract-server` pod | `openmf/fineract:1.14.0` | Core banking engine and API |
 | Web App | `web-app` pod + ingress | `openmf/web-app:dev-10d24b8` | Angular user interface |
 | Reports | *inside* `fineract-server` | plugin staged by initContainer | Pentaho formatted reporting |
-| Workflow Engine | `mifos-workflow` pod | `kanishksingh23/mifos-workflow:27072026` | Flowable BPMN process orchestration |
-| Credit Bureau | `credit-bureau` pod | `kanishksingh23/mifos-credit-bureau:30072026` | Credit bureau integration |
+| Workflow Engine | `mifos-workflow` pod + ingress | `kanishksingh23/mifos-workflow:27072026` | Flowable BPMN process orchestration |
+| Credit Bureau | `credit-bureau` pod + ingress | `kanishksingh23/mifos-credit-bureau:30072026` | Credit bureau integration |
 
 PostgreSQL is shared with the rest of Gazelle and lives in the `infra` namespace, not in `mifosx`.
 
@@ -178,6 +178,7 @@ Orchestrates MifosX business processes — client onboarding, offboarding and tr
 
 | | |
 |---|---|
+| URL | `http://workflow.<GAZELLE_DOMAIN>` |
 | Port | `8081` |
 | Health | `GET /actuator/health` |
 | API base | `/api/v1` |
@@ -186,17 +187,26 @@ Orchestrates MifosX business processes — client onboarding, offboarding and tr
 
 BPMN definitions are auto-deployed from the image at startup and Flowable creates its own schema, so nothing needs restoring. Two initContainers gate startup: `wait-postgres` and `wait-fineract`.
 
-**Using it.** The service has no ingress, so port-forward it:
+**Using it.** Check the service is up:
 
 ```bash
-kubectl -n mifosx port-forward svc/mifos-workflow 8081:8081
+curl http://workflow.<GAZELLE_DOMAIN>/actuator/health
 ```
 
-Every endpoint uses Basic auth with the Fineract credentials, and **you must authenticate before calling a workflow endpoint**:
+**Authenticate before calling a workflow endpoint.** The authentication call takes the credentials as a JSON body — not as HTTP Basic auth — and establishes the Fineract session the workflow endpoints then use:
 
 ```bash
-curl -u mifos:password -X POST http://localhost:8081/api/v1/auth/authenticate
-curl -u mifos:password -X POST http://localhost:8081/api/v1/workflow/client-onboarding/start \
+curl -X POST http://workflow.<GAZELLE_DOMAIN>/api/v1/auth/authenticate \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"mifos","password":"password"}'
+```
+
+It returns `"authenticated":true`. Confirm with `GET /api/v1/auth/status`, then call the workflow endpoints:
+
+```bash
+curl http://workflow.<GAZELLE_DOMAIN>/api/v1/workflow/client-onboarding/tasks
+
+curl -X POST http://workflow.<GAZELLE_DOMAIN>/api/v1/workflow/client-onboarding/start \
   -H 'Content-Type: application/json' -d '{ ... }'
 ```
 
@@ -208,17 +218,17 @@ Registers credit-bureau credentials, pulls client and address data from Fineract
 
 | | |
 |---|---|
+| URL | `http://credit-bureau.<GAZELLE_DOMAIN>` |
 | Port | `8081` |
 | Health | `GET /credit-bureaus` |
 | Database | `creditbureau` on the shared PostgreSQL |
 
 Gazelle runs it with `CDC_MOCK_ENABLED=true` — the default bureau target is Círculo de Crédito, and no real bureau credentials are configured. Two initContainers gate startup: `ensure-creditbureau-db` creates the database if it does not exist, and `wait-for-fineract` blocks until the core API answers.
 
-**Using it.** No ingress, so port-forward:
+**Using it.** List the configured bureaus — an empty array on a fresh deploy, since none are registered yet:
 
 ```bash
-kubectl -n mifosx port-forward svc/credit-bureau 8081:8081
-curl http://localhost:8081/credit-bureaus
+curl http://credit-bureau.<GAZELLE_DOMAIN>/credit-bureaus
 ```
 
 Two things worth knowing. Health probes hit `GET /credit-bureaus` rather than `/actuator/health`, because Jersey is mapped at `/*` and shadows the actuator endpoints — `/actuator/*` returns 404. That endpoint needs no auth (only `/api/**` is authenticated) and touches the database, so it is a genuine readiness signal. And `MIFOS_SECURITY_ENCRYPTION_KEY` has no default: the application will not start without it.
@@ -268,17 +278,21 @@ The deploy recreates the namespace, restores the demo-data dump, applies the man
 
 Open `https://mifos.<GAZELLE_DOMAIN>` — by default `https://mifos.mifos.gazelle.test` — and log in as `mifos` / `password`. Select tenant `greenbank`, `bluebank` or `default`.
 
-The workflow engine and credit bureau modules have no ingress; reach them with `kubectl port-forward` as shown in their sections above.
+The workflow engine and credit bureau modules have their own ingresses — browse or `curl` them at `http://workflow.<GAZELLE_DOMAIN>` and `http://credit-bureau.<GAZELLE_DOMAIN>`, as shown in their sections above.
 
 ### /etc/hosts entries
 
+`setup-env.sh` writes these automatically. If you set the machine up before the workflow and credit bureau ingresses were added, re-run `sudo ./setup-env.sh -u $USER` to pick up the two new hostnames.
+
 ```
 # Linux/macOS
-<VM-IP> fineract.mifos.gazelle.test mifos.mifos.gazelle.test
+<VM-IP> fineract.mifos.gazelle.test mifos.mifos.gazelle.test workflow.mifos.gazelle.test credit-bureau.mifos.gazelle.test
 
 # Windows (one per line)
 <VM-IP> mifos.mifos.gazelle.test
 <VM-IP> fineract.mifos.gazelle.test
+<VM-IP> workflow.mifos.gazelle.test
+<VM-IP> credit-bureau.mifos.gazelle.test
 ```
 
 ---
@@ -296,7 +310,8 @@ The three modules integrated so far follow one pattern. To add a fourth:
 3. **Share the infrastructure.** Point the module at `postgres.infra.svc.cluster.local:5432` with its own database rather than deploying a database pod, and add an initContainer that creates that database if it does not exist.
 4. **Gate on dependencies.** Add initContainers that wait for PostgreSQL and for Fineract's API, so the module does not crash-loop while the core is still starting.
 5. **Verify the probe path.** Confirm which port and path actually answer — several MifosX modules document ports or actuator paths that do not match their runtime behaviour.
-6. **Add manifests and document.** Drop the deployment and service YAML into `src/deployer/manifests/mifosx/`, pin the image tag explicitly, add a section to this file and a row to the component table, and verify with a real `./run.sh -m deploy -a mifosx`.
+6. **Expose it through an ingress.** Add an ingress manifest on its own `<module>.<GAZELLE_DOMAIN>` host so users can browse or `curl` a URL rather than running `kubectl port-forward`. Add that hostname to `MIFOSXHOSTS` in `src/environmentSetup/environmentSetup.sh`, and add an `apply_domain_to_file` call for the new ingress in `src/deployer/mifosx.sh` — domain substitution is per file, not directory-wide.
+7. **Add manifests and document.** Drop the deployment and service YAML into `src/deployer/manifests/mifosx/`, pin the image tag explicitly, add a section to this file and a row to the component table, and verify with a real `./run.sh -m deploy -a mifosx`.
 
 ---
 
@@ -335,10 +350,14 @@ kubectl -n mifosx exec <fineract-pod> -- ls /app/plugins | wc -l   # expect 71 j
 
 **A report rejects its date parameter** — dates must be formatted `dd MMMM yyyy`, e.g. `01 January 2026`.
 
-**A workflow endpoint returns 401** — authenticate first; Basic auth alone is not enough:
+**`POST /api/v1/auth/authenticate` returns 500 "Required request body is missing"** — the credentials go in a JSON body, not in HTTP Basic auth:
 ```bash
-curl -u mifos:password -X POST http://localhost:8081/api/v1/auth/authenticate
+curl -X POST http://workflow.<GAZELLE_DOMAIN>/api/v1/auth/authenticate \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"mifos","password":"password"}'
 ```
+
+**A workflow endpoint reports it is not authenticated** — run the authenticate call above first, then check `GET /api/v1/auth/status` returns `{"authenticated":true}`.
 
 **`/actuator/health` on the Credit Bureau returns 404** — expected, Jersey shadows `/actuator/*`. Use `GET /credit-bureaus` instead.
 

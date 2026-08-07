@@ -136,7 +136,7 @@ add_hosts() {
             zeebeops.$DOMAIN zeebe-operate.$DOMAIN zeebe-gateway.$DOMAIN \
             notifications.$DOMAIN )
 
-        local MIFOSXHOSTS=( mifos.$DOMAIN )
+        local MIFOSXHOSTS=( mifos.$DOMAIN workflow.$DOMAIN credit-bureau.$DOMAIN )
         local OPENSPPHOSTS=( openspp.$DOMAIN )
         local ALL_GAZELLE_HOSTS=( "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" "${OPENSPPHOSTS[@]}" )
         local OPENG2PHOSTS=( openg2p.$DOMAIN social-registry.$DOMAIN \
