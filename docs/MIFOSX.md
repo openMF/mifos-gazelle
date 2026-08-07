@@ -25,6 +25,7 @@ This document describes each component Gazelle deploys, how to use it, and where
   - [Loan Assessment Module — planned](#loan-assessment-module--planned)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
+- [Building the Module Images](#building-the-module-images)
 - [Adding a New MifosX Module](#adding-a-new-mifosx-module)
 - [Version Pins](#version-pins)
 - [Known Limitations](#known-limitations)
@@ -297,6 +298,44 @@ The workflow engine and credit bureau modules have their own ingresses — brows
 
 ---
 
+## Building the Module Images
+
+Most MifosX components run published images. The **Workflow Engine** and the **Credit Bureau** do not: neither project publishes a container image, so Gazelle's pins are built from source. The PostgreSQL support both modules need is merged upstream ([mifos-workflow#73](https://github.com/openMF/mifos-workflow/pull/73), [mifos-x-credit-bureau-plugin#141](https://github.com/openMF/mifos-x-credit-bureau-plugin/pull/141)), so a clone of the upstream repository builds a working image with no local patching.
+
+`./run.sh -m deploy -a mifosx` checks that every image referenced by the manifests can be found in a registry and warns, naming any it cannot. The check is advisory and never blocks the deploy — a rate-limited or private registry is indistinguishable from a missing image — but it tells you to build before the pods fail to pull.
+
+Build and publish with [`src/utils/build-and-import-image.sh`](BUILDING-IMAGES.md), the same builder the rest of Gazelle uses. Log in to the registry first (`docker login`), then:
+
+```bash
+# Workflow Engine — multi-architecture, pushed to the registry
+git clone https://github.com/openMF/mifos-workflow.git
+src/utils/build-and-import-image.sh \
+    -n openmf/mifos-workflow -t <tag> \
+    -c mifos-workflow -f mifos-workflow/Dockerfile \
+    --platform linux/amd64,linux/arm64 --push
+
+# Credit Bureau — multi-architecture, pushed to the registry
+git clone https://github.com/openMF/mifos-x-credit-bureau-plugin.git
+src/utils/build-and-import-image.sh \
+    -n openmf/mifos-credit-bureau -t <tag> \
+    -c mifos-x-credit-bureau-plugin -f mifos-x-credit-bureau-plugin/Dockerfile \
+    --platform linux/amd64,linux/arm64 --push
+```
+
+`--platform linux/amd64,linux/arm64` is what keeps Apple Silicon and Raspberry Pi working, and it requires `--push` — a multi-platform build produces a manifest list, which only a registry can hold.
+
+To iterate locally instead, drop `--platform` and `--push`: the script then builds for the host architecture and imports straight into k3s, so a redeploy picks the image up without a registry round-trip.
+
+```bash
+src/utils/build-and-import-image.sh \
+    -n openmf/mifos-workflow -t <tag> \
+    -c mifos-workflow -f mifos-workflow/Dockerfile
+```
+
+After publishing, update the `image:` pin in the module's manifest under `src/deployer/manifests/mifosx/` to match the tag you pushed.
+
+---
+
 ## Adding a New MifosX Module
 
 The three modules integrated so far follow one pattern. To add a fourth:
@@ -325,7 +364,7 @@ All image tags are pinned — no `:latest`. The current pins live in the manifes
 
 - **Pentaho per-tenant routing needs a fixed plugin release.** The published plugin resolves its datasource in a way that can return another tenant's data. The fix is a two-line change, merged upstream into `openMF/mifos-reporting-plugin` ([PR #513](https://github.com/openMF/mifos-reporting-plugin/pull/513), `pentaho` branch), but **no fixed release has been published yet** and Gazelle installs the published artifact. Until a fixed release ships, treat multi-tenant report output as unreliable. Closing this needs either a new plugin release or a temporary class swap in the initContainer.
 - **Financial reports render empty on the seeded tenants.** Reports run, but totals come out zero because the seeded tenants have no posted general-ledger entries — Gazelle's demo data is payment-oriented (clients and savings accounts for transfers) rather than loan- and GL-heavy. This is a demo-data gap, not a reporting fault, and is a to-do for the data loading to remedy before release.
-- **The Workflow Engine and Credit Bureau images are temporary.** Neither project publishes a container image, so both are built from source and pushed to a personal DockerHub namespace. Both pins should move to `openMF` images once those are published.
+- **The Workflow Engine and Credit Bureau images are temporary.** Neither project publishes a container image, so both are built from source and currently pushed to a personal DockerHub namespace. Both pins should move to `openMF` images once those are published — see [Building the Module Images](#building-the-module-images) for the build and publish commands.
 - **`redbank` is not selectable in the web app.** It is seeded and waited on at deploy time, but absent from the web app's tenant list, so it is reachable through the API only.
 - **MifosX is deployed from raw manifests, not Helm**, unlike OpenG2P and Payment Hub EE.
 
