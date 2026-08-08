@@ -141,9 +141,6 @@ add_hosts() {
         local OPENG2PHOSTS=( openg2p.$DOMAIN social-registry.$DOMAIN \
             pbms.$DOMAIN spar.$DOMAIN g2p-bridge.$DOMAIN \
             keycloak.$DOMAIN )
-        # OpenG2P hosts are included here on purpose: OPENG2PHOSTS was previously
-        # defined but never added to this array, so the OpenG2P demo URLs never
-        # landed in /etc/hosts and NXDOMAIN'd on every install.
         local ALL_GAZELLE_HOSTS=( "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" "${OPENSPPHOSTS[@]}" "${OPENG2PHOSTS[@]}" )
 
         # Determine which IP to use.
