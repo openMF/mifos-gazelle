@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    description: "Service for the Mifos message-gateway (SMS & messaging) component"
+  labels:
+    app: message-gateway
+    tier: backend
+  name: message-gateway
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 9191
+      targetPort: 9191
+    - name: callback
+      protocol: TCP
+      port: 5009
+      targetPort: 5009
+  selector:
+    app: message-gateway
