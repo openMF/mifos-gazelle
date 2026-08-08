@@ -12,11 +12,13 @@ arch: amd64
 
 # --- Odoo / OpenSPP application -----------------------------------------------------------
 odoo:
-  # OpenSPP2 image, built from the OpenSPP2 Dockerfile "production" target and loaded into the
-  # cluster (build-only upstream; no published image yet). Override repository/tag at deploy time.
+  # OpenSPP2 image. Upstream publishes none, so this is either built and loaded into the cluster or
+  # pulled from wherever repository points. Override repository/tag at deploy time.
   image:
     repository: ghcr.io/openmf/openspp
     tag: "19.0"
+    # IfNotPresent means a node that already has this tag keeps it. Re-pushing the same tag does not
+    # reach those nodes; use a new tag when the contents change.
     pullPolicy: IfNotPresent
   replicas: 1
   # Module installed on first boot. The container self-initialises (the entrypoint installs base
@@ -105,9 +107,8 @@ secrets:
 
 # --- Ingress (NGINX) ----------------------------------------------------------------------
 # Exposes Odoo over HTTPS via the shared ingress-nginx. Enabled + host are set by openspp.sh at
-# deploy time (host = OPENSPP_DOMAIN from config.ini, which defaults to openspp.${GAZELLE_DOMAIN});
-# the self-signed TLS secret is created there too. The host is left empty here on purpose so there
-# is no hardcoded domain in the chart.
+# deploy time (host = openspp.${GAZELLE_DOMAIN}); the self-signed TLS secret is created there too.
+# The host is left empty here on purpose so there is no hardcoded domain in the chart.
 ingress:
   enabled: false
   className: nginx
