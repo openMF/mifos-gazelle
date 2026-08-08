@@ -49,6 +49,9 @@ CREDIT_POLL_TRIES = 15
 CREDIT_POLL_INTERVAL = 8   # seconds -> up to 2 min per payment
 # Cap on the audit rows read when checking a transfer. Each row costs one extra call.
 AUDIT_ROWS_SCANNED = 25
+# The connector sends one batch per cron run, so it waits longer than the bridge.
+CONNECTOR_POLL_TRIES = 45   # -> up to 6 min per payment
+CONNECTOR_MODULE = "spp_payment_phee"
 
 
 def _load(name, path):
@@ -59,6 +62,8 @@ def _load(name, path):
 
 
 gen = _load("gen_mifos_vnext", DATA_DIR / "generate-mifos-vnext-data.py")
+# Reused for its module installer, so both scripts install a module the same way.
+loader = _load("openspp_loader", Path(__file__).resolve().parent / "load-openspp-agri-data.py")
 
 
 def fineract_headers(tenant):
@@ -103,6 +108,52 @@ def read_approved_entitlements(call, program_name):
                     "amount": e["initial_amount"], "name": e["partner_id"][1],
                     "cycle_id": e["cycle_id"][0] if e.get("cycle_id") else None})
     return out
+
+
+def find_program_id(call, program_name):
+    """The programme id, needed to attach a payment manager to it."""
+    prog = call("spp.program", "search", [["name", "=", program_name]])
+    if not prog:
+        sys.exit(f"ERROR: program '{program_name}' not found in OpenSPP")
+    return prog[0]
+
+
+def connector_state(call):
+    """State of the native connector module, or None when this image does not carry it.
+
+    Three answers, not two: missing, present but not installed, or installed. An image
+    installs only the modules it is told to, so present but not installed is a normal
+    state after a fresh deploy, and the connector can still be used.
+    """
+    domain = [["name", "=", CONNECTOR_MODULE]]
+    rec = call("ir.module.module", "search_read", domain, fields=["state"])
+    if not rec:
+        # A new module shows up only after the list is refreshed.
+        call("ir.module.module", "update_list")
+        rec = call("ir.module.module", "search_read", domain, fields=["state"])
+    return rec[0]["state"] if rec else None
+
+
+def ensure_manager(call, program_id, model, m2m_field, name, extra_vals):
+    """Configure a program manager of one kind, once.
+
+    A program holds one manager of each kind, so nothing is created when it already
+    has one. The concrete record on its own is not enough either: the program reads
+    its managers through a wrapper that points at the record (manager_ref_id).
+    """
+    if call("spp.program", "read", [program_id], fields=[m2m_field])[0][m2m_field]:
+        return None
+
+    found = call(model, "search", [["name", "=", name], ["program_id", "=", program_id]])
+    if found:
+        mgr_id = found[0]
+    else:
+        vals = {"name": name, "program_id": program_id}
+        vals.update(extra_vals)
+        mgr_id = call(model, "create", vals)
+    call("spp.program", "write", [program_id],
+         {m2m_field: [(0, 0, {"manager_ref_id": f"{model},{mgr_id}"})]})
+    return mgr_id
 
 
 def pending_payment(call, entitlement_id):
@@ -320,6 +371,118 @@ def ensure_payer_funds(headers, payer_msisdn, total_needed):
         print(f"Payer funded: +{topup} (was {balance}, needs {total_needed})", file=sys.stderr)
 
 
+def pay_via_connector(call, payee_headers, payable, program_id, program_name,
+                      payer_msisdn, writeback=True):
+    """Let OpenSPP send the payments itself, through its native payment manager.
+
+    The whole cycle leaves in one call and a cron drains the queue, so this waits longer
+    than the bridge. Returns how many credits were confirmed in MifosX.
+    """
+    def call_ok(model, method, *cargs):
+        # These cycle methods return nothing, and XML-RPC cannot marshal that.
+        try:
+            return call(model, method, *cargs)
+        except xmlrpc.client.Fault as fault:
+            if "cannot marshal None" in str(fault):
+                return None
+            raise
+
+    cycle_id = next((e.get("cycle_id") for e in payable if e.get("cycle_id")), None)
+    if not cycle_id:
+        sys.exit("ERROR: no cycle id on the approved entitlements")
+    # Keyed by entitlement, not by beneficiary: one beneficiary can have several, and a
+    # shared baseline would count the same credit twice.
+    baselines = {e["id"]: savings_balance(payee_headers, e["acct"]) for e in payable}
+    # Everything goes out in one call, so a balance that cannot be read stops the run
+    # before any money moves.
+    unreadable = [e["msisdn"] for e in payable if baselines[e["id"]] is None]
+    if unreadable:
+        sys.exit(f"ERROR: could not read the balance of {len(unreadable)} payee(s) "
+                 f"before sending: {', '.join(unreadable)}")
+    # The cycle needs a payment manager before it can send, and it is wired here rather
+    # than by the loader, which also runs on images without the module. One payment per
+    # batch: the payer position is shared, and bigger batches ran into timeouts.
+    ensure_manager(call, program_id, "spp.program.payment.manager.phee",
+                   "payment_manager_ids", f"{program_name} PHEE payments",
+                   {"payer_id": payer_msisdn, "max_batch_size": 1})
+    print(f"Connector: prepare_payment on cycle {cycle_id}...", file=sys.stderr)
+    # A prepare with nothing to do reports a notification, not an error. Counting on both
+    # sides tells the new batches from the ones an earlier run left behind, so a run with
+    # nothing to send stops here instead of waiting for credits that cannot arrive.
+    batch_domain = [["cycle_id", "=", cycle_id]]
+    before = call("spp.payment.batch", "search_count", batch_domain)
+    call_ok("spp.cycle", "prepare_payment", [cycle_id])
+    time.sleep(2)
+    batches = call("spp.payment.batch", "search_count", batch_domain) - before
+    if batches <= 0:
+        sys.exit("ERROR: OpenSPP created no payment batches for this cycle, so there is "
+                 "nothing to send. An entitlement is only payable again when all of its "
+                 "earlier payments failed, so a database that already paid them needs a "
+                 "fresh deploy.")
+    print(f"Connector: {batches} batch(es) queued, one sent per cron run...", file=sys.stderr)
+    call_ok("spp.cycle", "send_payment", [cycle_id])
+
+    paid = 0
+    for e in payable:
+        amount = int(round(e["amount"]))
+        credited = False
+        for _ in range(CONNECTOR_POLL_TRIES):
+            if credit_seen(payee_headers, e["acct"], baselines[e["id"]], amount):
+                credited = True
+                break
+            time.sleep(CREDIT_POLL_INTERVAL)
+        if not credited:
+            print(f"  ERROR {e['name']} ({e['msisdn']}): sent but credit not seen "
+                  f"(still in flight)", file=sys.stderr)
+            continue
+        paid += 1
+        msg = f"  OK {e['name']} ({e['msisdn']}) acct {e['acct']}: credited USD {amount}"
+        if writeback:
+            call("spp.entitlement", "write", [e["id"]], {"state": "rdpd2ben"})
+            close_payment_as_paid(call, e["id"], amount)
+            msg += " - marked Paid in OpenSPP"
+        print(msg, file=sys.stderr)
+    return paid
+
+
+def mark_cycle_distributed(call, cycle_id):
+    """Close the cycle now that its subsidies are paid.
+
+    Only moves a cycle that is still approved, so a re-run leaves it alone.
+    """
+    if not cycle_id or loader.cycle_state(call, cycle_id) != "approved":
+        return
+    loader.call_ignore_none(call, "spp.cycle", "mark_distributed", [cycle_id])
+    print(f"Cycle {cycle_id} marked distributed", file=sys.stderr)
+
+
+def choose_pay_mode(call, asked):
+    """Pick the rail: the native connector when the image carries it, the bridge otherwise.
+
+    The bridge needs nothing extra, so it is the safe default. An explicit 'connector'
+    fails when the module is missing, because reporting a rail that was never used is
+    worse than stopping.
+    """
+    if asked == "bridge":
+        print("Paying through the channel/transfer bridge (asked for)", file=sys.stderr)
+        return "bridge"
+
+    state = connector_state(call)
+    if state is None:
+        if asked == "connector":
+            sys.exit(f"ERROR: {CONNECTOR_MODULE} is not in this OpenSPP image, so --pay-mode "
+                     f"connector cannot be honoured. Use --pay-mode bridge or auto.")
+        print(f"WARN: {CONNECTOR_MODULE} is not in this OpenSPP image, falling back to the "
+              f"channel/transfer bridge", file=sys.stderr)
+        return "bridge"
+
+    if state != "installed":
+        print(f"{CONNECTOR_MODULE} is available but not installed yet", file=sys.stderr)
+        loader.ensure_module_installed(call, CONNECTOR_MODULE)
+    print(f"Paying through OpenSPP's native connector ({CONNECTOR_MODULE})", file=sys.stderr)
+    return "connector"
+
+
 def main():
     ap = argparse.ArgumentParser(description="Bridge OpenSPP2 approved entitlements -> PHEE channel/transfer -> MifosX")
     ap.add_argument("--openspp-url", default="http://localhost:8069")
@@ -334,6 +497,9 @@ def main():
     ap.add_argument("--no-writeback", action="store_true", help="do not mark entitlements paid in OpenSPP")
     ap.add_argument("--no-payer-topup", action="store_true",
                     help="do not auto-fund the payer even if its balance is short")
+    ap.add_argument("--pay-mode", choices=["auto", "connector", "bridge"], default="auto",
+                    help="which rail pays: auto uses OpenSPP's native connector when the "
+                         "image carries it and the bridge otherwise (default: auto)")
     args = ap.parse_args()
 
     cfg = gen.load_config(str(args.config))
@@ -375,6 +541,20 @@ def main():
     total_needed = sum(int(round(e["amount"])) for e in payable)
     if not args.no_payer_topup:
         ensure_payer_funds(payer_headers, payer_msisdn, total_needed)
+
+    cycle_id = next((e.get("cycle_id") for e in payable if e.get("cycle_id")), None)
+
+    # The rail is decided and reported before anything is sent.
+    if choose_pay_mode(call, args.pay_mode) == "connector":
+        paid = pay_via_connector(call, payee_headers, payable,
+                                 find_program_id(call, args.program_name), args.program_name,
+                                 payer_msisdn, writeback=not args.no_writeback)
+        print(f"\nOK: {paid}/{len(payable)} agri subsidies disbursed via the native connector.",
+              file=sys.stderr)
+        if paid == len(payable) and not args.no_writeback:
+            mark_cycle_distributed(call, cycle_id)
+        print(paid)   # stdout: count for the orchestrator
+        return
 
     transfer_url = f"https://channel.{domain}/channel/transfer"
     paid = 0
@@ -478,6 +658,8 @@ def main():
         print(msg, file=sys.stderr)
 
     print(f"\nOK: {paid}/{len(payable)} agri subsidies disbursed & confirmed in MifosX.", file=sys.stderr)
+    if paid == len(payable) and not args.no_writeback:
+        mark_cycle_distributed(call, cycle_id)
     print(paid)   # stdout: count for the orchestrator
 
 

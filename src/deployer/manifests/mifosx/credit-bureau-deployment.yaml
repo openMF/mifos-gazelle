@@ -52,7 +52,7 @@ spec:
               echo "Fineract ready — starting Credit Bureau."
       containers:
         - name: credit-bureau
-          image: kanishksingh23/mifos-credit-bureau:30072026
+          image: kanishksingh23/mifos-credit-bureau:07082026
           imagePullPolicy: IfNotPresent
           env:
             - name: SPRING_DATASOURCE_URL
