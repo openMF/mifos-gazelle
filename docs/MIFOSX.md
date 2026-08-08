@@ -41,7 +41,7 @@ MifosX is deployed from **vendored Kubernetes manifests**, which live under `src
 
 At deploy time, `deploy_mifosx_from_yaml()` in `src/deployer/mifosx.sh` recreates the namespace, copies the manifest directory into a scratch working directory (`/tmp/gazelle-deploy/mifosx`), substitutes the real domain into the web app's deployment and each ingress (`apply_domain_to_file`), restores the Fineract demo-data dump, and applies the whole directory with `apply_kube_manifests`. It then blocks in `wait_for_fineract_api_ready()` until every tenant listed in `FINERACT_TENANTS` answers on the Fineract API before reporting success.
 
-Because the entire directory is applied, **adding a module is a matter of adding its manifests** — `mifosx.sh` needs no code change. That is how the reporting, workflow and credit bureau modules were integrated, and it is why per-module setup logic (downloading a plugin, creating a database, waiting on a dependency) is expressed as initContainers in the manifests rather than as shell steps in the deployer.
+Because the entire directory is applied, **adding a module is mostly a matter of adding its manifests**. That is how the reporting, workflow and credit bureau modules were integrated, and it is why per-module setup logic (downloading a plugin, creating a database, waiting on a dependency) is expressed as initContainers in the manifests rather than as shell steps in the deployer. The one thing a new manifest cannot pick up on its own is domain substitution: that is applied per file, so a module adding an ingress also needs a line in `mifosx.sh`. See [Adding a New MifosX Module](#adding-a-new-mifosx-module).
 
 Image tags are pinned in the manifests; see [Version Pins](#version-pins).
 
@@ -99,7 +99,7 @@ The same architecture annotated to show which components Mifos Gazelle actually 
 | `[CORE]` | Available through the deployed Fineract, not separately configured or demoed by Gazelle |
 | `[ -- ]` | Not in Gazelle's current MifosX scope |
 
-\* Reports is integrated and rendering, with one upstream dependency outstanding — see [Reports Module](#reports-module-pentaho).
+\* The reporting plugin is deployed and its reports are registered, but running one fails until a fixed plugin release ships upstream — see [Reports Module](#reports-module-pentaho).
 
 MySQL and Kafka are not used by the MifosX Gazelle deployment.
 
@@ -384,7 +384,6 @@ All image tags are pinned — no `:latest`. The current pins live in the manifes
 - **Financial reports render empty on the seeded tenants.** Reports run, but totals come out zero because the seeded tenants have no posted general-ledger entries — Gazelle's demo data is payment-oriented (clients and savings accounts for transfers) rather than loan- and GL-heavy. This is a demo-data gap, not a reporting fault, and is a to-do for the data loading to remedy before release.
 - **The Workflow Engine and Credit Bureau images are temporary.** Neither project publishes a container image, so both are built from source and currently pushed to a personal DockerHub namespace. Both pins should move to `openMF` images once those are published — see [Building the Module Images](#building-the-module-images) for the build and publish commands.
 - **`redbank` is not selectable in the web app.** It is seeded and waited on at deploy time, but absent from the web app's tenant list, so it is reachable through the API only.
-- **MifosX is deployed from raw manifests, not Helm**, unlike OpenG2P and Payment Hub EE.
 
 ---
 
