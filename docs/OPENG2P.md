@@ -9,7 +9,6 @@ Deploy OpenG2P and run the government-payments demo.
 5. [Building OpenG2P images](#5-building-openg2p-images)
 6. [Troubleshooting](#6-troubleshooting)
 
-For architecture and internals, see [GAZELLE_OPENG2P.md](GAZELLE_OPENG2P.md).
 
 ---
 
@@ -277,19 +276,22 @@ print([ (x.get('Descriptor') or {}).get('platform') for x in d ])"
 platform data at all. Ignore any `unknown/unknown` entries; those are build attestations, not
 platforms.
 
-**Current state of the OpenG2P images Gazelle deploys:**
+**This branch makes the PBMS demo arm64-capable** — every image the PBMS-only deploy pulls is now multi-arch:
 
-| Image | Published for | Status |
+| Image the PBMS demo uses | Arch | How it got there |
 |---|---|---|
-| `openg2p/openg2p-pbms-core:3.0.0` | amd64 only | **rebuild needed** for anything else |
-| `openg2p/openg2p-pbms-bg-task-api:3.0.0` | amd64, arm64 | fine |
-| `openg2p/openg2p-pbms-bg-task-celery-beat-producers:3.0.0` | amd64, arm64 | fine |
-| `openg2p/openg2p-pbms-bg-task-celery-workers:3.0.0` | amd64, arm64 | fine |
-| `openg2p/keycloak:24.0.5-debian-12-r1-g2p1` (commons) | amd64 only | rebuild needed |
-| `keycloak-init`, `postgres-init` (commons) | amd64 only | rebuild needed |
+| `openg2p-pbms-core:3.0.0` | amd64, arm64 | upstream is amd64-only; the pbms overlay points at a **multi-arch rebuild** — build/publish your own via the steps below |
+| `openg2p-pbms-bg-task-{api,celery-beat-producers,celery-workers}:3.0.0` | amd64, arm64 | upstream already multi-arch |
+| `bitnamilegacy/postgresql` (commons + pbms) | amd64, arm64 | repointed from amd64-only `openg2p/postgresql` |
+| `bitnamilegacy/redis` (pbms) | amd64, arm64 | repointed from amd64-only `openg2p/redis` |
+| `postgres:16.9-alpine` (bg-task `postgres-checker`) | amd64, arm64 | repointed from the amd64-only, unpinned `jbergknoff/postgresql-client` |
 
-So on a **PBMS-only deploy, `openg2p-pbms-core` is the only image that needs rebuilding.** The
-commons images are why enabling `social-registry`/`spar`/`g2p-bridge` stays amd64-only.
+The only amd64-only images left — `openg2p/keycloak:24.0.5-debian-12-r1-g2p1`, `keycloak-init`,
+`postgres-init` — all live in **`commons`**, which a **PBMS-only deploy does not deploy** (commons
+is pulled only by `social-registry`/`spar`/`g2p-bridge`). So:
+
+- **PBMS-only → arm64-ready.** Rebuild `openg2p-pbms-core` once for your own registry (steps below); everything else it uses is already multi-arch.
+- **Full stack (`social-registry`/`spar`/`g2p-bridge`) → still amd64-only** — their commons images have no multi-arch build yet.
 
 ### Step 2 — Repoint before you rebuild
 
@@ -500,7 +502,6 @@ docker buildx imagetools inspect openmf/openg2p-pbms-core:3.0.0-gazelle-2.0.0
 
 ---
 
-**See also:** [GAZELLE_OPENG2P.md](GAZELLE_OPENG2P.md) (architecture) ·
-[OPENG2P_DEMO.md](OPENG2P_DEMO.md) (original walkthrough) ·
+**See also:**·
 [BUILDING-IMAGES.md](BUILDING-IMAGES.md) · [GOVSTACK.md](GOVSTACK.md) ·
 [MIFOS-GAZELLE-README.md](MIFOS-GAZELLE-README.md)
