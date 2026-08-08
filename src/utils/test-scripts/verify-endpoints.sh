@@ -88,6 +88,8 @@ check_endpoint "Redpanda Console"             "http://redpanda-console.${GAZELLE
 check_endpoint "Minio Console"                "http://minio-console.${GAZELLE_DOMAIN}"                    false
 check_endpoint "Zeebe Operate"                "http://zeebe-operate.${GAZELLE_DOMAIN}"                    false
 check_endpoint "PHEE Bulk Processor"          "https://bulk-processor.${GAZELLE_DOMAIN}"                  false
+# Not critical: OpenSPP is optional and off by default, so it is often not deployed.
+check_endpoint "OpenSPP"                      "https://openspp.${GAZELLE_DOMAIN}/web/login"               false
 check_endpoint "PHEE Connector Bulk"          "https://connector-bulk.${GAZELLE_DOMAIN}"                  false
 check_endpoint "PHEE Mojaloop Connector"      "https://mojaloop.${GAZELLE_DOMAIN}"                        false
 check_endpoint "PHEE AMS Mifos Connector"     "https://ams-mifos.${GAZELLE_DOMAIN}"                       false

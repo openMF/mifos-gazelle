@@ -59,19 +59,30 @@ in `ODOO_INIT_MODULES`), so there is **no separate init Job**.
 ## Prerequisites
 
 1. A running cluster. On a fresh machine: `sudo ./setup-env.sh -u $USER` (installs k3s + tools).
-2. The OpenSPP2 image **loaded into the cluster**. It is build-only (no published image yet), so build
-   the Dockerfile `production` target from the OpenSPP2 source and import it into k3s:
+2. `docker` with the buildx plugin, needed only when the image has to be built. Upstream OpenSPP2
+   publishes no image, so that is the default path. Point `OPENSPP_IMAGE_REPOSITORY` at a published
+   image and the cluster pulls it instead, with no build and no `docker` here. See
+   [Building images](BUILDING-IMAGES.md).
 
-   ```bash
-   git clone --branch v19.0.2.0.0 --depth 1 https://github.com/OpenSPP/OpenSPP2.git repos/OpenSPP2
-   cd repos/OpenSPP2
-   docker build --target production -t ghcr.io/openmf/openspp:19.0 -f docker/Dockerfile .
-   docker save ghcr.io/openmf/openspp:19.0 | sudo k3s ctr images import -
-   ```
-   (`src/utils/import-local-image-to-k3s.sh` helps with the import step.)
+The deploy checks three things in order and picks the cheapest that works: the image is already in the
+cluster, the image can be pulled from its registry, or it has to be built. Only the third one costs
+anything, about **30 minutes and 3 GB of disk** the first time, and the import step asks for `sudo`.
+Both the source checkout and the image are reused, so a second deploy does neither.
 
-   > Keep the node's `/` disk below ~85%, or k3s image garbage collection may evict this build-only
-   > image (it is not pullable from a registry).
+To build it by hand instead, or to look at what the deploy runs:
+
+```bash
+src/utils/build-and-import-image.sh -n ghcr.io/openmf/openspp -t 19.0 \
+    -c <OpenSPP2 checkout> -f <OpenSPP2 checkout>/docker/Dockerfile --target production
+```
+
+> The import loads the image into the container runtime of a k3s cluster **on this machine**, so it
+> does not work against a remote cluster, nor on macOS where the cluster lives inside the Colima VM.
+> There, build the image and `--push` it to a registry, or build it on the cluster node itself. The
+> deploy reports this before it starts building.
+
+> Keep the node's `/` disk below ~85%, or k3s image garbage collection may evict the image, which
+> cannot be pulled back.
 
 ## Configuration
 
@@ -80,7 +91,9 @@ in `ODOO_INIT_MODULES`), so there is **no separate init Job**.
 | Key | Default | Notes |
 |-----|---------|-------|
 | `enabled` | `false` | Optional DPG; deploy explicitly with `-a openspp`. |
-| `OPENSPP_IMAGE_REPOSITORY` / `OPENSPP_IMAGE_TAG` | `ghcr.io/openmf/openspp` / `19.0` | Image loaded above. |
+| `OPENSPP_IMAGE_REPOSITORY` / `OPENSPP_IMAGE_TAG` | `ghcr.io/openmf/openspp` / `19.0` | The image the pods run. Point these at a published image and nothing else has to change. |
+| `OPENSPP_BUILD_IF_MISSING` | `true` | Build during the deploy when the image is neither in the cluster nor pullable. `false` stops instead, printing the build command. |
+| `OPENSPP_SOURCE_REPO` / `OPENSPP_SOURCE_REF` | OpenSPP2 upstream / `v19.0.2.0.0` | Source used for that build. Only read when a build is needed. |
 | `OPENSPP_NAMESPACE` / `OPENSPP_RELEASE_NAME` | `openspp` | Namespace and Helm release. |
 | `OPENSPP_DB_PASSWORD_FILE` / `OPENSPP_ADMIN_PASSWORD_FILE` | empty | File paths for real secrets (prod/remote). Empty = local-dev defaults. |
 
@@ -94,9 +107,15 @@ holding real secrets.
 ./run.sh -m deploy -a openspp
 ```
 
-This deploys PostGIS, Odoo and the job worker, waits for them to be Ready, and runs a smoke test
-(`/web/login` returns 200 **and** the base module is installed). Re-deploying is idempotent (no
-`cleanapps` needed).
+This makes sure the image is available, deploys PostGIS, Odoo and the job worker, waits for them to be
+Ready, and runs `tests/openspp/smoke.sh`.
+
+Running it again is safe, but by default it removes the deployment and creates it new, so the database
+does not survive. Add `-r false` to upgrade the existing release and keep the data:
+
+```bash
+./run.sh -m deploy -a openspp -r false
+```
 
 ## Access
 
@@ -192,6 +211,44 @@ OK E2E demo PASSED - 5 subsidies paid this run
 Run it again and it pays nothing, because only entitlements that are still approved are paid. It still
 reports success, with `0 subsidies paid this run`. That is what makes it safe to re-run.
 
+### Which rail pays
+
+Two rails can move the money, and the run above used the first one:
+
+- **The bridge.** The demo script posts each subsidy to Payment Hub's `channel/transfer` itself.
+  OpenSPP is only the source of the entitlements and the place the result is written back, so it takes
+  no part in the payment. This needs nothing beyond a stock OpenSPP.
+- **OpenSPP's own payment manager**, the `spp_payment_phee` module. OpenSPP issues the payment batches,
+  sends them and reconciles the outcome against Payment Hub's operations API, so the two systems are
+  integrated rather than only sharing data.
+
+The demo decides at run time and prints the rail it took, so the output cannot be misread. That module
+is not part of upstream OpenSPP2, so which rail you get depends on the image you deployed:
+
+| What the image has | What the demo does |
+|--------------------|--------------------|
+| the module is not there | the bridge, after a warning saying so |
+| present but not installed | installs it, then OpenSPP's payment manager |
+| present and installed | OpenSPP's payment manager |
+
+Present but not installed is a normal state and not a fault: an image installs only the modules it is
+told to, and the module works from there.
+
+Either rail can be forced, which is what you want for a demonstration or to reproduce a run:
+
+```bash
+PAY_MODE=bridge    bash demos/openspp/run_demo.sh   # never looks at the module
+PAY_MODE=connector bash demos/openspp/run_demo.sh   # stops if the image lacks it
+```
+
+Forcing the connector on an image without the module stops the run rather than falling back, because
+reporting a rail that was never used is worse than stopping. Only the default falls back, and it says
+so. Both values map to `--pay-mode {auto,connector,bridge}` on
+`src/utils/openspp/openspp-agri-demo.py`, which is the name the error messages use.
+
+OpenSPP's payment manager is slower by design: it sends one batch per scheduled-action run instead of
+posting straight away, so the demo allows up to six minutes per payment against the bridge's two.
+
 ### What it looks like afterwards
 
 In OpenSPP, the programme cycle lists the five payments as reconciled and paid:
@@ -223,6 +280,9 @@ to point it somewhere else.
 | `OpenSPP did not answer` | Odoo is still starting. It can take about a minute after a fresh deploy. |
 | `transfer HTTP 403 insufficient balance` | The payer ran out of demo money. The demo tops it up itself; check the `greenbank` client in MifosX. |
 | `transfer sent but credit not seen` | The payment is still in flight, or a Payment Hub connector is not Ready. `kubectl get pods -n paymenthub`. |
+| `spp_payment_phee is not in this OpenSPP image` | Not a fault: the image does not carry OpenSPP's payment manager, so the run used the bridge. |
+| `--pay-mode connector cannot be honoured` | The connector was forced on an image without the module. Use `PAY_MODE=bridge`, or deploy an image that carries it. |
+| `OpenSPP created no payment batches for this cycle` | The connector was asked to pay entitlements OpenSPP has already paid. An entitlement is only payable again when all of its earlier payments failed, so that database needs a fresh deploy. |
 
 The data it loads comes from `demos/openspp/fixtures/`: edit `beneficiaries.csv` to change the
 households or the amounts.

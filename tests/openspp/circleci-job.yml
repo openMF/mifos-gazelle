@@ -37,7 +37,8 @@ commands:
           command: bash tests/openspp/smoke.sh
 
 jobs:
-  # OpenSPP2 is amd64-only (postgis/postgis:18-3.6-alpine has no arm64), so it has no arm64 job.
+  # amd64 only: the official postgis/postgis image publishes no arm64 manifest, so an arm64 job would
+  # need an arm64 PostGIS image passed in. OpenSPP itself does run on arm64.
   deploy-test-openspp-amd64:
     machine:
       image: ubuntu-2004:current

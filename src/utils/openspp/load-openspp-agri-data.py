@@ -33,6 +33,14 @@ from pathlib import Path
 
 PROGRAM_MODULE = "spp_starter_farmer_registry"
 REQUIRED_COLUMNS = ("household_name", "msisdn", "amount")
+# Approving a cycle and its entitlements needs an approval definition on each manager and
+# the matching role on the user. The program creation wizard sets both definitions; this
+# script builds the managers itself, so it sets them too. Neither role is implied by any
+# other group, so the user this script connects as has to be granted them.
+CYCLE_APPROVAL_DEFINITION = "spp_programs.approval_definition_cycle"
+ENTITLEMENT_APPROVAL_DEFINITION = "spp_programs.approval_definition_entitlement"
+APPROVER_GROUPS = ("spp_programs.group_programs_cycle_approver",
+                   "spp_programs.group_programs_validator")
 
 
 def load_fixtures(fixtures_dir):
@@ -119,6 +127,66 @@ def call_ignore_none(call, model, method, *cargs):
         if "cannot marshal None" in str(exc):
             return None
         raise
+
+
+def xmlid_to_id(call, xmlid):
+    """Resolve an Odoo external identifier to its database id."""
+    module, name = xmlid.split(".", 1)
+    rec = call("ir.model.data", "search_read",
+               [["module", "=", module], ["name", "=", name]], fields=["res_id"])
+    if not rec:
+        sys.exit(f"ERROR: external id {xmlid} not found")
+    return rec[0]["res_id"]
+
+
+def ensure_user_in_group(call, uid, xmlid):
+    """Give the connected user a security group, once.
+
+    Approving cycles and entitlements are specialised roles: no other group implies
+    them and no data file grants them, so they have to be added explicitly.
+    """
+    group_id = xmlid_to_id(call, xmlid)
+    if group_id in call("res.users", "read", [uid], fields=["group_ids"])[0]["group_ids"]:
+        return
+    call("res.users", "write", [uid], {"group_ids": [(4, group_id)]})
+    print(f"  added the demo user to {xmlid}", file=sys.stderr)
+
+
+def cycle_state(call, cycle_id):
+    """Current state of the cycle."""
+    return call("spp.cycle", "read", [cycle_id], fields=["state"])[0]["state"]
+
+
+def submit_cycle(call, cycle_id):
+    """Move the cycle to 'to_approve', leaving cycles that already moved on alone."""
+    state = cycle_state(call, cycle_id)
+    if state != "draft":
+        print(f"  cycle already past draft (state={state})", file=sys.stderr)
+        return
+    call_ignore_none(call, "spp.cycle", "action_submit_for_approval", [cycle_id])
+    state = cycle_state(call, cycle_id)
+    if state != "to_approve":
+        sys.exit(f"ERROR: cycle {cycle_id} stayed in '{state}' instead of 'to_approve'")
+
+
+def approve_cycle(call, cycle_id):
+    """Move the cycle to 'approved', leaving cycles that already moved on alone.
+
+    Approval is refused in two ways: by raising, and by returning a notification that
+    leaves the state untouched. Reading the state back catches both.
+    """
+    state = cycle_state(call, cycle_id)
+    if state != "to_approve":
+        print(f"  cycle not pending approval (state={state})", file=sys.stderr)
+        return
+    reason = ""
+    try:
+        call_ignore_none(call, "spp.cycle", "action_approve", [cycle_id])
+    except xmlrpc.client.Fault as exc:
+        reason = f" {exc.faultString.strip().splitlines()[-1]}"
+    state = cycle_state(call, cycle_id)
+    if state != "approved":
+        sys.exit(f"ERROR: cycle {cycle_id} stayed in '{state}' instead of 'approved'.{reason}")
 
 
 def ensure_journal(call, program_id):
@@ -283,27 +351,38 @@ def main():
     ensure_fund(call, program_id, item_amount * len(beneficiaries), f"{prog_name} fund")
     ensure_manager(call, program_id, "spp.program.entitlement.manager.cash",
                    "entitlement_manager_ids", f"{prog_name} cash entitlements",
-                   {"entitlement_item_ids": [(0, 0, {"amount": item_amount})]})
+                   {"entitlement_item_ids": [(0, 0, {"amount": item_amount})],
+                    "approval_definition_id": xmlid_to_id(call, ENTITLEMENT_APPROVAL_DEFINITION)})
     ensure_manager(call, program_id, "spp.cycle.manager.default",
                    "cycle_manager_ids", f"{prog_name} cycle manager",
-                   {"cycle_duration": 1, "rrule_type": "monthly"})
+                   {"cycle_duration": 1, "rrule_type": "monthly",
+                    "approval_definition_id": xmlid_to_id(call, CYCLE_APPROVAL_DEFINITION)})
+    for group in APPROVER_GROUPS:
+        ensure_user_in_group(call, uid, group)
 
     # No payment manager is configured here: that piece is what OpenSPP uses to send the
     # money itself, and it lives in an optional module. Leaving it out keeps this script
     # working on a stock OpenSPP image; the entitlements end up approved and are paid from
     # outside OpenSPP.
 
-    # Generate the entitlements through the managers (the canonical flow).
-    # copy -> cycle memberships enrolled; prepare -> draft cash entitlements;
-    # validate -> approved. All idempotent: prepare skips beneficiaries that already
-    # have an entitlement in the cycle, and validate only approves draft ones, so a
-    # re-run never re-approves paid subsidies (state 'rdpd2ben').
-    call("spp.cycle", "copy_beneficiaries_from_program", [cycle_id])
-    wait_for_cycle_members(call, cycle_id, len(beneficiaries))
-    call_ignore_none(call, "spp.cycle", "prepare_entitlement", [cycle_id])
+    # Run the cycle through the states its own interface offers, in that order:
+    # copy -> memberships enrolled; prepare -> draft entitlements; submit -> cycle
+    # to_approve; validate -> entitlements approved; approve -> cycle approved.
+    # The interface only offers the payment buttons on an approved cycle, so a cycle
+    # left in draft is a path no user could follow by hand.
+    # Idempotent: copy and prepare only run while the cycle is still draft, because
+    # OpenSPP refuses to edit a cycle that moved on and by then the data is there;
+    # validate only touches draft and pending_validation entitlements; and the two
+    # state steps skip a cycle that already moved on.
+    if cycle_state(call, cycle_id) == "draft":
+        call("spp.cycle", "copy_beneficiaries_from_program", [cycle_id])
+        wait_for_cycle_members(call, cycle_id, len(beneficiaries))
+        call_ignore_none(call, "spp.cycle", "prepare_entitlement", [cycle_id])
+    submit_cycle(call, cycle_id)
     res = call("spp.cycle", "validate_entitlement", [cycle_id])
     if isinstance(res, dict) and res.get("params", {}).get("type") == "danger":
         sys.exit(f"ERROR: entitlement validation failed: {res['params'].get('message')}")
+    approve_cycle(call, cycle_id)
 
     # Check the load actually produced what was asked for, and fail loudly if not:
     # the whole point of this script is to leave one entitlement per beneficiary.
@@ -319,8 +398,8 @@ def main():
                     [["cycle_id", "=", cycle_id], ["state", "=", "approved"]])
     cash = call("spp.entitlement", "search_count",
                 [["cycle_id", "=", cycle_id], ["is_cash_entitlement", "=", True]])
-    print(f"\nOK: program id={program_id}, cycle id={cycle_id}, entitlements={total}, "
-          f"cash={cash}, approved={approved}", file=sys.stderr)
+    print(f"\nOK: program id={program_id}, cycle id={cycle_id} ({cycle_state(call, cycle_id)}), "
+          f"entitlements={total}, cash={cash}, approved={approved}", file=sys.stderr)
 
 
 if __name__ == "__main__":
