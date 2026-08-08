@@ -1,8 +1,9 @@
 # Building images for Gazelle
 
-Most Gazelle components run images pulled from a registry. Some are **build-only**: they are not
-published anywhere, so they have to be built on the machine and loaded into the cluster's container
-runtime. `src/utils/build-and-import-image.sh` does both, for the architecture of the host it runs on.
+Most Gazelle components run images pulled from a registry. Some have no image published upstream, so
+someone has to build them, and there are two ways to get the result to the cluster: load it into the
+cluster's container runtime, or push it to a registry the cluster can pull from.
+`src/utils/build-and-import-image.sh` does both, for the architecture of the host it runs on.
 
 ## Quick start
 
@@ -26,10 +27,14 @@ Run `src/utils/build-and-import-image.sh --help` for all options.
 | `--push` | one or more platforms | pushed to the registry |
 
 They are separate on purpose. A multi-platform build produces a **manifest list**, an index that
-points to one image per architecture, and only a registry can store one. It cannot be exported with
-`docker save`, so it cannot be imported into a local cluster. Asking for several platforms without
-`--push` therefore fails with that explanation instead of producing something the local path cannot
-use.
+points to one image per architecture. Docker's classic image store cannot load one: `--load` fails with
+`docker exporter does not currently support exporting manifest lists`. The containerd image store does
+hold manifest lists, and it is [the default storage backend for Docker Engine 29.0 and later on fresh
+installations](https://docs.docker.com/engine/storage/containerd/), so this is about the image store
+rather than about registries. Even there the local path would not gain anything: `ctr images import`
+imports a single platform unless you pass `--all-platforms`, and building the other architecture on this
+machine means emulation, which is much slower than a native build. So asking for several platforms
+without `--push` fails with that explanation instead of paying for a build nobody uses.
 
 ## Architecture detection
 
@@ -48,6 +53,12 @@ instance, with nothing to remember.
   runtime and needs root. It resolves the user that owns the built image from `$SUDO_USER`, so it
   also works over a non-interactive ssh and in a pipeline, as long as `sudo` does not ask for a
   password.
+- **Registry credentials for `--push`.** The registry comes from the image name
+  (`ghcr.io/openmf/openspp` -> ghcr.io; a bare name -> Docker Hub). Credentials come from
+  `docker login <registry>`, which stores them in `$HOME/.docker/config.json`; this utility does not
+  handle authentication. For ghcr.io, GitHub needs a personal access token with the `write:packages`
+  scope. This is unrelated to `config.ini [dockerhub]`, which `src/utils/k3s-docker-login.sh` uses so
+  the **cluster can pull**, not so you can push.
 - **Disk space on the node.** k3s garbage-collects images when the disk fills up. A build-only image
   cannot be pulled back, so keep the node's root filesystem below about 85% or it may be evicted and
   have to be built again.
