@@ -2,6 +2,54 @@
 # mifosx.sh -- Mifos Gazelle deployer script for Mifos X 
 
 #------------------------------------------------------------------------------
+# Function: check_mifosx_images
+# Description: Warns about images referenced by the MifosX manifests that cannot be
+#              found in a registry. Some MifosX modules have no published image and
+#              are built from source (see docs/MIFOSX.md), so a missing image would
+#              otherwise surface only as an ImagePullBackOff after a long timeout.
+#              Advisory only — never blocks the deploy.
+# Parameters:
+#   $1 - Directory containing the MifosX manifests.
+#------------------------------------------------------------------------------
+check_mifosx_images() {
+    local manifests_dir="$1"
+    local image missing=()
+
+    # No docker (e.g. deploying to a remote cluster from a machine without it) —
+    # nothing to check against, so say nothing.
+    command -v docker > /dev/null 2>&1 || return 0
+
+    log_step "Checking module images are available"
+
+    # The awk below matches both "image: x" and the list-item form "- image: x".
+    # A commented "#image: x" does not match, so disabled pins are ignored.
+    while IFS= read -r image; do
+        [ -z "$image" ] && continue
+        if ! docker manifest inspect "$image" > /dev/null 2>&1; then
+            missing+=("$image")
+        fi
+    done < <(awk '/^[[:space:]]*-?[[:space:]]*image:[[:space:]]*/ {
+                      sub(/^[[:space:]]*-?[[:space:]]*image:[[:space:]]*/, "")
+                      gsub(/["'"'"']/, "")
+                      print
+                  }' "$manifests_dir"/*.yaml | sort -u)
+
+    if [ ${#missing[@]} -eq 0 ]; then
+        log_ok
+        return 0
+    fi
+
+    log_skipped
+    log_warn "Could not find ${#missing[@]} image(s) in a registry:"
+    for image in "${missing[@]}"; do
+        echo "             $image"
+    done
+    log_warn "If a module image has not been published yet, build and push it with"
+    log_warn "src/utils/build-and-import-image.sh — see docs/MIFOSX.md and docs/BUILDING-IMAGES.md."
+    log_warn "This check is advisory (a rate-limited or private registry looks the same); continuing."
+}
+
+#------------------------------------------------------------------------------
 # Function: deploy_mifosx_from_yaml
 # Description: Deploys MifosX (Fineract + web app) using Kubernetes manifests from a specified directory.
 # Parameters:
@@ -39,7 +87,11 @@ deploy_mifosx_from_yaml() {
     log_step "Updating FQDNs in manifests"
     apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/web-app-deployment.yaml" "$GAZELLE_DOMAIN"
     apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/web-app-ingress.yaml" "$GAZELLE_DOMAIN"
+    apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/mifos-workflow-ingress.yaml" "$GAZELLE_DOMAIN"
+    apply_domain_to_file "$MIFOSX_MANIFESTS_DIR/credit-bureau-ingress.yaml" "$GAZELLE_DOMAIN"
     log_ok
+
+    check_mifosx_images "$MIFOSX_MANIFESTS_DIR"
 
     log_step "Restoring MifosX database dump"
     "$DATA_LOADING_DIR/dump-restore-fineract-db.sh" -r > /dev/null

@@ -211,6 +211,44 @@ OK E2E demo PASSED - 5 subsidies paid this run
 Run it again and it pays nothing, because only entitlements that are still approved are paid. It still
 reports success, with `0 subsidies paid this run`. That is what makes it safe to re-run.
 
+### Which rail pays
+
+Two rails can move the money, and the run above used the first one:
+
+- **The bridge.** The demo script posts each subsidy to Payment Hub's `channel/transfer` itself.
+  OpenSPP is only the source of the entitlements and the place the result is written back, so it takes
+  no part in the payment. This needs nothing beyond a stock OpenSPP.
+- **OpenSPP's own payment manager**, the `spp_payment_phee` module. OpenSPP issues the payment batches,
+  sends them and reconciles the outcome against Payment Hub's operations API, so the two systems are
+  integrated rather than only sharing data.
+
+The demo decides at run time and prints the rail it took, so the output cannot be misread. That module
+is not part of upstream OpenSPP2, so which rail you get depends on the image you deployed:
+
+| What the image has | What the demo does |
+|--------------------|--------------------|
+| the module is not there | the bridge, after a warning saying so |
+| present but not installed | installs it, then OpenSPP's payment manager |
+| present and installed | OpenSPP's payment manager |
+
+Present but not installed is a normal state and not a fault: an image installs only the modules it is
+told to, and the module works from there.
+
+Either rail can be forced, which is what you want for a demonstration or to reproduce a run:
+
+```bash
+PAY_MODE=bridge    bash demos/openspp/run_demo.sh   # never looks at the module
+PAY_MODE=connector bash demos/openspp/run_demo.sh   # stops if the image lacks it
+```
+
+Forcing the connector on an image without the module stops the run rather than falling back, because
+reporting a rail that was never used is worse than stopping. Only the default falls back, and it says
+so. Both values map to `--pay-mode {auto,connector,bridge}` on
+`src/utils/openspp/openspp-agri-demo.py`, which is the name the error messages use.
+
+OpenSPP's payment manager is slower by design: it sends one batch per scheduled-action run instead of
+posting straight away, so the demo allows up to six minutes per payment against the bridge's two.
+
 ### What it looks like afterwards
 
 In OpenSPP, the programme cycle lists the five payments as reconciled and paid:
@@ -242,6 +280,9 @@ to point it somewhere else.
 | `OpenSPP did not answer` | Odoo is still starting. It can take about a minute after a fresh deploy. |
 | `transfer HTTP 403 insufficient balance` | The payer ran out of demo money. The demo tops it up itself; check the `greenbank` client in MifosX. |
 | `transfer sent but credit not seen` | The payment is still in flight, or a Payment Hub connector is not Ready. `kubectl get pods -n paymenthub`. |
+| `spp_payment_phee is not in this OpenSPP image` | Not a fault: the image does not carry OpenSPP's payment manager, so the run used the bridge. |
+| `--pay-mode connector cannot be honoured` | The connector was forced on an image without the module. Use `PAY_MODE=bridge`, or deploy an image that carries it. |
+| `OpenSPP created no payment batches for this cycle` | The connector was asked to pay entitlements OpenSPP has already paid. An entitlement is only payable again when all of its earlier payments failed, so that database needs a fresh deploy. |
 
 The data it loads comes from `demos/openspp/fixtures/`: edit `beneficiaries.csv` to change the
 households or the amounts.

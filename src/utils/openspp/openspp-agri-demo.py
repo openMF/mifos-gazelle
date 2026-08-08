@@ -460,6 +460,17 @@ def pay_via_connector(call, payee_headers, payable, program_id, program_name,
     return paid
 
 
+def mark_cycle_distributed(call, cycle_id):
+    """Close the cycle now that its subsidies are paid.
+
+    Only moves a cycle that is still approved, so a re-run leaves it alone.
+    """
+    if not cycle_id or loader.cycle_state(call, cycle_id) != "approved":
+        return
+    loader.call_ignore_none(call, "spp.cycle", "mark_distributed", [cycle_id])
+    print(f"Cycle {cycle_id} marked distributed", file=sys.stderr)
+
+
 def choose_pay_mode(call, asked):
     """Pick the rail: the native connector when the image carries it, the bridge otherwise.
 
@@ -551,6 +562,8 @@ def main():
     if not args.no_payer_topup:
         ensure_payer_funds(payer_headers, payer_msisdn, total_needed)
 
+    cycle_id = next((e.get("cycle_id") for e in payable if e.get("cycle_id")), None)
+
     # The rail is decided and reported before anything is sent.
     if choose_pay_mode(call, args.pay_mode) == "connector":
         paid = pay_via_connector(call, payee_headers, payable,
@@ -558,6 +571,8 @@ def main():
                                  payer_msisdn, writeback=not args.no_writeback)
         print(f"\nOK: {paid}/{len(payable)} agri subsidies disbursed via the native connector.",
               file=sys.stderr)
+        if paid == len(payable) and not args.no_writeback:
+            mark_cycle_distributed(call, cycle_id)
         print(paid)   # stdout: count for the orchestrator
         return
 
@@ -663,6 +678,8 @@ def main():
         print(msg, file=sys.stderr)
 
     print(f"\nOK: {paid}/{len(payable)} agri subsidies disbursed & confirmed in MifosX.", file=sys.stderr)
+    if paid == len(payable) and not args.no_writeback:
+        mark_cycle_distributed(call, cycle_id)
     print(paid)   # stdout: count for the orchestrator
 
 
