@@ -75,7 +75,8 @@ and only for an image that is not on the node already.
 To build the application image by hand instead, or to look at what the deploy runs:
 
 ```bash
-src/utils/build-and-import-image.sh -n ismaelyz23/openspp -t 19.0 \
+# <repository> and <tag>: OPENSPP_IMAGE_REPOSITORY and OPENSPP_IMAGE_TAG from the table below
+src/utils/build-and-import-image.sh -n <repository> -t <tag> \
     -c <OpenSPP2 checkout> -f <OpenSPP2 checkout>/docker/Dockerfile --target production
 ```
 
@@ -94,16 +95,22 @@ src/utils/build-and-import-image.sh -n ismaelyz23/openspp -t 19.0 \
 | Key | Default | Notes |
 |-----|---------|-------|
 | `enabled` | `false` | Optional DPG; deploy explicitly with `-a openspp`. |
-| `OPENSPP_IMAGE_REPOSITORY` / `OPENSPP_IMAGE_TAG` | `ismaelyz23/openspp` / `19.0` | The image the pods run, amd64 and arm64 under the same tag. Upstream publishes none, so it is built from their sources and it also carries OpenSPP's payment connector module. |
+| `OPENSPP_IMAGE_REPOSITORY` / `OPENSPP_IMAGE_TAG` | `ismaelyz23/openspp` / `2026.08` | The image the pods run, amd64 and arm64 under the same tag. Upstream publishes none, so it is built from their sources and it also carries OpenSPP's payment connector module. |
 | `OPENSPP_POSTGIS_REPOSITORY` / `OPENSPP_POSTGIS_TAG` | `postgis/postgis` / `18-3.6-alpine` | The database image, also used by the two wait-for-db init containers. The official one is amd64 only; arm64 needs a multi-architecture build. |
 | `OPENSPP_BUILD_IF_MISSING` | `true` | Build during the deploy when the image is neither in the cluster nor pullable. `false` stops instead, printing the build command. |
-| `OPENSPP_SOURCE_REPO` / `OPENSPP_SOURCE_REF` | OpenSPP2 upstream / `v19.0.2.0.0` | Source used for that build. Only read when a build is needed. |
+| `OPENSPP_SOURCE_REPO` / `OPENSPP_SOURCE_REF` | OpenSPP2 upstream / `2026.08` | Source used for that build. Only read when a build is needed. |
 | `OPENSPP_NAMESPACE` / `OPENSPP_RELEASE_NAME` | `openspp` | Namespace and Helm release. |
 | `OPENSPP_DB_PASSWORD_FILE` / `OPENSPP_ADMIN_PASSWORD_FILE` | empty | File paths for real secrets (prod/remote). Empty = local-dev defaults. |
 
 When the password files are empty, local-dev defaults are used: login **admin / admin** and a fixed DB
 password (which also keeps re-deploys idempotent). For production, point the `*_FILE` keys at files
 holding real secrets.
+
+**Moving to another OpenSPP release** is `OPENSPP_IMAGE_TAG` and `OPENSPP_SOURCE_REF` in this file,
+and nothing else. Both are needed: the deploy decides whether to build by comparing the image tag
+against what the cluster already has, so changing the source reference alone would redeploy the old
+image. The chart carries its own default in `appVersion` for a standalone `helm install`, and the
+deployer stops with the key name if either is missing.
 
 ## Deploy
 

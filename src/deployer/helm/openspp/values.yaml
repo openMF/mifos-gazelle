@@ -16,7 +16,9 @@ odoo:
   # and published; the deploy can also build it locally. Override repository/tag at deploy time.
   image:
     repository: ismaelyz23/openspp
-    tag: "19.0"
+    # Overrides the image tag whose default is the chart appVersion. src/deployer/openspp.sh sets it
+    # from config.ini [openspp]; empty here keeps the version in one place per artifact.
+    tag: ""
     # IfNotPresent means a node that already has this tag keeps it. Re-pushing the same tag does not
     # reach those nodes; use a new tag when the contents change.
     pullPolicy: IfNotPresent
