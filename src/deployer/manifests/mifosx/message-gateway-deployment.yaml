@@ -41,7 +41,7 @@ spec:
               fi
       containers:
         - name: message-gateway
-          image: openmf/message-gateway:pull-85-1581967
+          image: openmf/message-gateway:dev-51abedb
           imagePullPolicy: IfNotPresent
           env:
             - name: DB_URL
