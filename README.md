@@ -18,7 +18,7 @@ See [Deployment Guide](docs/MIFOS-GAZELLE-README.md) for prerequisites and full 
 
 To also deploy OpenG2P (Government-to-Person payments), enable it in `config/config.ini` and run `./run.sh -m deploy -a openg2p`. See [OpenG2P](docs/GAZELLE_OPENG2P.md) for details.
 
-To deploy OpenSPP (social registry, OpenSPP2 / Odoo 19) run `./run.sh -m deploy -a openspp`. It is off by default and needs its image loaded into the cluster first. With the whole stack up, `bash demos/openspp/run_demo.sh` runs an agri subsidy end to end, from OpenSPP through Payment Hub into MifosX. See [OpenSPP](docs/OPENSPP.md) for details.
+To deploy OpenSPP (social registry, OpenSPP2 / Odoo 19) run `./run.sh -m deploy -a openspp`. It is off by default and pulls its images, so there is nothing to build on amd64. With the whole stack up, `bash demos/openspp/run_demo.sh` runs an agri subsidy end to end, from OpenSPP through Payment Hub into MifosX. See [OpenSPP](docs/OPENSPP.md) for details.
 
 For Latest Development Release (May not be stable):
 ```bash

@@ -369,9 +369,7 @@ deploy_apps() {
         deploy_openg2p
         ;;
       "openspp")
-        if [[ "$redeploy" == "true" ]]; then
-          cleanup_openspp
-        fi
+        # deploy_openspp handles redeploy itself, so its checks run before anything is removed.
         deploy_openspp
         ;;
       *)
