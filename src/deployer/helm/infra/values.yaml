@@ -359,4 +359,6 @@ postgresql:
         # tables inside this database on first startup (schema-update=true).
         02-create-workflow-db.sql: |
           CREATE DATABASE mifos_flowable;
+        03-create-messagegateway-db.sql: |
+          CREATE DATABASE messagegateway;
 
