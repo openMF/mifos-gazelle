@@ -65,6 +65,29 @@ spec:
               name: fineract-etcfonts
             - mountPath: /nativelibs
               name: fineract-nativelibs
+        # Enable the external-event types the Loan Assessment module consumes.
+        # Runs after the DB dump restore and before Fineract boots, so the app
+        # reads the enabled config at startup. Only the "default" tenant is set:
+        # the module calls Fineract back with a single, fixed tenant id.
+        - name: enable-loan-events
+          image: postgres:16-alpine
+          env:
+            - name: PGPASSWORD
+              value: "postgrespw"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              until pg_isready -h postgres.infra.svc.cluster.local -p 5432 -U postgres; do
+                echo "waiting for postgres..."; sleep 3
+              done
+              psql -h postgres.infra.svc.cluster.local -U postgres -d fineract_default -v ON_ERROR_STOP=1 -c \
+                "UPDATE m_external_event_configuration SET enabled = true WHERE type IN (
+                   'LoanCreatedBusinessEvent','LoanApplicationModifiedBusinessEvent',
+                   'LoanRejectedBusinessEvent','LoanWithdrawnByApplicantBusinessEvent',
+                   'DocumentCreatedBusinessEvent','DocumentDeletedBusinessEvent');"
+              echo "loan/document external events enabled on tenant 'default'"
       containers:
         - env:
             - name: JAVA_TOOL_OPTIONS
@@ -136,6 +159,13 @@ spec:
               value: "/opt/nativelibs"
             - name: FONTCONFIG_PATH
               value: "/etc/fonts"
+            # External events -> Kafka, consumed by the Loan Assessment module.
+            - name: FINERACT_EXTERNAL_EVENTS_ENABLED
+              value: "true"
+            - name: FINERACT_EXTERNAL_EVENTS_KAFKA_ENABLED
+              value: "true"
+            - name: FINERACT_EXTERNAL_EVENTS_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka.infra.svc.cluster.local:9092"
           #image: openmf/fineract:develop
           #image: openmf/fineract:1.11
           image: openmf/fineract:1.14.0
