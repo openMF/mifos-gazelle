@@ -2,8 +2,10 @@
 # openg2p.sh -- Mifos Gazelle deployer script for OpenG2P
 #
 # Each OpenG2P module is its own helm release so subchart-generated object names
-# never collide across modules. Deploy order: CRDs, then commons (Postgres/Keycloak/
-# MinIO foundation), then each enabled module gated on its own pods being ready.
+# never collide across modules. Deploy order: CRDs, then commons (the shared
+# Postgres + Keycloak foundation — deployed only when a module that uses it is
+# enabled; skipped for a self-contained PBMS-only run), then each enabled module
+# gated on its own pods being ready.
 
 OPENG2P_HELM_DIR="${BASE_DIR}/src/deployer/helm/openg2p"
 OPENG2P_CRDS_DIR="${BASE_DIR}/src/deployer/manifests/openg2p"
@@ -13,18 +15,32 @@ OPENG2P_MODULES=(social-registry pbms spar g2p-bridge)
 
 #------------------------------------------------------------------------------
 # Function : _openg2p_check_arch
-# Description: OpenG2P's upstream container images are published for linux/amd64
-#              only — there are no arm64/aarch64 variants. On an ARM host the pods
-#              would fail to schedule/run ("exec format error"), so we refuse to
-#              deploy up front with a clear message instead of failing deep in.
-# Returns: 0 on amd64 (x86_64); 1 on arm64/aarch64 (or anything non-amd64).
+# Description: Arch gate based on the CLUSTER NODES (where the pods actually run),
+#              NOT on the host running this script — a remote deploy can drive an
+#              amd64 cluster from an arm64 workstation, so `uname -m` here is
+#              misleading. Falls back to the host arch only if kubectl can't reach
+#              the cluster yet.
+#              On amd64 nodes every OpenG2P config works. On arm64 nodes only the
+#              PBMS-only demo is supported — it is fully multi-arch (pbms-core
+#              rebuild, bitnamilegacy postgres/redis, postgres:16-alpine checker,
+#              and commons skipped). social-registry/spar/g2p-bridge still need
+#              commons (Keycloak/keycloak-init/postgres-init), which ship amd64-only
+#              upstream, so those configs are refused on arm64.
+# Returns: 0 when the enabled config can run on the node arch; 1 otherwise.
 #------------------------------------------------------------------------------
 _openg2p_check_arch() {
-  local arch
-  arch=$(uname -m)
-  if [[ "$arch" != "x86_64" ]]; then
-    log_error "OpenG2P is not supported on '${arch}' — its upstream images are amd64/x86_64 only."
-    log_error "Deploy OpenG2P on an amd64 host, or disable it (config.ini [openg2p] enabled=false)."
+  local node_arch
+  node_arch=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}' 2>/dev/null)
+  [[ -z "$node_arch" ]] && node_arch=$(uname -m)
+
+  # amd64 / x86_64 nodes: nothing to gate.
+  [[ "$node_arch" == "amd64" || "$node_arch" == "x86_64" ]] && return 0
+
+  # arm64 nodes: PBMS-only is fine; the commons-backed modules are not.
+  if _openg2p_commons_needed; then
+    log_error "OpenG2P on ${node_arch} nodes: social-registry/spar/g2p-bridge require"
+    log_error "commons (Keycloak/keycloak-init/postgres-init), which are amd64-only upstream."
+    log_error "On arm64 run PBMS-only (disable those modules), or deploy on amd64 nodes."
     return 1
   fi
   return 0
@@ -56,7 +72,7 @@ deploy_openg2p() {
   create_ingress_secret "$OPENG2P_NAMESPACE" \
     "openg2p.$GAZELLE_DOMAIN" \
     "openg2p-tls" \
-    "social-registry.$GAZELLE_DOMAIN,pbms.$GAZELLE_DOMAIN,spar.$GAZELLE_DOMAIN,g2p-bridge.$GAZELLE_DOMAIN,keycloak.$GAZELLE_DOMAIN,minio-og2p.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN"
+    "social-registry.$GAZELLE_DOMAIN,pbms.$GAZELLE_DOMAIN,spar.$GAZELLE_DOMAIN,g2p-bridge.$GAZELLE_DOMAIN,keycloak.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN"
   log_ok
 
   # OpenG2P charts emit Istio/logging/monitoring objects Gazelle has no controllers for.
@@ -78,11 +94,27 @@ deploy_openg2p() {
     fi
   done
 
-  # Commons is the hard dependency — modules connect to its Postgres/Keycloak, so an
-  # unhealthy commons is fatal (modules can only fail against a broken foundation).
-  if ! _deploy_openg2p_release "openg2p-commons" "openg2p-commons"; then
-    log_error "OpenG2P commons did not become ready — aborting OpenG2P deploy"
-    return 1
+  # Commons (Postgres + Keycloak) is the shared foundation for social-registry,
+  # spar and g2p-bridge — but PBMS is self-contained and consumes none of it.
+  # Deploy commons only when a module actually needs it; for a PBMS-only run skip
+  # it entirely (an empty commons release would just hang the readiness gate for
+  # startup_timeout before failing, since it can't tell "no pods yet" from "no
+  # pods ever"). When it IS needed it stays the hard dependency: an unhealthy
+  # commons is fatal, as the modules can only fail against a broken foundation.
+  if _openg2p_commons_needed; then
+    if ! _deploy_openg2p_release "openg2p-commons" "openg2p-commons"; then
+      log_error "OpenG2P commons did not become ready — aborting OpenG2P deploy"
+      return 1
+    fi
+  else
+    log_skipped "OpenG2P commons not needed — no shared-DB/SSO module enabled (PBMS is self-contained); skipping"
+    # Tear down a commons left over from a previous full deploy so a PBMS-only run
+    # doesn't keep an unused Postgres/Keycloak (and its custom amd64 images) around.
+    if helm status "openg2p-commons" -n "$OPENG2P_NAMESPACE" > /dev/null 2>&1; then
+      log_step "Removing unused OpenG2P commons release"
+      _clean_openg2p_release "openg2p-commons"
+      log_ok
+    fi
   fi
 
   # Deploy each enabled module as its own release, gated per-release on its own pods.
@@ -133,9 +165,12 @@ _openg2p_print_urls() {
     printf "$fmt" "SPAR (API):"       "https://spar.$d/api/mapper"
   [[ "$(_openg2p_module_enabled g2p-bridge)" == "true" ]] && \
     printf "$fmt" "G2P Bridge (API):" "https://g2p-bridge.$d"
-  # Shared commons services (always present once commons is deployed)
-  printf "$fmt" "Keycloak:"           "https://keycloak.$d"
-  printf "$fmt" "MinIO:"              "https://minio-og2p.$d"
+  # Keycloak is the only shared commons UI (MinIO/Kafka-UI/OpenSearch have no
+  # consumer and stay disabled). It exists only when commons was deployed — i.e.
+  # a PBMS-only run has no commons and nothing to link here.
+  if _openg2p_commons_needed; then
+    printf "$fmt" "Keycloak:"           "https://keycloak.$d"
+  fi
 }
 
 #------------------------------------------------------------------------------
@@ -356,6 +391,26 @@ _openg2p_module_enabled() {
     *)               val="false" ;;
   esac
   echo "$val" | tr '[:upper:]' '[:lower:]'
+}
+
+#------------------------------------------------------------------------------
+# Function : _openg2p_commons_needed
+# Description: The commons release (Postgres + postgres-init + Keycloak) is the
+#   shared DB/SSO foundation for the modules that connect to it: social-registry,
+#   spar and g2p-bridge. PBMS is self-contained — it runs its own odoo Postgres
+#   and bg-task DBs and logs in via local Odoo auth — so a PBMS-only deploy needs
+#   no commons workload at all. Returns 0 (true) when any commons consumer is enabled.
+#
+#   Skipping commons for a PBMS-only run also keeps that path ARM-clean: the only
+#   custom amd64-only OpenG2P images (keycloak -g2p1, keycloak-init, postgres-init)
+#   live in commons, so not deploying it removes them.
+#------------------------------------------------------------------------------
+_openg2p_commons_needed() {
+  local m
+  for m in social-registry spar g2p-bridge; do
+    [[ "$(_openg2p_module_enabled "$m")" == "true" ]] && return 0
+  done
+  return 1
 }
 
 #------------------------------------------------------------------------------
