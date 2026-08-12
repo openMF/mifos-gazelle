@@ -26,6 +26,7 @@ import argparse
 import csv
 import datetime
 import json
+import ssl
 import sys
 import time
 import xmlrpc.client
@@ -41,6 +42,20 @@ CYCLE_APPROVAL_DEFINITION = "spp_programs.approval_definition_cycle"
 ENTITLEMENT_APPROVAL_DEFINITION = "spp_programs.approval_definition_entitlement"
 APPROVER_GROUPS = ("spp_programs.group_programs_cycle_approver",
                    "spp_programs.group_programs_validator")
+
+
+def xmlrpc_proxy(url):
+    """ServerProxy for url, skipping TLS checks on https.
+
+    The Gazelle ingress certificate is self-signed, the same reason the other scripts here
+    pass verify=False.
+    """
+    if not url.startswith("https://"):
+        return xmlrpc.client.ServerProxy(url)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return xmlrpc.client.ServerProxy(url, context=ctx)
 
 
 def load_fixtures(fixtures_dir):
@@ -254,8 +269,9 @@ def main():
     default_fixtures = here.parent.parent.parent.parent / "demos" / "openspp" / "fixtures"
 
     ap = argparse.ArgumentParser(description="Load agri demo data into OpenSPP2 via XML-RPC")
-    # Odoo is reached over a port-forward (kubectl port-forward svc/openspp-odoo 8069:8069),
-    # not the ingress, which is optional and serves a self-signed certificate.
+    # The caller chooses how Odoo is reached; run_demo.sh passes the URL it picked. This
+    # default suits a forward opened by hand:
+    #   kubectl port-forward svc/openspp-odoo 8069:8069 -n openspp
     ap.add_argument("--url", default="http://localhost:8069")
     ap.add_argument("--db", default="openspp")
     ap.add_argument("--user", default="admin")
@@ -265,11 +281,11 @@ def main():
 
     program_fx, beneficiaries = load_fixtures(args.fixtures)
 
-    common = xmlrpc.client.ServerProxy(f"{args.url}/xmlrpc/2/common")
+    common = xmlrpc_proxy(f"{args.url}/xmlrpc/2/common")
     uid = common.authenticate(args.db, args.user, args.password, {})
     if not uid:
         sys.exit(f"ERROR: authentication failed for {args.user}@{args.db}")
-    models = xmlrpc.client.ServerProxy(f"{args.url}/xmlrpc/2/object")
+    models = xmlrpc_proxy(f"{args.url}/xmlrpc/2/object")
 
     # Thin wrapper: caller passes the raw Odoo args (domain / vals / ids) directly.
     def call(model, method, *cargs, **ckw):
