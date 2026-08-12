@@ -26,9 +26,9 @@ commands:
           name: Build and import the OpenSPP2 image (build-only, not published)
           command: |
             git clone --branch v19.0.2.0.0 --depth 1 https://github.com/OpenSPP/OpenSPP2.git repos/OpenSPP2
-            docker build --target production -t ghcr.io/openmf/openspp:19.0 \
+            docker build --target production -t ismaelyz23/openspp:19.0 \
               -f repos/OpenSPP2/docker/Dockerfile repos/OpenSPP2
-            docker save ghcr.io/openmf/openspp:19.0 | sudo k3s ctr images import -
+            docker save ismaelyz23/openspp:19.0 | sudo k3s ctr images import -
       - run:
           name: Deploy OpenSPP
           command: ./run.sh -m deploy -a openspp -d true
