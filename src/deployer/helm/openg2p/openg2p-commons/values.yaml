@@ -1,15 +1,36 @@
 ############################################################
 # OpenG2P commons — shared infra for all OpenG2P modules.
-# Deploys into the openg2p namespace: Postgres, Keycloak (+keycloak-init),
-# MinIO, Kafka + Kafka-UI, OpenSearch (search/index only), Redis + Redis-auth,
-# SoftHSM, and the postgres-init DB jobs.
+# Deploys into the openg2p namespace: Postgres, Keycloak (+keycloak-init) and
+# the postgres-init DB jobs. That is commons' entire contract with the modules.
 # Domain baseline: mifos.gazelle.test — patched to live GAZELLE_DOMAIN at deploy time.
+#
+# Note: this whole commons release is deployed by openg2p.sh ONLY when a module
+# that needs it (social-registry / spar / g2p-bridge) is enabled — a PBMS-only
+# run skips commons entirely (PBMS is self-contained: its own odoo Postgres and
+# bg-task DBs, local Odoo auth). The values below describe the FULL foundation as
+# those modules need it; there is no per-service disable flag to keep in sync.
 #
 # Istio note: every service that emits an Istio Gateway/VirtualService has an
 # <service>.istio.enabled toggle, set false here EXCEPT keycloak, whose
 # Gateway/VirtualService render unconditionally on keycloak.enabled. openg2p.sh
-# installs the minimal Istio networking CRDs so those two objects apply
-# harmlessly; real traffic is routed via the NGINX ingress below.
+# installs the minimal Istio networking CRDs so those objects apply harmlessly;
+# real traffic is routed via the NGINX ingress below.
+#
+# ── Why Kafka, Kafka-UI, OpenSearch, MinIO, SoftHSM and both Redis are off ──
+# They are upstream's monolithic-install stack. In Gazelle no module consumes
+# any of them, verified two ways:
+#   1. Every '*InstallationName' in the social-registry / spar / g2p-bridge
+#      charts templates to '{{ .Release.Name }}-...' — i.e. each module points
+#      at services inside its OWN release, never at commons. social-registry
+#      vendors its own kafka/minio/opensearch/redis/softhsm subcharts; spar and
+#      g2p-bridge reference no object store, broker or search index at all.
+#      PBMS likewise uses its own pbms-postgresql/pbms-redis.
+#   2. Measured live before switching them off: commons Kafka had zero topics,
+#      OpenSearch zero application indices, MinIO zero buckets, and both Redis
+#      instances showed ~1 command per connection (health probes only).
+# Together they cost ~2.7Gi RSS, 7 pods and ~28Gi of local-path PVCs.
+# The only cross-release references the modules need are commons-postgresql and
+# commons-keycloak, which stay enabled below.
 ############################################################
 
 commons:
@@ -18,15 +39,28 @@ commons:
     keycloakBaseUrl: "https://keycloak.mifos.gazelle.test"
     keycloakInternalUrl: "http://openg2p-commons-keycloak:80"
     sysAdminEmail: admin@mifos.gazelle.test
+    # Retained with the services themselves disabled: keycloak-init still emits
+    # the openg2p-kafka / openg2p-opensearch / openg2p-minio OIDC clients (they
+    # are not gated on the subchart toggles) and templates these into their
+    # redirect URIs. Harmless orphans — nothing mounts their secrets — but
+    # leaving the values set keeps the URIs off the upstream trial.openg2p.org
+    # defaults. Drop these three once keycloak-init's client list is trimmed.
     kafkaUiHostname: "kafka.mifos.gazelle.test"
     opensearchHostname: "opensearch.mifos.gazelle.test"
-    # minio-og2p (not minio.): PaymentHub already owns minio.mifos.gazelle.test and
-    # the NGINX admission webhook rejects a duplicate host+path. Mirrors PBMS's own
-    # minio-pbms host. Keep in sync with the TLS SAN in openg2p.sh + /etc/hosts.
     minioHostname: "minio-og2p.mifos.gazelle.test"
 
   ############################################################
-  # Keycloak — shared SSO for all OpenG2P modules.
+  # Keycloak (+ keycloak-init) — shared SSO/OIDC for the OpenG2P modules:
+  # social-registry / spar / g2p-bridge authenticate against it, and it backs the
+  # MinIO console SSO. PBMS does NOT use it (local Odoo auth), which is precisely
+  # why a PBMS-only deploy skips this entire commons release in openg2p.sh rather
+  # than toggling anything here. Left enabled so that when a module DOES need
+  # commons, the foundation is complete.
+  #
+  # ARM note: the g2p keycloak build (24.0.5-debian-12-r1-g2p1) and keycloak-init
+  # are custom amd64-only images with no multi-arch equivalent — that is the
+  # reason the ARM-friendly PBMS-only path skips commons entirely instead of
+  # trying to run these on ARM.
   ############################################################
   keycloak:
     ingress:
@@ -56,55 +90,71 @@ commons:
   postgresql:
     istio:
       enabled: false
+    # Repoint openg2p/postgresql (amd64 only) to bitnamilegacy/postgresql at the
+    # same tag: same image (Bitnami moved deleted tags to bitnamilegacy), and it
+    # is published multi-arch (amd64+arm64), so commons Postgres runs on ARM.
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/postgresql
+      tag: 16.4.0-debian-12-r14
 
   ############################################################
-  # MinIO — shared object store.
+  # MinIO — no consumer. social-registry ships its own (minio-sr) and PBMS its
+  # own (pbms-minio, also disabled); spar and g2p-bridge use no object store.
+  # Disabling also drops the minio-og2p ingress — keep the TLS SAN in openg2p.sh
+  # and the /etc/hosts list in environmentSetup.sh in step with that.
   ############################################################
   minio:
-    hostname: "minio-og2p.mifos.gazelle.test"
-    # Upstream requests 16Gi; halved for the demo VM's local-path volume.
-    persistence:
-      size: 8Gi
-    istio:
-      enabled: false
-    ingress:
-      enabled: true
-      ingressClassName: nginx
-      annotations:
-        nginx.ingress.kubernetes.io/ssl-redirect: "true"
-      hostname: "minio-og2p.mifos.gazelle.test"
-      tls: true
-      extraTls:
-        - hosts:
-            - "minio-og2p.mifos.gazelle.test"
-          secretName: openg2p-tls
+    enabled: false
 
   ############################################################
-  # OpenSearch — search/index only. Dashboards UI + its reporting jobs are
-  # disabled: the dashboards OIDC callback doesn't resolve in-cluster (mirrors
-  # the same fix in openg2p-social-registry/values.yaml).
+  # OpenSearch — no consumer. Every OpenSearch feature here was already off
+  # (dashboards, loggingOutput, savedSearch, ismPolicy, indexTemplate), leaving
+  # a 1.7Gi JVM serving nothing. social-registry's CDC pipeline (debezium ->
+  # kafka -> opensearch-kafka-connector) runs entirely inside the SR release
+  # against SR's own OpenSearch, so enabling SR does not need this one.
+  # NOTE: the infra namespace runs Elasticsearch 8.10, which is NOT a drop-in
+  # substitute — the products diverged after the fork (ES 8 rejects OpenSearch
+  # clients on the X-Elastic-Product header, and the OpenSearch security-plugin
+  # OIDC config has no ES equivalent). Re-enable this chart rather than
+  # repointing anything at infra-elasticsearch.
   ############################################################
   opensearch:
-    istio:
-      enabled: false
-    # banzaicloud Logging Operator Flow/Output CRDs are not installed in Gazelle
-    loggingOutput:
-      enabled: false
-    dashboards:
-      enabled: false
-    # These jobs import saved searches/ISM policy/index templates INTO
-    # opensearch-dashboards; with dashboards disabled they hang until timeout.
-    savedSearch:
-      enabled: false
-    ismPolicy:
-      enabled: false
-    indexTemplate:
-      enabled: false
-    # Upstream requests 8Gi; halved for the demo VM's local-path volume.
-    master:
-      persistence:
-        size: 4Gi
+    enabled: false
 
-  kafkaUi:
-    istio:
-      enabled: false
+  ############################################################
+  # Kafka — no consumer (zero topics when measured). social-registry brings its
+  # own broker; spar and g2p-bridge reference no broker at all.
+  # Kafka-UI needs no separate toggle: every kafka-ui template in commons-base
+  # is guarded on '.Values.kafka.enabled' before its own, so both go together.
+  ############################################################
+  kafka:
+    enabled: false
+
+  ############################################################
+  # SoftHSM — its only clients are keymanager, esignet and idgenerator, none of
+  # which Gazelle deploys (all three are disabled in the social-registry values).
+  ############################################################
+  softhsm:
+    enabled: false
+
+  ############################################################
+  # Redis (plain) and Redis-auth — no consumer. PBMS uses pbms-redis-master,
+  # g2p-bridge its own '<release>-redis-master', social-registry its own
+  # bg-tasks-redis + superset-redis. Redis-auth exists upstream only for
+  # esignet, which is disabled.
+  #
+  # These two are the awkward pair: their entries in openg2p-commons-base's
+  # Chart.yaml carry NO 'condition:' field (unlike every other dependency), so
+  # the `enabled` key each chart defines is inert — setting it false changes
+  # nothing. Driving master.count to 0 is what actually removes them: the
+  # bitnami redis master StatefulSet renders 'replicas: {{ .Values.master.count }}',
+  # and at 0 the workload drops out entirely. A few inert ConfigMaps, a
+  # ServiceAccount and a headless Service remain; no pods, no memory.
+  ############################################################
+  redis:
+    master:
+      count: 0
+  redis-auth:
+    master:
+      count: 0

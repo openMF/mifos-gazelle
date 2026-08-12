@@ -27,6 +27,15 @@ pbms:
   # Odoo — the PBMS web UI.
   ############################################################
   odoo:
+    # ARM: repoint the pbms-core app image to a self-built multi-arch rebuild.
+    # Upstream openg2p/openg2p-pbms-core:3.0.0 is amd64-only (its CI runs a plain
+    # `docker build`, not buildx). This is a multi-arch (amd64+arm64) rebuild of
+    # the SAME source (github.com/OpenG2P/openg2p-pbms-docker @ tag 3.0.0),
+    # buildx-published to a personal registry. Revert to openg2p/openg2p-pbms-core
+    # once upstream ships a multi-arch tag.
+    image:
+      repository: gous0786/openg2p-pbms-core
+      tag: "3.0.0"
     hostname: "pbms.mifos.gazelle.test"
     # DEMO-ONLY fixed admin login (do not use on a shared/exposed cluster). Makes
     # the odoo subchart write this into the 'pbms-odoo' secret instead of
@@ -107,11 +116,13 @@ pbms:
       istio:
         enabled: false
       # Upstream's bitnami/postgresql:16.3.0-debian-12-r16 tag was deleted from
-      # Docker Hub (ImagePullBackOff: NotFound). Repoint to OpenG2P's mirror of
-      # the same image (same fix as the social-registry release).
+      # Docker Hub (ImagePullBackOff: NotFound). Use bitnamilegacy/ — the same
+      # image Bitnami moved the deleted tags to, and (unlike openg2p's amd64-only
+      # mirror) it is published multi-arch (amd64+arm64), so PBMS Postgres runs
+      # on ARM. Tag is identical.
       image:
         registry: docker.io
-        repository: openg2p/postgresql
+        repository: bitnamilegacy/postgresql
         tag: 16.3.0-debian-12-r16
       # Upstream reserves 2Gi/1cpu, limit 3Gi — a demo DB needs far less; mirror
       # the commons Postgres sizing.
@@ -124,29 +135,51 @@ pbms:
             memory: 1Gi
 
   ############################################################
-  # MinIO — PBMS/odoo S3 object store.
+  # MinIO — off: nothing points at it. The odoo subchart only wires S3 when its
+  # own S3 settings are supplied, and they are not, so the rendered pbms-odoo
+  # Deployment carries no S3_*/MINIO_* env at all (confirmed against the live
+  # pod before disabling: the bucket store was empty, only .minio.sys). Odoo's
+  # filestore lives on the pbms-odoo PVC either way. Costs 107Mi + an 8Gi
+  # local-path PVC to run unused.
+  #
+  # 'odoo.minio.hostname' below stays set — the odoo subchart resolves it when
+  # building S3_URL, so removing it would fall back to an upstream default.
   ############################################################
   minio:
-    hostname: "minio-pbms.mifos.gazelle.test"
-    istio:
-      enabled: false
-    # Upstream ships no resource limits at all.
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 512Mi
-    # Upstream requests 16Gi; halved for the demo VM's local-path volume.
-    persistence:
-      size: 8Gi
+    enabled: false
+
+  ############################################################
+  # Redis — PBMS bg-task (celery) broker/backend. Repoint openg2p/redis (amd64
+  # only) to bitnamilegacy/redis at the same tag: same image, published
+  # multi-arch (amd64+arm64), so PBMS Redis runs on ARM.
+  ############################################################
+  redis:
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/redis
+      tag: 7.2.5-debian-12-r4
 
   ############################################################
   # Background task workers (api, celery-beat-producer, celery-worker) — ship
-  # with no resource limits upstream. celery-worker gets the most headroom
-  # (processes batches); api and the beat producer are light coordinators.
+  # with no resource limits upstream. celery-worker processes batches; the beat
+  # producer polls the beneficiary-list tables on a schedule (a fuller working
+  # set than a plain coordinator — it sits ~440Mi and spiked past a 512Mi cap,
+  # OOMKilled), so it gets the same 768Mi headroom as the worker. The api is the
+  # only genuinely light one.
   ############################################################
+  # postgres-checker init container: upstream defaults it to
+  # jbergknoff/postgresql-client:latest — an amd64-only, unpinned image from a
+  # personal Docker Hub namespace. The container only ever runs `pg_isready` to
+  # wait for Postgres, so repoint it at the official, multi-arch, version-pinned
+  # postgres:16-alpine (ships pg_isready on PATH; runs fine as the pod's non-root
+  # user). One swap fixes the ARM gap and the supply-chain/pinning concerns.
+  # Applied identically to all three bg-task subcharts.
   openg2p-pbms-bg-task-api:
+    postgresCheckerInit:
+      image:
+        registry: docker.io
+        repository: postgres
+        tag: "16.9-alpine"
     resources:
       requests:
         cpu: 50m
@@ -155,14 +188,24 @@ pbms:
         memory: 512Mi
 
   openg2p-pbms-bg-task-celery-beat-producers:
+    postgresCheckerInit:
+      image:
+        registry: docker.io
+        repository: postgres
+        tag: "16.9-alpine"
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 256Mi
       limits:
-        memory: 512Mi
+        memory: 768Mi
 
   openg2p-pbms-bg-task-celery-workers:
+    postgresCheckerInit:
+      image:
+        registry: docker.io
+        repository: postgres
+        tag: "16.9-alpine"
     resources:
       requests:
         cpu: 100m

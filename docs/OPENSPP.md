@@ -60,20 +60,23 @@ in `ODOO_INIT_MODULES`), so there is **no separate init Job**.
 ## Prerequisites
 
 1. A running cluster. On a fresh machine: `sudo ./setup-env.sh -u $USER` (installs k3s + tools).
-2. `docker` with the buildx plugin, needed only when the image has to be built. Upstream OpenSPP2
-   publishes no image, so that is the default path. Point `OPENSPP_IMAGE_REPOSITORY` at a published
-   image and the cluster pulls it instead, with no build and no `docker` here. See
-   [Building images](BUILDING-IMAGES.md).
+2. Nothing else on amd64: the images are pulled. `docker` with the buildx plugin is only needed to
+   build the application image yourself, which is the fallback when the configured one cannot be
+   pulled. See [Building images](BUILDING-IMAGES.md).
 
 The deploy checks three things in order and picks the cheapest that works: the image is already in the
 cluster, the image can be pulled from its registry, or it has to be built. Only the third one costs
 anything, about **30 minutes and 3 GB of disk** the first time, and the import step asks for `sudo`.
 Both the source checkout and the image are reused, so a second deploy does neither.
 
-To build it by hand instead, or to look at what the deploy runs:
+Before any of that, the deploy checks that both images publish a build for the architecture of the
+cluster nodes, and stops with the key to change if they do not. That check costs one registry request,
+and only for an image that is not on the node already.
+
+To build the application image by hand instead, or to look at what the deploy runs:
 
 ```bash
-src/utils/build-and-import-image.sh -n ghcr.io/openmf/openspp -t 19.0 \
+src/utils/build-and-import-image.sh -n ismaelyz23/openspp -t 19.0 \
     -c <OpenSPP2 checkout> -f <OpenSPP2 checkout>/docker/Dockerfile --target production
 ```
 
@@ -92,7 +95,8 @@ src/utils/build-and-import-image.sh -n ghcr.io/openmf/openspp -t 19.0 \
 | Key | Default | Notes |
 |-----|---------|-------|
 | `enabled` | `false` | Optional DPG; deploy explicitly with `-a openspp`. |
-| `OPENSPP_IMAGE_REPOSITORY` / `OPENSPP_IMAGE_TAG` | `ghcr.io/openmf/openspp` / `19.0` | The image the pods run. Point these at a published image and nothing else has to change. |
+| `OPENSPP_IMAGE_REPOSITORY` / `OPENSPP_IMAGE_TAG` | `ismaelyz23/openspp` / `19.0` | The image the pods run, amd64 and arm64 under the same tag. Upstream publishes none, so it is built from their sources and it also carries OpenSPP's payment connector module. |
+| `OPENSPP_POSTGIS_REPOSITORY` / `OPENSPP_POSTGIS_TAG` | `postgis/postgis` / `18-3.6-alpine` | The database image, also used by the two wait-for-db init containers. The official one is amd64 only; arm64 needs a multi-architecture build. |
 | `OPENSPP_BUILD_IF_MISSING` | `true` | Build during the deploy when the image is neither in the cluster nor pullable. `false` stops instead, printing the build command. |
 | `OPENSPP_SOURCE_REPO` / `OPENSPP_SOURCE_REF` | OpenSPP2 upstream / `v19.0.2.0.0` | Source used for that build. Only read when a build is needed. |
 | `OPENSPP_NAMESPACE` / `OPENSPP_RELEASE_NAME` | `openspp` | Namespace and Helm release. |
@@ -112,7 +116,8 @@ This makes sure the image is available, deploys PostGIS, Odoo and the job worker
 Ready, and runs `tests/openspp/smoke.sh`.
 
 Running it again is safe, but by default it removes the deployment and creates it new, so the database
-does not survive. Add `-r false` to upgrade the existing release and keep the data:
+does not survive. That removal happens after the checks above, so a deploy that cannot work leaves what
+you had alone. Add `-r false` to upgrade the existing release and keep the data:
 
 ```bash
 ./run.sh -m deploy -a openspp -r false
@@ -127,9 +132,10 @@ OpenSPP is exposed over HTTPS through the shared NGINX ingress at `openspp.${GAZ
 https://openspp.mifos.gazelle.test/web/login      # admin / admin
 ```
 
-`setup-env.sh` adds the host to `/etc/hosts`. On Linux it can point to `127.0.0.1` (stable across
-restarts); on a remote VM, point it at the VM IP from your client machine. The TLS certificate is
-self-signed, so accept the warning on first visit.
+`setup-env.sh` adds the host to `/etc/hosts` when it sets up a local cluster. It does not in `-e remote`
+mode, so there you add it by hand, pointing at the VM IP from your client machine. On Linux a local
+cluster can point to `127.0.0.1`, which is stable across restarts. The TLS certificate is self-signed,
+so accept the warning on first visit.
 
 Without the ingress you can port-forward:
 
@@ -232,6 +238,10 @@ is not part of upstream OpenSPP2, so which rail you get depends on the image you
 | present but not installed | installs it, then OpenSPP's payment manager |
 | present and installed | OpenSPP's payment manager |
 
+The default image carries the module, so the middle row is what you get: the demo installs it and pays
+through OpenSPP's payment manager. An image built from upstream sources does not carry it, so that one
+takes the bridge.
+
 Present but not installed is a normal state and not a fault: an image installs only the modules it is
 told to, and the module works from there.
 
@@ -284,6 +294,7 @@ to point it somewhere else.
 | `spp_payment_phee is not in this OpenSPP image` | Not a fault: the image does not carry OpenSPP's payment manager, so the run used the bridge. |
 | `--pay-mode connector cannot be honoured` | The connector was forced on an image without the module. Use `PAY_MODE=bridge`, or deploy an image that carries it. |
 | `OpenSPP created no payment batches for this cycle` | The connector was asked to pay entitlements OpenSPP has already paid. An entitlement is only payable again when all of its earlier payments failed, so that database needs a fresh deploy. |
+| `The cluster could not pull: <image>` | The node cannot fetch that image. Check the name and the tag. On `toomanyrequests`, the node hit Docker Hub's anonymous limit: fill `[dockerhub]` in `config.ini`, or load the image into the node by hand. |
 
 The data it loads comes from `demos/openspp/fixtures/`: edit `beneficiaries.csv` to change the
 households or the amounts.
@@ -436,9 +447,17 @@ it; the file explains how to enable it.
 
 ## Notes / limitations
 
-- **amd64 by default**: the official `postgis/postgis:18-3.6-alpine` publishes a `linux/amd64` manifest
-  only, so the chart pins the pods to amd64 nodes through the `arch` value in `values.yaml`. Running on
-  arm64 needs both an arm64 PostGIS image (`postgis.image.*`) and an arm64 build of the OpenSPP image.
-- **Image is build-only.** An official OpenSPP2 image (Docker Hub / GHCR) is not published yet; once it
-  is, set `OPENSPP_IMAGE_*` to pull it instead of building locally.
+- **Architectures.** The deploy reads the architecture of the cluster nodes and pins the pods to it, so
+  the images have to match:
+
+  | Image | Architectures | Note |
+  |-------|---------------|------|
+  | `ismaelyz23/openspp` (application) | amd64, arm64 | one tag for both; upstream publishes no image, so this is built from their sources |
+  | `postgis/postgis` (database) | amd64 | the official repository publishes no arm64 manifest |
+
+  So **arm64 needs one key changed**, the database image: `OPENSPP_POSTGIS_REPOSITORY=imresamu/postgis`
+  keeps the same tag and publishes both architectures. If you forget it, the deploy stops and prints
+  that line instead of failing later. Details and alternatives in [Building images](BUILDING-IMAGES.md).
+- **The application image is not published by OpenSPP.** They publish none, so Gazelle points at a build
+  of their sources. Once an image exists under Mifos, changing `OPENSPP_IMAGE_REPOSITORY` is all it takes.
 - The async **job worker** runs as a separate Deployment (it starts after Odoo has initialised the DB).
