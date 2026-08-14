@@ -2,8 +2,8 @@ apiVersion: v2
 name: openspp
 description: Gazelle-owned Helm wrapper chart for OpenSPP2 (Odoo 19 + PostGIS 18).
 type: application
-version: 0.2.1
-appVersion: "19.0"
+version: 0.3.0
+appVersion: "2026.08"
 home: https://github.com/openMF/mifos-gazelle
 sources:
   - https://github.com/OpenSPP/OpenSPP2

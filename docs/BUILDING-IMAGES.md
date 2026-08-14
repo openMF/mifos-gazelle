@@ -9,7 +9,8 @@ cluster's container runtime, or push it to a registry the cluster can pull from.
 
 ```bash
 # build for the host architecture and import into k3s
-src/utils/build-and-import-image.sh -n ismaelyz23/openspp -t 19.0 \
+# <repository> and <tag>: OPENSPP_IMAGE_REPOSITORY and OPENSPP_IMAGE_TAG in config.ini [openspp]
+src/utils/build-and-import-image.sh -n <repository> -t <tag> \
     -c <OpenSPP2 checkout> -f <OpenSPP2 checkout>/docker/Dockerfile --target production
 
 # build a multi-architecture image and push it to a registry
