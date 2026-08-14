@@ -23,9 +23,15 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ----------------------------------------------------------------------
 _deterministic_mode = True          # default: deterministic
 TENANTS = {
-    "bluebank": 2,
+    "bluebank": 6,
     "greenbank": 1,
     "redbank": 1
+}
+DEMO_MSISDNS = {
+    "greenbank": ["0413356886"],
+    "bluebank":  ["0495822412", "0424942603", "0445271476",
+                  "0450258089", "0498660918", "0472794194"],
+    "redbank":   ["0423810475"],
 }
 # Only register payee tenants with identity-account-mapper (beneficiaries)
 # Payer tenants (greenbank, redbank) don't need identity-account-mapper registration
@@ -608,6 +614,9 @@ if __name__ == "__main__":
             'bluebank': '0495'    # 0495xxxxxx for bluebank
         }
         for tenant_id, num_clients in TENANTS.items():
+            if tenant_id in DEMO_MSISDNS:
+                unique_mobile_numbers.extend(DEMO_MSISDNS[tenant_id][:num_clients])
+                continue
             prefix = tenant_prefixes.get(tenant_id, '0400')
             # Use tenant-specific seed for deterministic but unique numbers
             tenant_seed = int(hashlib.sha256(tenant_id.encode()).hexdigest(), 16) % (10 ** 8)
