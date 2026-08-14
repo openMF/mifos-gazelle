@@ -30,6 +30,7 @@ vNext) on one machine.
 
 import argparse
 import datetime
+import http.client
 import importlib.util
 import ssl
 import sys
@@ -53,6 +54,9 @@ AUDIT_ROWS_SCANNED = 25
 # The connector sends one batch per cron run, so it waits longer than the bridge.
 CONNECTOR_POLL_TRIES = 45   # -> up to 6 min per payment
 CONNECTOR_MODULE = "spp_payment_phee"
+# Connection closed while idle. The request fails on send, so a retry cannot duplicate it.
+DROPPED = (ssl.SSLEOFError, ssl.SSLZeroReturnError, http.client.RemoteDisconnected,
+           http.client.CannotSendRequest, ConnectionResetError, BrokenPipeError)
 
 
 def _load(name, path):
@@ -93,11 +97,26 @@ def openspp_call(url, db, user, pw):
     Odoo's XML-RPC API keeps no session: execute_kw takes the database, user id and
     password on every call, so the closure carries them.
     """
-    uid = xmlrpc_proxy(f"{url}/xmlrpc/2/common").authenticate(db, user, pw, {})
-    if not uid:
-        sys.exit(f"ERROR: OpenSPP auth failed for {user}@{db}")
-    models = xmlrpc_proxy(f"{url}/xmlrpc/2/object")
-    return lambda model, method, *a, **k: models.execute_kw(db, uid, pw, model, method, list(a), k)
+    def connect():
+        uid = xmlrpc_proxy(f"{url}/xmlrpc/2/common").authenticate(db, user, pw, {})
+        if not uid:
+            sys.exit(f"ERROR: OpenSPP auth failed for {user}@{db}")
+        return uid, xmlrpc_proxy(f"{url}/xmlrpc/2/object")
+
+    uid, models = connect()
+
+    # The demo idles for minutes polling MifosX, and the ingress closes the connection at 75s.
+    def call(model, method, *a, **k):
+        nonlocal uid, models
+        try:
+            return models.execute_kw(db, uid, pw, model, method, list(a), k)
+        except DROPPED as exc:
+            print(f"  OpenSPP connection dropped ({type(exc).__name__}), reconnecting",
+                  file=sys.stderr)
+            uid, models = connect()
+            return models.execute_kw(db, uid, pw, model, method, list(a), k)
+
+    return call
 
 
 def read_approved_entitlements(call, program_name):
