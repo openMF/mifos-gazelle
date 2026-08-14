@@ -7,6 +7,7 @@
 - [Access](#access)
 - [Using it once deployed](#using-it-once-deployed)
 - [The agri demo: OpenSPP to Payment Hub to MifosX](#the-agri-demo-openspp-to-payment-hub-to-mifosx)
+- [The agri credit demo: farmer registry to a MifosX loan](#the-agri-credit-demo-farmer-registry-to-a-mifosx-loan)
 - [Smoke test](#smoke-test)
 - [Teardown](#teardown)
 - [Notes / limitations](#notes--limitations)
@@ -305,6 +306,134 @@ to point it somewhere else.
 
 The data it loads comes from `demos/openspp/fixtures/`: edit `beneficiaries.csv` to change the
 households or the amounts.
+
+## The agri credit demo: farmer registry to a MifosX loan
+
+The second demo uses the same registry for something else. Instead of a government paying a subsidy,
+a bank lends: the farm record decides whether the farmer qualifies and how much they can borrow, and
+the loan is opened and disbursed in MifosX.
+
+It reuses the households of the first demo, so the same farmer can hold a subsidy and a loan. The
+first demo is untouched by it.
+
+```bash
+bash demos/openspp/run_credit_demo.sh
+```
+
+### What it needs
+
+| Namespace | Why |
+|-----------|-----|
+| `openspp` | the registry, the scorecard and the consent record |
+| `mifosx` | the loan product, the loan and the disbursement |
+
+Payment Hub and the switch are not involved: the bank lends to its own client, so no money crosses
+institutions.
+
+It reaches OpenSPP over a `kubectl port-forward`, and says which port it opened. MifosX and the
+workflow engine it reads by hostname, so the Gazelle names still have to resolve.
+
+### How the registry decides
+
+The score comes from OpenSPP's own scoring engine (`spp_scoring`), which the demo installs and
+configures on first run. Five attributes of the farm are read straight from the registry:
+
+| Attribute | Registry field | Worth |
+|-----------|----------------|-------|
+| Farm size | `farm_size_hectares` | up to 30 |
+| Years farming | `experience_years` | up to 30 |
+| Land tenure | `land_tenure_id` | up to 25, owned above leased |
+| Livestock held | `total_livestock_heads` | up to 10 |
+| Land under production | `has_productive_land` | 5, and required |
+
+The total lands in one of three bands, and the band caps what the land alone would justify:
+
+| Band | Score | Borrowing limit |
+|------|-------|-----------------|
+| A | 75 and above | 100% |
+| B | 50 to 74.99 | 75% |
+| C | below 50 | 50% |
+
+The amount is `100 + 150 per hectare`, capped by the band. With the fixture as it ships, the five
+farmers come out at 90, 90, 80, 52 and 42 points, so the demo shows three bands rather than five
+identical loans.
+
+Every assessment is kept: the result carries the score, the band, the version of the scorecard, the
+value of each attribute and what each one contributed. That record is what justifies the loan, and a
+copy of it travels to the bank.
+
+> This scorecard is an example, not credit policy. What the demo shows is how registry data reaches
+> a lending decision and stays auditable, not how a bank should decide.
+
+### Consent
+
+A subsidy is the registry paying its own beneficiary. A loan sends personal data to a third party,
+so the demo records the farmer's consent first, using OpenSPP's consent module: who signs, which
+organisation receives the data, for which purpose, which categories of data, and when it expires. A
+farmer without consent on record is skipped and the run says so.
+
+The bank receives the score and the attributes behind it, never the registry record.
+
+### Which rail opens the loan
+
+| Value | What happens |
+|-------|--------------|
+| `auto` (default) | uses the workflow engine when it answers, Fineract on its own otherwise |
+| `workflow` | the Mifos workflow engine runs its BPMN loan origination process |
+| `direct` | straight against Fineract |
+
+```bash
+ORIGINATION=direct bash demos/openspp/run_credit_demo.sh
+```
+
+The workflow rail is the interesting one: its process has a **Credit Assessment** step, and the
+score from the registry is what that step receives. Its Fineract tenant is fixed at deploy time
+(`greenbank`), so the borrower is created there. The direct rail lends from `bluebank`, where the
+farmers already hold the account that received the subsidy, so the loan lands in that same account
+and the statement shows the two side by side.
+
+Two things about the workflow rail worth knowing before choosing it. It needs `workflow.<domain>` to
+resolve. That name is written by `setup-env.sh` and never by `run.sh`, so a machine prepared before
+the engine had an ingress keeps an older list and cannot reach the rail even though the engine is
+Ready. Add the line to `/etc/hosts`, or point the rail elsewhere with `WORKFLOW_URL`. And the engine
+does not pass a linked savings account through to Fineract, so on that rail the loan is paid out with
+no destination account and the farmer's savings balance does not move.
+
+### What the loan carries
+
+| Where | What |
+|-------|------|
+| Client `externalId` | the registry identifier of the household |
+| Datatable `openspp_registry_snapshot` | score, band, scorecard version, hectares, crop and consent |
+| Collateral | the land parcel, with its size and tenure |
+| Loan purpose | `Agricultural inputs` |
+
+So the loan does not just exist: it says what it was granted on.
+
+### What it looks like afterwards
+
+In OpenSPP, the scoring results keep one assessment per farmer and per run, each with its score and
+the band it fell into:
+
+![OpenSPP scoring results, five farm households scored into three bands](openspp-demo-images/credit-scores-openspp.png)
+
+In MifosX, the loan carries that assessment on a tab of its own:
+
+![MifosX loan showing the openspp_registry_snapshot datatable with the registrant, the score and the band](openspp-demo-images/loan-evidence-mifosx.png)
+
+The score and the band on the loan are the ones the engine produced, 90 and A here, and the amount
+follows from them. What ties the two records together is the registry identifier, `openspp-12` in this
+loan, which MifosX also holds as the client's external id.
+
+### If something fails
+
+| Symptom | Cause |
+|---------|-------|
+| `farmer(s) have no farm recorded` | The registry was loaded with an older fixture. Run the demo again, which reloads it. |
+| `no consent on record` | The household has no head registered, so nobody can sign. Check `head_name` in the fixture. |
+| `the workflow engine did not answer` | Not a fault on `auto`: the run falls back to Fineract. On `workflow` it stops instead. When the engine is Ready it is the name that is missing: add `workflow.<domain>` to `/etc/hosts`, or pass `WORKFLOW_URL`. |
+| `could not create the loan product` | Fineract rejected the product. Check the currency matches the tenant. |
+| `its evidence justifies <amount>` | The loan and the record behind it disagree, which is a real failure and not a rounding gap. |
 
 ## Smoke test
 
