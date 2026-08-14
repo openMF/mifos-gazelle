@@ -119,6 +119,10 @@ def load_fixtures(fixtures_dir):
     return program, beneficiaries
 
 
+# Odoo's refusal when a scheduled action holds the registry.
+MODULE_OPS_BUSY = "Module operations are not possible"
+
+
 def ensure_module_installed(call, module, tries=60, interval=5):
     """Install an Odoo module if it is not installed yet, then wait until it is.
 
@@ -136,11 +140,25 @@ def ensure_module_installed(call, module, tries=60, interval=5):
         return
     print(f"Installing module {module} (may take a few minutes)...", file=sys.stderr)
     mod_id = rec[0]["id"]
-    try:
-        call("ir.module.module", "button_immediate_install", [mod_id])
-    except Exception as exc:
-        print(f"  install RPC dropped ({exc}); polling state", file=sys.stderr)
+    started = False
     for _ in range(tries):
+        if not started:
+            try:
+                call("ir.module.module", "button_immediate_install", [mod_id])
+                started = True
+            except Exception as exc:
+                # Odoo refuses module operations while a cron runs, and then the install
+                # never started, so it has to be retried rather than waited on. A fresh
+                # deploy fires every cron at once, which is when this happens.
+                if MODULE_OPS_BUSY in str(exc):
+                    print("  Odoo busy with a scheduled action; retrying the install",
+                          file=sys.stderr)
+                    time.sleep(interval)
+                    continue
+                # Any other failure means the install did start and the registry reload
+                # dropped the connection: from here on we only poll.
+                print(f"  install RPC dropped ({exc}); polling state", file=sys.stderr)
+                started = True
         time.sleep(interval)
         try:
             state = call("ir.module.module", "read", [mod_id], fields=["state"])[0]["state"]
@@ -149,6 +167,9 @@ def ensure_module_installed(call, module, tries=60, interval=5):
         if state == "installed":
             print(f"Module {module} installed", file=sys.stderr)
             return
+    if not started:
+        sys.exit(f"ERROR: Odoo stayed busy with a scheduled action, so the install of "
+                 f"{module} never started")
     sys.exit(f"ERROR: module {module} did not reach state 'installed' in time")
 
 
