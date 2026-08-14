@@ -25,10 +25,15 @@ commands:
       - run:
           name: Build and import the OpenSPP2 image (build-only, not published)
           command: |
-            git clone --branch v19.0.2.0.0 --depth 1 https://github.com/OpenSPP/OpenSPP2.git repos/OpenSPP2
-            docker build --target production -t ghcr.io/openmf/openspp:19.0 \
+            # Image and source pin come from config.ini, the one place they are declared. crudini is
+            # installed by the setup step above.
+            source_repo=$(crudini --get config/config.ini openspp OPENSPP_SOURCE_REPO)
+            source_ref=$(crudini --get config/config.ini openspp OPENSPP_SOURCE_REF)
+            image="$(crudini --get config/config.ini openspp OPENSPP_IMAGE_REPOSITORY):$(crudini --get config/config.ini openspp OPENSPP_IMAGE_TAG)"
+            git clone --branch "$source_ref" --depth 1 "$source_repo" repos/OpenSPP2
+            docker build --target production -t "$image" \
               -f repos/OpenSPP2/docker/Dockerfile repos/OpenSPP2
-            docker save ghcr.io/openmf/openspp:19.0 | sudo k3s ctr images import -
+            docker save "$image" | sudo k3s ctr images import -
       - run:
           name: Deploy OpenSPP
           command: ./run.sh -m deploy -a openspp -d true

@@ -37,28 +37,55 @@ openspp_resolve_secret() {
     fi
 }
 
-# Host architecture in Kubernetes naming, used for the chart's nodeSelector.
-# Same mapping as src/environmentSetup/k8s.sh. Set OPENSPP_ARCH to override, or to ""
-# to deploy without a nodeSelector.
+# Architecture the pods must run on, in Kubernetes naming, used for the chart's nodeSelector.
+# Read from the cluster, which is what the selector matches: an arm64 laptop can drive an amd64
+# node. Empty when the nodes mix architectures, which deploys without a nodeSelector.
+# Set OPENSPP_ARCH to override, or to "" for no nodeSelector.
 openspp_detect_arch() {
-    case "$(uname -m)" in
-        x86_64)        echo "amd64" ;;
-        aarch64|arm64) echo "arm64" ;;
-        *)             echo "" ;;
-    esac
+    local arches
+    arches=$(kubectl get nodes -o jsonpath='{.items[*].status.nodeInfo.architecture}' 2>/dev/null \
+        | tr ' ' '\n' | sort -u)
+    [[ -n "$arches" && $(wc -l <<< "$arches") -eq 1 ]] && echo "$arches"
+    return 0
 }
 
-# True when the image is already loaded in the cluster's container runtime.
+# Image name as the kubelet reports it: a name without a registry host resolves to Docker Hub,
+# and a single-segment name lives under library/.
+openspp_qualified_image() {
+    local name="$1" host="${1%%/*}"
+    if [[ "$name" != */* ]]; then
+        echo "docker.io/library/$name"
+    elif [[ "$host" == *.* || "$host" == *:* || "$host" == localhost ]]; then
+        echo "$name"
+    else
+        echo "docker.io/$name"
+    fi
+}
+
+# True when the image is already loaded in the cluster's container runtime. $1 = image:tag.
 openspp_image_in_cluster() {
     kubectl get nodes -o jsonpath='{.items[*].status.images[*].names[*]}' 2>/dev/null \
-        | tr ' ' '\n' | grep -qx "${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG}"
+        | tr ' ' '\n' | grep -qx "$(openspp_qualified_image "$1")"
 }
 
 # Asks the registry for the manifest only: 0 pullable, 1 not there, 2 nothing here to ask with.
-# The node does the pulling, so a missing local docker is not an answer about the image.
+# The node does the pulling, so a missing local docker is not an answer about the image. A pull
+# limit is not an answer either, while a denied or unknown manifest is.
 openspp_image_pullable() {
+    local image="$1" out
     command -v docker &> /dev/null || return 2
-    docker manifest inspect "${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG}" &> /dev/null || return 1
+    out=$(docker manifest inspect "$image" 2>&1) && return 0
+    grep -qi 'toomanyrequests' <<< "$out" && return 2
+    return 1
+}
+
+# Does the image publish a manifest for this architecture? 0 yes, 1 no, 2 cannot tell from here.
+# $1 = image:tag, $2 = architecture.
+openspp_image_has_arch() {
+    local manifest
+    command -v docker &> /dev/null || return 2
+    manifest=$(docker manifest inspect --verbose "$1" 2>/dev/null) || return 2
+    grep -q "\"architecture\": *\"$2\"" <<< "$manifest"
 }
 
 # True when an image built here can be loaded into this cluster. The import runs 'k3s ctr' on
@@ -112,21 +139,39 @@ openspp_build_image() {
         --target production "${extra[@]}"
 }
 
+# Stop when an image the pods need has no build for this cluster, which no pull can fix. Only asks
+# about images that are not on the node already, so a warm deploy still makes no network call.
+# $1 = image:tag, $2 = what it is, $3 = how to change it.
+openspp_require_arch() {
+    local image="$1" role="$2" hint="$3" has=0
+    [[ -n "$OPENSPP_ARCH" ]] || return 0
+    openspp_image_in_cluster "$image" && return 0
+    openspp_image_has_arch "$image" "$OPENSPP_ARCH" || has=$?
+    [[ $has -eq 1 ]] || return 0
+
+    log_error "The $role image $image publishes no ${OPENSPP_ARCH} manifest, so its pods cannot start on this cluster."
+    log_error "$hint"
+    exit 1
+}
+
 # Make sure the image is available to the cluster, building it when that is the only way left.
 # The three checks go from cheapest to most expensive: reading the node is free, asking the
 # registry is one short request, building is about half an hour. So the usual case, where the
 # image is already there, makes no network call at all.
 openspp_ensure_image() {
-    openspp_image_in_cluster && return 0
+    local image="${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG}"
+    openspp_image_in_cluster "$image" && return 0
 
     local pullable=0
-    openspp_image_pullable || pullable=$?
+    openspp_image_pullable "$image" || pullable=$?
     if [[ $pullable -eq 0 ]]; then
-        log_with_level "$INFO" "Image ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} is not loaded but can be pulled. Letting Kubernetes pull it."
+        openspp_require_arch "$image" "application" \
+            "Point OPENSPP_IMAGE_REPOSITORY and OPENSPP_IMAGE_TAG in config.ini [openspp] at a build for this architecture."
+        log_with_level "$INFO" "Image $image is not loaded but can be pulled. Letting Kubernetes pull it."
         return 0
     fi
     if [[ $pullable -eq 2 ]]; then
-        log_with_level "$INFO" "Image ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} is not loaded and cannot be checked from here (no docker). Letting Kubernetes pull it; an unreachable image shows up as ImagePullBackOff while waiting for the pods."
+        log_with_level "$INFO" "Image $image is not loaded and cannot be checked from here (no docker). Letting Kubernetes pull it; an unreachable image shows up as ImagePullBackOff while waiting for the pods."
         return 0
     fi
 
@@ -135,18 +180,18 @@ openspp_ensure_image() {
     # after an import.
     if [[ "$OPENSPP_BUILD_IF_MISSING" == "true" ]] && openspp_can_import_image \
         && openspp_build_image; then
-        log_with_level "$INFO" "Image ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} built and imported."
+        log_with_level "$INFO" "Image $image built and imported."
         return 0
     fi
 
-    log_error "Image ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} is not in the cluster and cannot be pulled."
+    log_error "Image $image is not in the cluster and cannot be pulled."
     if [[ "$OPENSPP_BUILD_IF_MISSING" == "true" ]] && ! openspp_can_import_image; then
         log_error "It cannot be built here either: the import needs a k3s cluster running on this machine."
         log_error "Build it and push it to a registry:  src/utils/build-and-import-image.sh -n <registry>/openspp -t ${OPENSPP_IMAGE_TAG} -c <OpenSPP2 checkout> -f <OpenSPP2 checkout>/docker/Dockerfile --target production --push"
         log_error "Or build it on the cluster node itself and import it there."
     else
         log_error "Build and import it with:  src/utils/build-and-import-image.sh -n ${OPENSPP_IMAGE_REPOSITORY} -t ${OPENSPP_IMAGE_TAG} -c <OpenSPP2 checkout> -f <OpenSPP2 checkout>/docker/Dockerfile --target production"
-        log_error "Or import an image you already built:  docker save ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} | sudo k3s ctr images import -"
+        log_error "Or import an image you already built:  docker save $image | sudo k3s ctr images import -"
         if [[ "$OPENSPP_BUILD_IF_MISSING" != "true" ]]; then
             log_error "Set OPENSPP_BUILD_IF_MISSING = true in config.ini [openspp] to build it automatically."
         fi
@@ -154,18 +199,29 @@ openspp_ensure_image() {
     exit 1
 }
 
+# Exit when a required config value is empty or unset, rather than defaulting to a literal here.
+# $@ = names of the required variables.
+openspp_require_config() {
+    local name
+    for name in "$@"; do
+        if [[ -z "${!name:-}" ]]; then
+            log_error "$name is not set. Declare it in config/config.ini, section [openspp]."
+            exit 1
+        fi
+    done
+}
+
 openspp_check_prerequisites() {
     OPENSPP_NAMESPACE="${OPENSPP_NAMESPACE:-openspp}"
     OPENSPP_RELEASE_NAME="${OPENSPP_RELEASE_NAME:-openspp}"
-    OPENSPP_IMAGE_REPOSITORY="${OPENSPP_IMAGE_REPOSITORY:-ghcr.io/openmf/openspp}"
-    OPENSPP_IMAGE_TAG="${OPENSPP_IMAGE_TAG:-19.0}"
-    OPENSPP_ARCH="${OPENSPP_ARCH-$(openspp_detect_arch)}"
-    OPENSPP_POSTGIS_REPOSITORY="${OPENSPP_POSTGIS_REPOSITORY:-postgis/postgis}"
-    OPENSPP_POSTGIS_TAG="${OPENSPP_POSTGIS_TAG:-18-3.6-alpine}"
+    # Deliberately false when unset: a missing key must not start a 30-minute build on its own.
     OPENSPP_BUILD_IF_MISSING="${OPENSPP_BUILD_IF_MISSING:-false}"
-    OPENSPP_SOURCE_REPO="${OPENSPP_SOURCE_REPO:-https://github.com/OpenSPP/OpenSPP2.git}"
-    OPENSPP_SOURCE_REF="${OPENSPP_SOURCE_REF:-v19.0.2.0.0}"
     OPENSPP_SOURCE_DIR="${OPENSPP_SOURCE_DIR:-$RUN_DIR/repos/OpenSPP2}"
+    # Images, versions and the source pin live only in config.ini [openspp], so moving to a new
+    # release is one file.
+    openspp_require_config OPENSPP_IMAGE_REPOSITORY OPENSPP_IMAGE_TAG \
+        OPENSPP_POSTGIS_REPOSITORY OPENSPP_POSTGIS_TAG \
+        OPENSPP_SOURCE_REPO OPENSPP_SOURCE_REF
 
     if ! command -v kubectl &> /dev/null; then
         log_error "kubectl not found. Please install kubectl (or run setup-env.sh first)."
@@ -179,7 +235,14 @@ openspp_check_prerequisites() {
         log_error "Kubernetes cluster not reachable. Start k3s / run: sudo ./setup-env.sh"
         exit 1
     fi
-    # The image is not published yet, so it has to reach the cluster before the pods start.
+    # Needs the cluster, so it is resolved after the check above and not with the other defaults.
+    OPENSPP_ARCH="${OPENSPP_ARCH-$(openspp_detect_arch)}"
+
+    # The database image is checked first: it is the one upstream publishes for amd64 only, and
+    # stopping here costs seconds instead of half an hour of building the application image.
+    openspp_require_arch "${OPENSPP_POSTGIS_REPOSITORY}:${OPENSPP_POSTGIS_TAG}" "database" \
+        "Set OPENSPP_POSTGIS_REPOSITORY in config.ini [openspp] to a multi-architecture build. For arm64:  OPENSPP_POSTGIS_REPOSITORY=imresamu/postgis ./run.sh -m deploy -a openspp   (see docs/BUILDING-IMAGES.md)"
+    # Both images have to reach the cluster before the pods start.
     openspp_ensure_image
     log_with_verbose_check "$debug" "$INFO" "Using image ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG}"
     log_with_verbose_check "$debug" "$INFO" "Node architecture: ${OPENSPP_ARCH:-any} (db image ${OPENSPP_POSTGIS_REPOSITORY}:${OPENSPP_POSTGIS_TAG})"
@@ -233,18 +296,32 @@ openspp_deploy_chart() {
     fi
 }
 
+# Report what went wrong for a workload that never became Ready, naming the images the cluster
+# could not pull instead of guessing which one it was. $1 = workload, for the message.
+openspp_report_not_ready() {
+    local failed
+    failed=$(kubectl get pods -n "$OPENSPP_NAMESPACE" -o jsonpath='{range .items[*]}{range .status.initContainerStatuses[*]}{.image}{" "}{.state.waiting.reason}{"\n"}{end}{range .status.containerStatuses[*]}{.image}{" "}{.state.waiting.reason}{"\n"}{end}{end}' 2>/dev/null \
+        | grep -E 'ImagePullBackOff|ErrImagePull' | awk '{print $1}' | sort -u)
+
+    log_error "$1 did not become Ready in namespace $OPENSPP_NAMESPACE."
+    if [[ -n "$failed" ]]; then
+        log_error "The cluster could not pull: $(paste -sd' ' - <<< "$failed")"
+        log_error "Check the name and the tag, or load the image into the node:  docker save <image> | sudo k3s ctr images import -"
+    else
+        log_error "Look at the pods and their logs:  kubectl get pods -n $OPENSPP_NAMESPACE"
+    fi
+}
+
 openspp_wait_ready() {
     # PostGIS first, then Odoo. Odoo self-initialises on first boot (installs base + the module),
-    # gated behind its startupProbe, so this rollout wait can take a few minutes on a clean install.
-    kubectl rollout status statefulset/openspp-postgis -n "$OPENSPP_NAMESPACE" --timeout=180s > /dev/null 2>&1
-    if ! kubectl rollout status deployment/openspp-odoo -n "$OPENSPP_NAMESPACE" --timeout=300s > /dev/null 2>&1; then
-        # Most common cause: the build-only image isn't in the cluster yet.
-        if kubectl get pods -n "$OPENSPP_NAMESPACE" \
-            -o jsonpath='{.items[*].status.containerStatuses[*].state.waiting.reason}' 2>/dev/null \
-            | grep -q 'ImagePullBackOff\|ErrImagePull'; then
-            log_error "Image ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} not found in the cluster."
-            log_error "It is build-only; import it:  docker save ${OPENSPP_IMAGE_REPOSITORY}:${OPENSPP_IMAGE_TAG} | sudo k3s ctr images import -"
-        fi
+    # gated behind its startupProbe, so the wait uses the configured startup timeout: a shorter one
+    # would report a failure while the pod still has probe budget left.
+    if ! kubectl rollout status statefulset/openspp-postgis -n "$OPENSPP_NAMESPACE" --timeout=180s > /dev/null 2>&1; then
+        openspp_report_not_ready "PostGIS"
+        return 1
+    fi
+    if ! kubectl rollout status deployment/openspp-odoo -n "$OPENSPP_NAMESPACE" --timeout="${startup_timeout:-900}s" > /dev/null 2>&1; then
+        openspp_report_not_ready "Odoo"
         return 1
     fi
     return 0
@@ -282,12 +359,29 @@ deploy_openspp() {
     openspp_check_prerequisites
     log_with_verbose_check "$debug" "$DEBUG" "Namespace: $OPENSPP_NAMESPACE  Release: $OPENSPP_RELEASE_NAME"
 
+    # A redeploy drops the release and its volumes, so it goes after the checks above: a deploy that
+    # cannot work should not have deleted the database first. Use -r false to upgrade in place.
+    if [[ "${redeploy:-false}" == "true" ]]; then
+        log_step "Removing the previous OpenSPP release (redeploy, the database is not kept)"
+        cleanup_openspp
+        log_ok
+    fi
+
     # Self-signed TLS cert for the ingress (mastercard.sh / paymenthub.sh pattern). The namespace
     # must exist before the Secret, so create it first (helm --create-namespace runs later).
     local openspp_host="openspp.${GAZELLE_DOMAIN:-mifos.gazelle.test}"
     kubectl create namespace "$OPENSPP_NAMESPACE" --dry-run=client -o yaml 2>/dev/null | kubectl apply -f - > /dev/null 2>&1
     create_ingress_secret "$OPENSPP_NAMESPACE" "$openspp_host" "openspp-tls" \
         "${openspp_host},*.${GAZELLE_DOMAIN:-mifos.gazelle.test},localhost"
+
+    # Docker Hub credentials for this namespace, as the other components get them: the images are
+    # pulled from there, and without credentials the node uses the anonymous rate limit. Does
+    # nothing when config.ini [dockerhub] is empty.
+    if [[ -x "$RUN_DIR/src/utils/k3s-docker-login.sh" ]]; then
+        DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}" DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD:-}" \
+            DOCKERHUB_EMAIL="${DOCKERHUB_EMAIL:-}" \
+            "$RUN_DIR/src/utils/k3s-docker-login.sh" "$OPENSPP_NAMESPACE" > /dev/null 2>&1
+    fi
 
     log_step "Deploying OpenSPP Helm chart (installs modules on first boot; this can take a few minutes)"
     openspp_deploy_chart

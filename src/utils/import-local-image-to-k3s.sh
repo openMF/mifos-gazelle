@@ -98,7 +98,8 @@ set_user
 # Define tarfile path
 # A registry-qualified image name contains slashes (ghcr.io/openmf/openspp), and those cannot go
 # straight into a file path: docker save would fail with "invalid output path". Flatten them.
-tarfile="/tmp/$(echo "$IMAGE_NAME" | tr '/' '_').tar"
+# The tag is part of the name so two tags of the same image do not share the file.
+tarfile="/tmp/$(echo "$IMAGE_NAME:$IMAGE_TAG" | tr '/:' '__').tar"
 
 # Clean up any existing tarfile
 if [[ -f "$tarfile" ]]; then
@@ -107,7 +108,7 @@ if [[ -f "$tarfile" ]]; then
 fi
 
 # Export Docker image
-printf "==> export docker image using docker save --output %s %s \n" "$tarfile" "$IMAGE_NAME"
+printf "==> export docker image using docker save --output %s %s \n" "$tarfile" "$IMAGE_NAME:$IMAGE_TAG"
 if ! su - "$k8s_user" -c "docker save --output $tarfile $IMAGE_NAME:$IMAGE_TAG"; then
     error "Failed to save Docker image"
 fi

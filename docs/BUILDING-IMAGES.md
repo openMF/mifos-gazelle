@@ -9,7 +9,8 @@ cluster's container runtime, or push it to a registry the cluster can pull from.
 
 ```bash
 # build for the host architecture and import into k3s
-src/utils/build-and-import-image.sh -n ghcr.io/openmf/openspp -t 19.0 \
+# <repository> and <tag>: OPENSPP_IMAGE_REPOSITORY and OPENSPP_IMAGE_TAG in config.ini [openspp]
+src/utils/build-and-import-image.sh -n <repository> -t <tag> \
     -c <OpenSPP2 checkout> -f <OpenSPP2 checkout>/docker/Dockerfile --target production
 
 # build a multi-architecture image and push it to a registry
@@ -69,28 +70,37 @@ instance, with nothing to remember.
 
 ## OpenSPP on arm64
 
-The Odoo application image builds for both architectures. The database image is the limit: the
-**official `postgis/postgis` has no arm64 build**, so the chart pins `kubernetes.io/arch` to keep
-pods off a node they cannot run on, and the default architecture is amd64.
+The application image publishes amd64 and arm64 under the same tag, so there is nothing to build: the
+node pulls the one it needs. The database image is the limit. The **official `postgis/postgis` has no
+arm64 build**, verified against the registry on every tag we use, and its ARM64 request upstream has
+been open since 2020, so this is not about to change on its own.
 
-To deploy on arm64 you need an arm64 PostGIS image. A third-party build exists (`imresamu/postgis`,
-from the maintainer who drives arm64 PostGIS upstream), but that repository is marked experimental,
-so use it for a demo and not for production. Keep the **same PostgreSQL major version** as the chart
-default, or an existing data directory will not start.
+One key gets you there, because the alternative publishes the same tag strings:
 
 ```bash
-# 1. build and import the application image (on the arm64 machine)
-src/utils/build-and-import-image.sh -n ghcr.io/openmf/openspp -t 19.0 \
-    -c <OpenSPP2 checkout> -f <OpenSPP2 checkout>/docker/Dockerfile --target production
-
-# 2. deploy with an arm64 database image
-OPENSPP_POSTGIS_REPOSITORY=imresamu/postgis \
-OPENSPP_POSTGIS_TAG=18-3.6.1-alpine3.22 \
-./run.sh -m deploy -a openspp
+OPENSPP_POSTGIS_REPOSITORY=imresamu/postgis ./run.sh -m deploy -a openspp
 ```
 
-The deployment reads the architecture from the host. Set `OPENSPP_ARCH` to override it, or to an
-empty value to deploy without a node selector.
+Set it in `config/config.ini` under `[openspp]` to make it permanent. **If you forget it the deploy
+stops and prints that line**, instead of building for half an hour and then failing on the database.
+
+Two alternatives exist and both come with their author's own warning, so pick knowingly:
+
+| Image | Variant | What its author says |
+|-------|---------|----------------------|
+| `imresamu/postgis` | alpine, same tags as the official | *"The arm64 architecture support is still experimental"* |
+| `ghcr.io/baosystems/postgis` | debian, tags like `18-3.6` | a multiarch fork of the official image; *"No support is provided"* |
+
+`imresamu/postgis` is the one to reach for first: it is the same alpine variant built from the same
+official Dockerfiles, so the environment variables and the data layout are identical, and it carries the
+`pg_isready` and `psql` the chart's two wait-for-db init containers need. Switching to it and back over
+an existing data directory was tested and Postgres started both times, helped by the chart's
+`--locale=C`. The Debian one is a different variant, so use it on a fresh deploy only. In both cases keep
+the **same PostgreSQL major version** as the chart default, or an existing data directory will not start.
+
+The deploy reads the architecture from the cluster nodes, not from the machine you run it on, which is
+what a remote cluster needs. Set `OPENSPP_ARCH` to override it, or to an empty value to deploy without a
+node selector; it is also empty by itself when the cluster mixes architectures.
 
 If the pods stay `Pending` with a node affinity message, the architecture does not match the node.
 If a container reports `exec format error`, the image was built for the other architecture.

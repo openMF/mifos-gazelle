@@ -40,8 +40,8 @@ By default the image is built for the host architecture and imported into k3s.
 Use --no-import to build only, or --push to publish to a registry instead.
 
 Required:
-    -n, --name         image name, e.g. ghcr.io/openmf/openspp
-    -t, --tag          image tag, e.g. 19.0
+    -n, --name         image name, e.g. ghcr.io/myorg/myapp
+    -t, --tag          image tag, e.g. 1.0.0
 
 Optional:
     -c, --context      build context directory (default: .)
@@ -58,9 +58,9 @@ Optional:
     -h, --help         show this help
 
 Examples:
-    # OpenSPP, host architecture, imported into k3s
-    $(basename "$0") -n ghcr.io/openmf/openspp -t 19.0 \\
-        -c ../OpenSPP2 -f ../OpenSPP2/docker/Dockerfile --target production
+    # host architecture, imported into k3s (see docs/OPENSPP.md for the OpenSPP values)
+    $(basename "$0") -n ghcr.io/myorg/myapp -t 1.0.0 \\
+        -c ../myapp -f ../myapp/docker/Dockerfile --target production
 
     # multi-platform image pushed to a registry
     $(basename "$0") -n openmf/some-dpg -t 1.0.0 --platform linux/amd64,linux/arm64 --push

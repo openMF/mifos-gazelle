@@ -361,4 +361,6 @@ postgresql:
           CREATE DATABASE mifos_flowable;
         03-create-messagegateway-db.sql: |
           CREATE DATABASE messagegateway;
+        04-create-loanrisk-db.sql: |
+          CREATE DATABASE loanrisk;
 

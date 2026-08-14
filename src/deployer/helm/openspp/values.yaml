@@ -6,17 +6,19 @@ fullnameOverride: openspp
 nameOverride: ""
 
 # --- Image architecture -------------------------------------------------------------------
-# postgis/postgis:18-3.6-alpine is amd64-only (verified), so the stack is amd64 for now.
-# Set arch: "" to disable the nodeSelector (e.g. on a single-arch cluster).
-arch: amd64
+# nodeSelector for kubernetes.io/arch, so the pods only land on nodes their images support.
+# Empty means no nodeSelector; src/deployer/openspp.sh sets it to the architecture of the cluster.
+arch: ""
 
 # --- Odoo / OpenSPP application -----------------------------------------------------------
 odoo:
-  # OpenSPP2 image. Upstream publishes none, so this is either built and loaded into the cluster or
-  # pulled from wherever repository points. Override repository/tag at deploy time.
+  # OpenSPP2 image, amd64 and arm64. Upstream publishes none, so this is built from their sources
+  # and published; the deploy can also build it locally. Override repository/tag at deploy time.
   image:
-    repository: ghcr.io/openmf/openspp
-    tag: "19.0"
+    repository: ismaelyz23/openspp
+    # Overrides the image tag whose default is the chart appVersion. src/deployer/openspp.sh sets it
+    # from config.ini [openspp]; empty here keeps the version in one place per artifact.
+    tag: ""
     # IfNotPresent means a node that already has this tag keeps it. Re-pushing the same tag does not
     # reach those nodes; use a new tag when the contents change.
     pullPolicy: IfNotPresent
@@ -67,6 +69,9 @@ jobworker:
 
 # --- PostGIS 18 database ------------------------------------------------------------------
 postgis:
+  # This image is also the one the two wait-for-db init containers run, so it has to carry
+  # pg_isready and psql. The official repository publishes amd64 only; arm64 needs a
+  # multi-architecture build (see docs/BUILDING-IMAGES.md).
   image:
     repository: postgis/postgis
     tag: "18-3.6-alpine"

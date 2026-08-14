@@ -6,6 +6,7 @@ Creates, idempotently, the OpenSPP half of the demo agri flow:
   - a program "Agri subsidy Q3" (currency USD)
   - one cycle
   - N farmer households (res.partner, is_registrant + is_group) with an MSISDN
+  - the farm behind each household: size, tenure, experience, crop and land parcel
   - the subsidy entitlements, generated the canonical OpenSPP way
 
 The entitlements are generated through OpenSPP's own Cash Entitlement Manager
@@ -26,6 +27,7 @@ import argparse
 import csv
 import datetime
 import json
+import ssl
 import sys
 import time
 import xmlrpc.client
@@ -41,6 +43,32 @@ CYCLE_APPROVAL_DEFINITION = "spp_programs.approval_definition_cycle"
 ENTITLEMENT_APPROVAL_DEFINITION = "spp_programs.approval_definition_entitlement"
 APPROVER_GROUPS = ("spp_programs.group_programs_cycle_approver",
                    "spp_programs.group_programs_validator")
+
+# The fixture columns that describe the farm. A row without them still loads as a plain
+# household, so an older fixture keeps working for the subsidy demo.
+FARM_COLUMNS = ("crop", "land_ha", "experience_years", "tenure")
+# The registry stores crops, tenure and farm type as vocabulary codes, so the plain words in
+# the fixture are translated here. Crops follow the FAO indicative crop classification.
+CROP_VOCABULARY = "urn:fao:icc:1.1"
+TENURE_VOCABULARY = "urn:openspp:vocab:land-tenure"
+FARM_TYPE_VOCABULARY = "urn:openspp:vocab:farm-type"
+MEMBERSHIP_TYPE_VOCABULARY = "urn:openspp:vocab:group-membership-type"
+CROP_CODES = {"rice": "0116", "maize": "0115", "cassava": "0513"}
+TENURE_CODES = {"owned": "self", "leased": "leased"}
+
+
+def xmlrpc_proxy(url):
+    """ServerProxy for url, skipping TLS checks on https.
+
+    The Gazelle ingress certificate is self-signed, the same reason the other scripts here
+    pass verify=False.
+    """
+    if not url.startswith("https://"):
+        return xmlrpc.client.ServerProxy(url)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return xmlrpc.client.ServerProxy(url, context=ctx)
 
 
 def load_fixtures(fixtures_dir):
@@ -77,8 +105,22 @@ def load_fixtures(fixtures_dir):
             float(row["amount"])
         except ValueError:
             sys.exit(f"ERROR: {csv_file} line {line}: amount '{row['amount']}' is not a number")
+        # The farm columns are optional, but a value that is there has to be a number, for the
+        # same reason as the amount: the failure would otherwise land far from the typo.
+        for column, number in (("land_ha", float), ("experience_years", int)):
+            value = (row.get(column) or "").strip()
+            if not value:
+                continue
+            try:
+                number(value)
+            except ValueError:
+                sys.exit(f"ERROR: {csv_file} line {line}: {column} '{value}' is not a number")
 
     return program, beneficiaries
+
+
+# Odoo's refusal when a scheduled action holds the registry.
+MODULE_OPS_BUSY = "Module operations are not possible"
 
 
 def ensure_module_installed(call, module, tries=60, interval=5):
@@ -98,11 +140,25 @@ def ensure_module_installed(call, module, tries=60, interval=5):
         return
     print(f"Installing module {module} (may take a few minutes)...", file=sys.stderr)
     mod_id = rec[0]["id"]
-    try:
-        call("ir.module.module", "button_immediate_install", [mod_id])
-    except Exception as exc:
-        print(f"  install RPC dropped ({exc}); polling state", file=sys.stderr)
+    started = False
     for _ in range(tries):
+        if not started:
+            try:
+                call("ir.module.module", "button_immediate_install", [mod_id])
+                started = True
+            except Exception as exc:
+                # Odoo refuses module operations while a cron runs, and then the install
+                # never started, so it has to be retried rather than waited on. A fresh
+                # deploy fires every cron at once, which is when this happens.
+                if MODULE_OPS_BUSY in str(exc):
+                    print("  Odoo busy with a scheduled action; retrying the install",
+                          file=sys.stderr)
+                    time.sleep(interval)
+                    continue
+                # Any other failure means the install did start and the registry reload
+                # dropped the connection: from here on we only poll.
+                print(f"  install RPC dropped ({exc}); polling state", file=sys.stderr)
+                started = True
         time.sleep(interval)
         try:
             state = call("ir.module.module", "read", [mod_id], fields=["state"])[0]["state"]
@@ -111,6 +167,9 @@ def ensure_module_installed(call, module, tries=60, interval=5):
         if state == "installed":
             print(f"Module {module} installed", file=sys.stderr)
             return
+    if not started:
+        sys.exit(f"ERROR: Odoo stayed busy with a scheduled action, so the install of "
+                 f"{module} never started")
     sys.exit(f"ERROR: module {module} did not reach state 'installed' in time")
 
 
@@ -150,6 +209,93 @@ def ensure_user_in_group(call, uid, xmlid):
         return
     call("res.users", "write", [uid], {"group_ids": [(4, group_id)]})
     print(f"  added the demo user to {xmlid}", file=sys.stderr)
+
+
+def vocabulary_code_id(call, namespace, code):
+    """Database id of a vocabulary code, by namespace and code."""
+    found = call("spp.vocabulary.code", "search",
+                 [["namespace_uri", "=", namespace], ["code", "=", code]], limit=1)
+    if not found:
+        sys.exit(f"ERROR: vocabulary code '{code}' not found in {namespace}")
+    return found[0]
+
+
+def has_farm_data(row):
+    """True when the fixture row carries the agricultural columns."""
+    return all((row.get(column) or "").strip() for column in FARM_COLUMNS)
+
+
+def ensure_head_of_household(call, group_id, head_name):
+    """Register the head of the household as an individual member of the group.
+
+    A household is a group, and consent needs an individual as its data subject, so the
+    head has to exist as a registrant of their own.
+    """
+    if not head_name:
+        return None
+
+    individual_ids = call("res.partner", "search",
+                          [["name", "=", head_name], ["is_registrant", "=", True],
+                           ["is_group", "=", False]])
+    individual_id = individual_ids[0] if individual_ids else call(
+        "res.partner", "create",
+        {"name": head_name, "is_registrant": True, "is_group": False})
+
+    if not call("spp.group.membership", "search",
+                [["group", "=", group_id], ["individual", "=", individual_id]]):
+        head_type = vocabulary_code_id(call, MEMBERSHIP_TYPE_VOCABULARY, "head")
+        call("spp.group.membership", "create", {
+            "group": group_id,
+            "individual": individual_id,
+            "membership_type_ids": [(4, head_type)],
+        })
+    return individual_id
+
+
+def ensure_farm_profile(call, partner_id, row):
+    """Turn a household into a farm: size, tenure, experience, crop activity and land parcel.
+
+    Without this the registry holds only names and phone numbers, which is enough to pay a
+    subsidy but not to assess a loan. Idempotent, and skipped when the fixture has no
+    agricultural columns.
+    """
+    if not has_farm_data(row):
+        return
+
+    crop = row["crop"].strip().lower()
+    tenure = row["tenure"].strip().lower()
+    if crop not in CROP_CODES:
+        sys.exit(f"ERROR: crop '{crop}' has no FAO code mapped. Known: {', '.join(CROP_CODES)}")
+    if tenure not in TENURE_CODES:
+        sys.exit(f"ERROR: tenure '{tenure}' is not one of: {', '.join(TENURE_CODES)}")
+    hectares = float(row["land_ha"])
+
+    call("res.partner", "write", [partner_id], {
+        "farm_type_id": vocabulary_code_id(call, FARM_TYPE_VOCABULARY, "crop"),
+        "land_tenure_id": vocabulary_code_id(call, TENURE_VOCABULARY, TENURE_CODES[tenure]),
+        "farm_total_size": hectares,
+        "farm_size_under_crops": hectares,
+        "experience_years": int(row["experience_years"]),
+    })
+
+    parcel_name = f"{row['household_name']} parcel"
+    parcel_ids = call("spp.land.record", "search",
+                      [["land_farm_id", "=", partner_id], ["land_name", "=", parcel_name]])
+    parcel_id = parcel_ids[0] if parcel_ids else call("spp.land.record", "create", {
+        "land_farm_id": partner_id,
+        "land_name": parcel_name,
+        "land_acreage": hectares,
+    })
+
+    if not call("spp.farm.activity", "search",
+                [["crop_farm_id", "=", partner_id], ["activity_type", "=", "crop"]]):
+        call("spp.farm.activity", "create", {
+            "crop_farm_id": partner_id,
+            "land_id": parcel_id,
+            "activity_type": "crop",
+            "species_id": vocabulary_code_id(call, CROP_VOCABULARY, CROP_CODES[crop]),
+            "area_planted": hectares,
+        })
 
 
 def cycle_state(call, cycle_id):
@@ -254,8 +400,9 @@ def main():
     default_fixtures = here.parent.parent.parent.parent / "demos" / "openspp" / "fixtures"
 
     ap = argparse.ArgumentParser(description="Load agri demo data into OpenSPP2 via XML-RPC")
-    # Odoo is reached over a port-forward (kubectl port-forward svc/openspp-odoo 8069:8069),
-    # not the ingress, which is optional and serves a self-signed certificate.
+    # The caller chooses how Odoo is reached; run_demo.sh passes the URL it picked. This
+    # default suits a forward opened by hand:
+    #   kubectl port-forward svc/openspp-odoo 8069:8069 -n openspp
     ap.add_argument("--url", default="http://localhost:8069")
     ap.add_argument("--db", default="openspp")
     ap.add_argument("--user", default="admin")
@@ -265,11 +412,11 @@ def main():
 
     program_fx, beneficiaries = load_fixtures(args.fixtures)
 
-    common = xmlrpc.client.ServerProxy(f"{args.url}/xmlrpc/2/common")
+    common = xmlrpc_proxy(f"{args.url}/xmlrpc/2/common")
     uid = common.authenticate(args.db, args.user, args.password, {})
     if not uid:
         sys.exit(f"ERROR: authentication failed for {args.user}@{args.db}")
-    models = xmlrpc.client.ServerProxy(f"{args.url}/xmlrpc/2/object")
+    models = xmlrpc_proxy(f"{args.url}/xmlrpc/2/object")
 
     # Thin wrapper: caller passes the raw Odoo args (domain / vals / ids) directly.
     def call(model, method, *cargs, **ckw):
@@ -336,7 +483,11 @@ def main():
         if not mem_ids:
             call("spp.program.membership", "create",
                  {"partner_id": partner_id, "program_id": program_id, "state": "enrolled"})
-        print(f"  {hh_name} ({msisdn}) enrolled", file=sys.stderr)
+
+        ensure_head_of_household(call, partner_id, (row.get("head_name") or "").strip())
+        ensure_farm_profile(call, partner_id, row)
+        farm = f", {row['land_ha']} ha of {row['crop']}" if has_farm_data(row) else ""
+        print(f"  {hh_name} ({msisdn}) enrolled{farm}", file=sys.stderr)
 
     # Subsidy amount. The Cash Entitlement Manager applies one amount per cycle to
     # every enrolled beneficiary; the agri demo uses a flat amount for all of them.
