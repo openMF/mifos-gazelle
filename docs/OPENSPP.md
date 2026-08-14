@@ -261,16 +261,24 @@ posting straight away, so the demo allows up to six minutes per payment against 
 
 ### What it looks like afterwards
 
-In OpenSPP, the programme cycle lists the five payments as reconciled and paid:
+In OpenSPP, the programme cycle lists the payment as reconciled and paid:
 
-![OpenSPP payments for the cycle, five subsidies reconciled and paid](openspp-demo-images/paid-openspp.png)
+![OpenSPP payments for the cycle, the subsidy reconciled and paid](openspp-demo-images/paid-openspp.png)
+
+Payment Hub records the transfer, with the time it started and completed:
+
+![Payment Hub operations web, the subsidy transfer completed](openspp-demo-images/transfers-phee.png)
 
 And in MifosX, the beneficiary's savings account holds the subsidy. Each run adds one deposit of the
 subsidy amount, on top of the balance the account already had:
 
 ![MifosX savings account of a beneficiary, showing the subsidy deposit](openspp-demo-images/deposit-mifosx.png)
 
-The two screens are linked by the account number, `000000002` here, which appears in both.
+The three screens show the same payment: 200 issued in OpenSPP, carried by Payment Hub and deposited
+in MifosX.
+
+> These screenshots come from a run with a single beneficiary, so one payment is easy to follow. The
+> demo ships five, and the process and the result are the same for each of them.
 
 ### How it reaches OpenSPP
 
