@@ -22,18 +22,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Global configuration
 # ----------------------------------------------------------------------
 _deterministic_mode = True          # default: deterministic
-# Notionally greenbank = payer (a few accounts), bluebank = payee (a good but
-# not large number of account holders), redbank = a second payer. Counts and
-# MSISDNs are kept deterministic so the generated demo data — and the seed dump
-# taken from it — are reproducible run to run.
 TENANTS = {
     "bluebank": 12,
     "greenbank": 3,
     "redbank": 1
 }
-# The FIRST 6 bluebank MSISDNs are the OpenG2P beneficiaries registered with the
-# identity-account-mapper (do NOT remove or reorder them — downstream OpenG2P demo
-# data depends on these exact numbers). Entries after them are report-only holders.
 DEMO_MSISDNS = {
     "greenbank": ["0413356886", "0413356887", "0413356888"],
     "bluebank":  ["0495822412", "0424942603", "0445271476",
@@ -104,19 +97,11 @@ DEFAULT_DEPOSIT_AMOUNT = 5000.0
 DEFAULT_PAYMENT_TYPE_ID = 1
 PAYLOAD_DATE_FORMAT_LITERAL = "dd MMMM yyyy"
 
-# Transaction history: open accounts in the past and post a series of
-# deposits/withdrawals so the transaction & savings reports show a real timeline
-# (rather than a single same-day deposit). All deterministic per account.
 ACCOUNT_OPENING_DAYS_AGO = 120
 TXN_MIN_COUNT = 4
 TXN_MAX_COUNT = 8
 
-# Accounting: create the savings product with CASH accounting mapped to a minimal
-# chart of accounts, so every deposit/withdrawal posts GL journal entries. Without
-# this the accounting reports (Trial Balance, Balance Sheet, Income Statement) are
-# empty. GL accounts are per-tenant; the map is (re)built per tenant, keyed by glCode.
 ENABLE_ACCOUNTING = True
-# glCode -> (name, type_id, role)  where type_id: 1=ASSET 2=LIABILITY 3=EQUITY 4=INCOME 5=EXPENSE
 GL_ACCOUNTS = {
     "110000": ("Savings Reference (Cash)",     1, "savingsReferenceAccountId"),
     "120000": ("Overdraft Portfolio Control",  1, "overdraftPortfolioControlId"),
