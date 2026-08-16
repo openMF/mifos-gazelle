@@ -199,17 +199,29 @@ openspp_ensure_image() {
     exit 1
 }
 
+# Exit when a required config value is empty or unset, rather than defaulting to a literal here.
+# $@ = names of the required variables.
+openspp_require_config() {
+    local name
+    for name in "$@"; do
+        if [[ -z "${!name:-}" ]]; then
+            log_error "$name is not set. Declare it in config/config.ini, section [openspp]."
+            exit 1
+        fi
+    done
+}
+
 openspp_check_prerequisites() {
     OPENSPP_NAMESPACE="${OPENSPP_NAMESPACE:-openspp}"
     OPENSPP_RELEASE_NAME="${OPENSPP_RELEASE_NAME:-openspp}"
-    OPENSPP_IMAGE_REPOSITORY="${OPENSPP_IMAGE_REPOSITORY:-ismaelyz23/openspp}"
-    OPENSPP_IMAGE_TAG="${OPENSPP_IMAGE_TAG:-19.0}"
-    OPENSPP_POSTGIS_REPOSITORY="${OPENSPP_POSTGIS_REPOSITORY:-postgis/postgis}"
-    OPENSPP_POSTGIS_TAG="${OPENSPP_POSTGIS_TAG:-18-3.6-alpine}"
+    # Deliberately false when unset: a missing key must not start a 30-minute build on its own.
     OPENSPP_BUILD_IF_MISSING="${OPENSPP_BUILD_IF_MISSING:-false}"
-    OPENSPP_SOURCE_REPO="${OPENSPP_SOURCE_REPO:-https://github.com/OpenSPP/OpenSPP2.git}"
-    OPENSPP_SOURCE_REF="${OPENSPP_SOURCE_REF:-v19.0.2.0.0}"
     OPENSPP_SOURCE_DIR="${OPENSPP_SOURCE_DIR:-$RUN_DIR/repos/OpenSPP2}"
+    # Images, versions and the source pin live only in config.ini [openspp], so moving to a new
+    # release is one file.
+    openspp_require_config OPENSPP_IMAGE_REPOSITORY OPENSPP_IMAGE_TAG \
+        OPENSPP_POSTGIS_REPOSITORY OPENSPP_POSTGIS_TAG \
+        OPENSPP_SOURCE_REPO OPENSPP_SOURCE_REF
 
     if ! command -v kubectl &> /dev/null; then
         log_error "kubectl not found. Please install kubectl (or run setup-env.sh first)."
