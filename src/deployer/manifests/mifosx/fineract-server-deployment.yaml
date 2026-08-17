@@ -26,7 +26,8 @@ spec:
             - -c
             - |
               set -e
-              apk add --no-cache curl python3 font-dejavu fontconfig >/dev/null
+              apk add --no-cache curl python3 font-dejavu fontconfig \
+                || { echo "ERROR: apk add failed (curl/python3/fonts) — is the Alpine mirror reachable?"; exit 1; }
               echo "Downloading MifosReportingPlugin-1.14.0..."
               curl -fsSL -o /tmp/mrp.zip \
                 "https://sourceforge.net/projects/mifos/files/mifos-plugins/MifosReportingPlugin/MifosReportingPlugin-1.14.0.zip/download"
