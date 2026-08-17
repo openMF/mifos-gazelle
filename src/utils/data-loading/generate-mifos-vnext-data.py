@@ -23,14 +23,16 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ----------------------------------------------------------------------
 _deterministic_mode = True          # default: deterministic
 TENANTS = {
-    "bluebank": 6,
-    "greenbank": 1,
+    "bluebank": 12,
+    "greenbank": 3,
     "redbank": 1
 }
 DEMO_MSISDNS = {
-    "greenbank": ["0413356886"],
+    "greenbank": ["0413356886", "0413356887", "0413356888"],
     "bluebank":  ["0495822412", "0424942603", "0445271476",
-                  "0450258089", "0498660918", "0472794194"],
+                  "0450258089", "0498660918", "0472794194",
+                  "0495100001", "0495100002", "0495100003",
+                  "0495100004", "0495100005", "0495100006"],
     "redbank":   ["0423810475"],
 }
 # Only register payee tenants with identity-account-mapper (beneficiaries)
@@ -94,6 +96,23 @@ PRODUCT_SHORTNAME = "savb"  # Max 4 chars, shared across tenants
 DEFAULT_DEPOSIT_AMOUNT = 5000.0
 DEFAULT_PAYMENT_TYPE_ID = 1
 PAYLOAD_DATE_FORMAT_LITERAL = "dd MMMM yyyy"
+
+ACCOUNT_OPENING_DAYS_AGO = 120
+TXN_MIN_COUNT = 4
+TXN_MAX_COUNT = 8
+
+ENABLE_ACCOUNTING = True
+GL_ACCOUNTS = {
+    "110000": ("Savings Reference (Cash)",     1, "savingsReferenceAccountId"),
+    "120000": ("Overdraft Portfolio Control",  1, "overdraftPortfolioControlId"),
+    "210000": ("Savings Control",              2, "savingsControlAccountId"),
+    "220000": ("Transfers In Suspense",        2, "transfersInSuspenseAccountId"),
+    "310000": ("Income from Fees",             4, "incomeFromFeeAccountId"),
+    "320000": ("Income from Penalties",        4, "incomeFromPenaltyAccountId"),
+    "330000": ("Income from Interest",         4, "incomeFromInterestId"),
+    "410000": ("Interest on Savings",          5, "interestOnSavingsAccountId"),
+    "420000": ("Losses Written Off",           5, "writeOffAccountId"),
+}
 
 # ----------------------------------------------------------------------
 # Helper – resilient API request
@@ -180,6 +199,34 @@ def get_product_id_by_shortname(headers, shortname):
             return p.get("id")
     return None
 
+def ensure_gl_accounts(headers):
+    """Ensure the minimal chart of accounts exists for the current tenant and
+    return a mapping of savings-product accounting role -> GL account id. Idempotent:
+    an account is created only if its glCode is not already present."""
+    gl_url = f"{API_BASE_URL}/glaccounts"
+    existing = make_api_request("GET", gl_url, headers) or []
+    by_code = {a.get("glCode"): a.get("id") for a in existing if isinstance(a, dict)}
+    role_to_id = {}
+    for gl_code, (name, type_id, role) in GL_ACCOUNTS.items():
+        acct_id = by_code.get(gl_code)
+        if acct_id is None:
+            payload = {
+                "name": name,
+                "glCode": gl_code,
+                "type": type_id,
+                "usage": 1,               # DETAIL
+                "manualEntriesAllowed": True,
+                "description": f"Demo account for savings CASH accounting ({name})",
+            }
+            resp = make_api_request("POST", gl_url, headers, json_data=payload)
+            acct_id = resp.get("resourceId") if resp else None
+            if acct_id is None:
+                print(f"ERROR: failed to create GL account {gl_code} ({name})", file=sys.stderr)
+                return None
+            print(f"Created GL account {gl_code} ({name}) -> id {acct_id}", file=sys.stderr)
+        role_to_id[role] = acct_id
+    return role_to_id
+
 def create_savings_product(headers, product_name):
     print(f"Finding/creating product '{PRODUCT_SHORTNAME}' for {product_name}...", file=sys.stderr)
     pid = get_product_id_by_shortname(headers, PRODUCT_SHORTNAME)
@@ -201,6 +248,17 @@ def create_savings_product(headers, product_name):
         "interestCalculationDaysInYearType": 365,
         "accountingRule": 1
     }
+
+    # CASH accounting so deposits/withdrawals post GL journal entries (feeds the
+    # Trial Balance / Balance Sheet / Income Statement reports).
+    if ENABLE_ACCOUNTING:
+        role_to_id = ensure_gl_accounts(headers)
+        if role_to_id:
+            payload["accountingRule"] = 2   # CASH
+            payload.update(role_to_id)
+        else:
+            print("WARNING: GL setup failed; falling back to NONE accounting", file=sys.stderr)
+
     resp = make_api_request("POST", SAVINGS_PRODUCTS_API_URL, headers, json_data=payload)
     if resp:
         pid = resp.get("resourceId")
@@ -232,19 +290,22 @@ def get_clients_from_mifos(headers, tenant):
     return clients
 
 def check_client_exists_by_mobile(headers, mobile_number):
-    """Check if a client with this mobile number already exists."""
-    url = f"{CLIENTS_API_URL}"
-    params = {"mobileNo": mobile_number}
+    """Check if a client with this mobile number already exists.
 
-    data = make_api_request("GET", url, headers, params=params)
+    Fineract's GET /clients?mobileNo= filter is not applied server-side (it returns
+    the first client regardless of the value), so match on mobileNo client-side —
+    otherwise every new MSISDN false-matches the first client and only one client
+    is ever created per tenant."""
+    data = make_api_request("GET", CLIENTS_API_URL, headers)
 
-    if data and 'pageItems' in data and len(data['pageItems']) > 0:
-        client = data['pageItems'][0]
-        return {
-            'client_id': client.get('id'),
-            'name': client.get('displayName'),
-            'mobile': client.get('mobileNo')
-        }
+    if data and 'pageItems' in data:
+        for client in data['pageItems']:
+            if client.get('mobileNo') == mobile_number:
+                return {
+                    'client_id': client.get('id'),
+                    'name': client.get('displayName'),
+                    'mobile': client.get('mobileNo')
+                }
     return None
 
 def get_savings_accounts_for_client(headers, client_id):
@@ -297,7 +358,7 @@ def fetch_all_clients_from_mifos(tenants):
 # ----------------------------------------------------------------------
 # Client creation
 # ----------------------------------------------------------------------
-def create_client(headers, locale, tenant_id, mobile_number):
+def create_client(headers, locale, tenant_id, mobile_number, submitted_date_str=None):
     count = tenant_client_counter.get(tenant_id, 0)
     tenant_client_counter[tenant_id] = count + 1
 
@@ -319,7 +380,7 @@ def create_client(headers, locale, tenant_id, mobile_number):
 
     full_name = f"{firstname} {lastname}"
 
-    submitted_date = datetime.datetime.now().strftime(DATE_FORMAT)
+    submitted_date = submitted_date_str or datetime.datetime.now().strftime(DATE_FORMAT)
 
     print(f"Creating client {full_name} ({mobile_number}) for {tenant_id}", file=sys.stderr)
 
@@ -347,9 +408,9 @@ def create_client(headers, locale, tenant_id, mobile_number):
 # ----------------------------------------------------------------------
 # Savings account helpers
 # ----------------------------------------------------------------------
-def create_savings_account(headers, client_id, product_id, locale):
+def create_savings_account(headers, client_id, product_id, locale, submitted_date_str=None):
     external_id = str(uuid.uuid4())
-    submitted_date = datetime.datetime.now().strftime(DATE_FORMAT)
+    submitted_date = submitted_date_str or datetime.datetime.now().strftime(DATE_FORMAT)
     payload = {
         "clientId": client_id,
         "productId": product_id,
@@ -387,6 +448,56 @@ def make_deposit(api_base_url, headers, account_id, amount, date_str, payment_ty
         "paymentTypeId": payment_type_id
     }
     return make_api_request("POST", url, headers, json_data=body)
+
+def make_withdrawal(api_base_url, headers, account_id, amount, date_str, payment_type_id=DEFAULT_PAYMENT_TYPE_ID):
+    url = f"{api_base_url}/savingsaccounts/{account_id}/transactions?command=withdrawal"
+    body = {
+        "locale": "en",
+        "dateFormat": PAYLOAD_DATE_FORMAT_LITERAL,
+        "transactionDate": date_str,
+        "transactionAmount": amount,
+        "paymentTypeId": payment_type_id
+    }
+    return make_api_request("POST", url, headers, json_data=body)
+
+def generate_transaction_history(api_base_url, headers, account_id, opening_date, seed):
+    """Post a deterministic series of deposits/withdrawals from opening_date to today
+    so savings/transaction reports show a real timeline. Keeps the running balance
+    positive. Returns the number of transactions posted."""
+    rng = random.Random(seed)
+    now = datetime.datetime.now()
+    span_days = max((now - opening_date).days, 1)
+    n_txns = rng.randint(TXN_MIN_COUNT, TXN_MAX_COUNT)
+
+    # Spread transaction dates across the account's lifetime (first = opening day).
+    offsets = sorted(rng.sample(range(0, span_days + 1), min(n_txns, span_days + 1)))
+    if offsets and offsets[0] != 0:
+        offsets[0] = 0  # ensure the opening deposit lands on the opening date
+
+    balance = 0.0
+    posted = 0
+    for idx, off in enumerate(offsets):
+        txn_date = (opening_date + datetime.timedelta(days=off)).strftime(DATE_FORMAT)
+        if idx == 0:
+            # opening deposit
+            amount = float(rng.choice([2000, 3000, 5000, 8000, 10000]))
+            if make_deposit(api_base_url, headers, account_id, amount, txn_date):
+                balance += amount
+                posted += 1
+            continue
+        # Withdraw only if there's a sensible balance, otherwise deposit.
+        if balance > 500 and rng.random() < 0.4:
+            amount = float(round(rng.uniform(100, balance * 0.5) / 50) * 50) or 100.0
+            if make_withdrawal(api_base_url, headers, account_id, amount, txn_date):
+                balance -= amount
+                posted += 1
+        else:
+            amount = float(rng.choice([500, 1000, 1500, 2500, 4000]))
+            if make_deposit(api_base_url, headers, account_id, amount, txn_date):
+                balance += amount
+                posted += 1
+    print(f"Posted {posted} transactions (balance {balance:.2f})", file=sys.stderr)
+    return posted
 
 # ----------------------------------------------------------------------
 # Interop / vNext
@@ -649,8 +760,8 @@ if __name__ == "__main__":
         # partial failure (e.g. greenbank not ready during initial deploy) safely
         # picks up the missed tenant without duplicating the others.
         existing = [c for c in get_clients_from_mifos(HEADERS, tenant_id) if c.get('mobile')]
-        if existing:
-            print(f"  {tenant_id} already has {len(existing)} client(s) - re-registering, skipping creation", file=sys.stderr)
+        if existing and len(existing) >= num_clients:
+            print(f"  {tenant_id} already has {len(existing)}/{num_clients} client(s) - re-registering, skipping creation", file=sys.stderr)
             for client in existing:
                 acct_id = get_savings_accounts_for_client(HEADERS, client['client_id'])
                 if not acct_id:
@@ -716,6 +827,9 @@ if __name__ == "__main__":
                 continue  # retry
 
             process_date = datetime.datetime.now().strftime(DATE_FORMAT)
+            # Open accounts in the past so transaction history spans a real period.
+            opening_dt = datetime.datetime.now() - datetime.timedelta(days=ACCOUNT_OPENING_DAYS_AGO)
+            opening_date_str = opening_dt.strftime(DATE_FORMAT)
             clients_created = 0
 
             for i, mobile in enumerate(tenant_msisdns, 1):
@@ -757,27 +871,28 @@ if __name__ == "__main__":
                     print(f"--- Re-registered existing client {i} ---", file=sys.stderr)
                     continue
 
-                # Create new client
-                client_id, mobile, name = create_client(HEADERS, LOCALE, tenant_id, mobile)
+                # Create new client (back-dated so it can hold historical txns)
+                client_id, mobile, name = create_client(HEADERS, LOCALE, tenant_id, mobile, opening_date_str)
                 if not client_id:
                     continue
 
-                # savings account
-                acct_id, ext_id = create_savings_account(HEADERS, client_id, product_id, LOCALE)
+                # savings account (back-dated)
+                acct_id, ext_id = create_savings_account(HEADERS, client_id, product_id, LOCALE, opening_date_str)
                 if not acct_id:
                     continue
 
-                # approve
-                if not approve_savings_account(API_BASE_URL, HEADERS, acct_id, process_date):
+                # approve (on opening date)
+                if not approve_savings_account(API_BASE_URL, HEADERS, acct_id, opening_date_str):
                     continue
 
-                # activate
-                if not activate_savings_account(API_BASE_URL, HEADERS, acct_id, process_date):
+                # activate (on opening date)
+                if not activate_savings_account(API_BASE_URL, HEADERS, acct_id, opening_date_str):
                     continue
 
-                # deposit
-                if not make_deposit(API_BASE_URL, HEADERS, acct_id, DEFAULT_DEPOSIT_AMOUNT,
-                                    process_date, DEFAULT_PAYMENT_TYPE_ID):
+                # transaction history: deterministic series of deposits/withdrawals
+                # from the opening date to today (seeded per account for reproducibility)
+                txn_seed = int(hashlib.sha256(f"{tenant_id}-{mobile}".encode()).hexdigest(), 16) % (10 ** 8)
+                if not generate_transaction_history(API_BASE_URL, HEADERS, acct_id, opening_dt, txn_seed):
                     continue
 
                 # interop & vNext
