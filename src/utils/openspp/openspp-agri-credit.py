@@ -22,7 +22,6 @@ import argparse
 import datetime
 import importlib.util
 import sys
-import xmlrpc.client
 from pathlib import Path
 
 import requests
@@ -87,10 +86,10 @@ def openspp_call(url, db, user, password):
     Odoo's XML-RPC API keeps no session, so the database, user id and password travel on
     every call and the closure carries them.
     """
-    uid = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common").authenticate(db, user, password, {})
+    uid = loader.xmlrpc_proxy(f"{url}/xmlrpc/2/common").authenticate(db, user, password, {})
     if not uid:
         sys.exit(f"ERROR: OpenSPP auth failed for {user}@{db}")
-    models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
+    models = loader.xmlrpc_proxy(f"{url}/xmlrpc/2/object")
 
     def call(model, method, *args, **keywords):
         return models.execute_kw(db, uid, password, model, method, list(args), keywords)

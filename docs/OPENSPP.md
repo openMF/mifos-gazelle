@@ -337,8 +337,9 @@ bash demos/openspp/run_credit_demo.sh
 Payment Hub and the switch are not involved: the bank lends to its own client, so no money crosses
 institutions.
 
-It reaches OpenSPP over a `kubectl port-forward`, and says which port it opened. MifosX and the
-workflow engine it reads by hostname, so the Gazelle names still have to resolve.
+It reaches OpenSPP the same way the subsidy demo does, over the Gazelle ingress with the port-forward
+as the fallback. MifosX and the workflow engine it reads by hostname, so the Gazelle names still have
+to resolve.
 
 ### How the registry decides
 
