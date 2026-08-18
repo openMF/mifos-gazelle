@@ -4,11 +4,10 @@
 # creating a demo program they can be paid through. Driven via
 # `kubectl exec ... odoo shell` on the pbms-odoo pod. Safe to re-run.
 #
-# Clients are read live from Fineract rather than regenerated because
-# generate-mifos-vnext-data.py produces different people on every run.
-#
+# Clients are read live from Fineract rather than regenerated
 # Steps:
-#   1  Fetch clients (displayName + mobileNo) from Fineract per tenant.
+#   1  Fetch clients (displayName + mobileNo) from Fineract per tenant,
+#      keep the age-eligible ones, cap at MAX_BENEFICIARIES.
 #   2  Create each as an individual res.partner registrant in PBMS.
 #   3  Create the demo program with an age-based eligibility_domain.
 #   4  Create + wire a PHEE payment manager on the program.
@@ -51,12 +50,14 @@ EXCLUDE_MSISDNS=()
 # Demo program config, from config.ini [openg2p]. The eligibility domain selects
 # registrants aged [ELIG_MIN_AGE, ELIG_MAX_AGE]; those outside are the "filtered
 # out" set. The band stays in-script because it is tuned to the deterministic
-# per-MSISDN ages of the seeded bluebank clients: 18-70 leaves 4 eligible and
-# filters out one minor and one elder, keeping the demo batch small.
+# per-MSISDN ages of the seeded bluebank clients: 18-70 leaves 8 of the 12
+# eligible, filtering out two minors and two elders. MAX_BENEFICIARIES below then
+# trims those 8 down to the demo batch size.
 DEMO_PROGRAM_NAME="$(crudini --get "$CONFIG_FILE" \
   openg2p OPENG2P_DEMO_PROGRAM_NAME 2>/dev/null || echo "Demo Program")"
 ELIG_MIN_AGE=18
 ELIG_MAX_AGE=70
+MAX_BENEFICIARIES=4
 # Validated in main(): both are interpolated below as bare Python numeric literals.
 ENTITLEMENT_AMOUNT_PER_CYCLE="$(crudini --get "$CONFIG_FILE" \
   openg2p OPENG2P_ENTITLEMENT_AMOUNT_PER_CYCLE 2>/dev/null || echo 50.0)"
@@ -288,19 +289,34 @@ preflight_dependencies() {
 #------------------------------------------------------------------------------
 # Function : fetch_fineract_clients
 # Description: Step 1 — fetches clients from Fineract for each tenant in
-#              FINERACT_TENANTS.
-# Returns: one TSV line per client with a mobile number on stdout:
+#              FINERACT_TENANTS, keeps only those whose deterministic age falls in
+#              [ELIG_MIN_AGE, ELIG_MAX_AGE], and caps the result at
+#              MAX_BENEFICIARIES. Filtering before the cap matters: taking the
+#              first N clients outright would include ones the program's
+#              eligibility_domain later drops, yielding fewer paid beneficiaries.
+# Returns: at most MAX_BENEFICIARIES TSV lines on stdout:
 #          <tenant>\t<mobileNo>\t<displayName>
 #------------------------------------------------------------------------------
 fetch_fineract_clients() {
   local tenant
-  for tenant in "${FINERACT_TENANTS[@]}"; do
-    curl -s -k -H "Fineract-Platform-TenantId: ${tenant}" \
-         -H "Authorization: ${FINERACT_AUTH}" \
-         "${FINERACT_BASE}/clients?limit=1000" 2>/dev/null \
-      | TENANT="$tenant" python3 -c '
-import sys, os, json
+  {
+    for tenant in "${FINERACT_TENANTS[@]}"; do
+      curl -s -k -H "Fineract-Platform-TenantId: ${tenant}" \
+           -H "Authorization: ${FINERACT_AUTH}" \
+           "${FINERACT_BASE}/clients?limit=1000" 2>/dev/null \
+        | TENANT="$tenant" MIN_AGE="$ELIG_MIN_AGE" MAX_AGE="$ELIG_MAX_AGE" python3 -c '
+import sys, os, json, hashlib
 tenant = os.environ["TENANT"]
+min_age = int(os.environ["MIN_AGE"])
+max_age = int(os.environ["MAX_AGE"])
+
+def age_for(msisdn):
+    # MUST stay identical to birthdate_for() in create_registrants — same seed, same
+    # 10..80 range. Applied here so the cap below counts only clients the program
+    # eligibility_domain will actually accept, rather than ones it filters out.
+    seed = int(hashlib.sha256(msisdn.encode()).hexdigest(), 16)
+    return 10 + (seed % 71)
+
 try:
     data = json.load(sys.stdin)
 except Exception:
@@ -309,11 +325,15 @@ for c in data.get("pageItems", []):
     mobile = (c.get("mobileNo") or "").strip()
     name = (c.get("displayName") or "").strip()
     if mobile and name:
+        msisdn = "".join(ch for ch in mobile if ch.isdigit())
+        if not msisdn or not (min_age <= age_for(msisdn) <= max_age):
+            continue
         # strip any stray whitespace/newlines from name; TSV-safe
         name = " ".join(name.split())
         print("%s\t%s\t%s" % (tenant, mobile, name))
 '
-  done
+    done
+  } | awk -v max="$MAX_BENEFICIARIES" 'max <= 0 || NR <= max'
 }
 
 #------------------------------------------------------------------------------
