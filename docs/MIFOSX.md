@@ -432,7 +432,7 @@ All image tags are pinned — no `:latest`. The current pins live in the manifes
 
 - **Pentaho per-tenant routing needs a fixed plugin release.** The published plugin resolves its datasource in a way that can return another tenant's data. The fix is a two-line change, merged upstream into `openMF/mifos-reporting-plugin` ([PR #513](https://github.com/openMF/mifos-reporting-plugin/pull/513), `pentaho` branch), but **no fixed release has been published yet** and Gazelle installs the published artifact. Until a fixed release ships, treat multi-tenant report output as unreliable. Closing this needs either a new plugin release or a temporary class swap in the initContainer.
 - **The Workflow Engine, Credit Bureau and Loan Assessment images are temporary.** None of those projects publishes a container image, so all three are built from source and currently pushed to a personal DockerHub namespace. All three pins should move to `openMF` images once those are published — see [Building the Module Images](#building-the-module-images) for the build and publish commands.
-- **The Loan Assessment module only sees the `default` tenant.** The `enable-loan-events` initContainer enables external events on that tenant alone, so loan activity on `greenbank`, `bluebank` or `redbank` produces no events for it to consume.
+- **The Loan Assessment module only sees the `default` tenant.** The `enable-loan-events` initContainer enables external events on that tenant alone, so loan activity on `greenbank`, `bluebank` or `redbank` produces no events for it to consume. Widening it means editing that initContainer in `fineract-server-deployment.yaml`, not the module.
 - **No SMS or email provider is configured.** The message gateway accepts and records requests, but with no provider credentials it cannot deliver to a real handset or mailbox. Wiring a live provider is a deployment-time decision.
 - **`redbank` is not selectable in the web app.** It is seeded and waited on at deploy time, but absent from the web app's tenant list, so it is reachable through the API only.
 
@@ -490,3 +490,5 @@ Raise `startup_timeout` in `config/config.ini` on slow or resource-constrained h
 - [Release notes](RELEASE-NOTES.md)
 - MifosX core banking: <https://docs.mifos.org/core-banking-and-embedded-finance/core-banking>
 - Apache Fineract API: <https://fineract.apache.org/docs/current/>
+
+Questions about this deployment go to the `#mifos-gazelle` channel on [Mifos Slack](https://mifos.slack.com).
