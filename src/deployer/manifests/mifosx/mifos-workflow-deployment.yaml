@@ -35,15 +35,14 @@ spec:
               done
               echo "Postgres is reachable."
         - name: wait-fineract
-          image: alpine:3.20
+          image: busybox:1.36
           command:
             - /bin/sh
             - -c
             - |
-              apk add --no-cache curl >/dev/null
               url="http://fineract-server:8080/fineract-provider/actuator/health/readiness"
               echo "Waiting for Fineract readiness ($url)..."
-              until curl -fsS "$url" >/dev/null 2>&1; do
+              until wget -q --spider "$url"; do
                 echo "  fineract not ready yet — retrying in 5s"; sleep 5
               done
               echo "Fineract is ready."
