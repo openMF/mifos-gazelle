@@ -52,7 +52,7 @@ spec:
               echo "Fineract ready — starting Credit Bureau."
       containers:
         - name: credit-bureau
-          image: kanishksingh23/mifos-credit-bureau:07082026
+          image: kanishksingh23/mifos-credit-bureau:21082026
           imagePullPolicy: IfNotPresent
           env:
             - name: SPRING_DATASOURCE_URL
@@ -77,6 +77,8 @@ spec:
               value: "mifos"
             - name: FINERACT_PASSWORD
               value: "password"
+            - name: FINERACT_TENANT_IDENTIFIER
+              value: "greenbank"
           ports:
             - containerPort: 8081
               protocol: TCP

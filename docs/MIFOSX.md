@@ -111,7 +111,7 @@ Components deployed into the `mifosx` namespace:
 | Web App | `web-app` pod + ingress | `openmf/web-app:dev-10d24b8` | Angular user interface |
 | Reports | *inside* `fineract-server` | plugin staged by initContainer | Pentaho formatted reporting |
 | Workflow Engine | `mifos-workflow` pod + ingress | `kanishksingh23/mifos-workflow:07082026` | Flowable BPMN process orchestration |
-| Credit Bureau | `credit-bureau` pod + ingress | `kanishksingh23/mifos-credit-bureau:07082026` | Credit bureau integration |
+| Credit Bureau | `credit-bureau` pod + ingress | `kanishksingh23/mifos-credit-bureau:21082026` | Credit bureau integration |
 
 PostgreSQL is shared with the rest of Gazelle and lives in the `infra` namespace, not in `mifosx`.
 
@@ -240,13 +240,15 @@ Registers credit-bureau credentials, pulls client and address data from Fineract
 | Health | `GET /credit-bureaus` |
 | Database | `creditbureau` on the shared PostgreSQL |
 
-Gazelle runs it with `CDC_MOCK_ENABLED=true` — the default bureau target is Círculo de Crédito, and no real bureau credentials are configured. Two initContainers gate startup: `ensure-creditbureau-db` creates the database if it does not exist, and `wait-for-fineract` blocks until the core API answers.
+Gazelle runs it with `CDC_MOCK_ENABLED=true` — the default bureau target is Círculo de Crédito (a Mexican bureau) and no real credentials are configured, so instead of calling a live bureau it returns a mock report built from the requested client's real Fineract data (name, RFC) plus a sample score and account. It reads client data from the Fineract tenant named by `FINERACT_TENANT_IDENTIFIER` (default `greenbank`, which carries the demo clients). Two initContainers gate startup: `ensure-creditbureau-db` creates the database if it does not exist, and `wait-for-fineract` blocks until the core API answers.
 
 **Using it.** List the configured bureaus — an empty array on a fresh deploy, since none are registered yet:
 
 ```bash
 curl http://credit-bureau.<GAZELLE_DOMAIN>/credit-bureaus
 ```
+
+For an end-to-end demo — register a bureau, fetch a demo client, and pull a mock report — run `./src/utils/demo-credit-bureau.sh`. It prints a readable summary: the client's name, a bureau score, and a sample account. Pass `-i <client_id>` to report on a different client.
 
 Two things worth knowing. Health probes hit `GET /credit-bureaus` rather than `/actuator/health`, because Jersey is mapped at `/*` and shadows the actuator endpoints — `/actuator/*` returns 404. That endpoint needs no auth (only `/api/**` is authenticated) and touches the database, so it is a genuine readiness signal. And `MIFOS_SECURITY_ENCRYPTION_KEY` has no default: the application will not start without it.
 
