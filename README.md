@@ -6,20 +6,26 @@
 
 ## Quick Start
 
-Latest Stable Release:
+Latest Stable Release (Ubuntu/Linux):
 ```bash
 git clone --branch main https://github.com/openMF/mifos-gazelle.git
 cd mifos-gazelle
-sudo ./run.sh -u $USER -m deploy -a all
+sudo ./setup-env.sh -e local -u $USER   # one-time: k3s, tools, /etc/hosts
+./run.sh -m deploy -a all               # deploy (no sudo needed)
 ```
 
 See [Deployment Guide](docs/MIFOS-GAZELLE-README.md) for prerequisites and full instructions.
+
+To also deploy OpenG2P (Government-to-Person payments), enable it in `config/config.ini` and run `./run.sh -m deploy -a openg2p`. With the whole stack up, the PBMS UI runs a full G2P bulk disbursement end to end, from beneficiary registry through Payment Hub into MifosX. See [OpenG2P](docs/OPENG2P.md) for details.
+
+To deploy OpenSPP (social registry, OpenSPP2 / Odoo 19) run `./run.sh -m deploy -a openspp`. It is off by default and pulls its images, so there is nothing to build on amd64. With the whole stack up, `bash demos/openspp/run_demo.sh` runs an agri subsidy end to end, from OpenSPP through Payment Hub into MifosX. See [OpenSPP](docs/OPENSPP.md) for details.
 
 For Latest Development Release (May not be stable):
 ```bash
 git clone --branch dev https://github.com/openMF/mifos-gazelle.git
 cd mifos-gazelle
-sudo ./run.sh -u $USER -m deploy -a all
+sudo ./setup-env.sh -e local -u $USER
+./run.sh -m deploy -a all
 ```
 
 ## Documentation
@@ -29,6 +35,8 @@ sudo ./run.sh -u $USER -m deploy -a all
 | [Deployment Guide](docs/MIFOS-GAZELLE-README.md) | Install, configure, test end-to-end payments, FAQ |
 | [Bulk Payment Tools](docs/BULK.md) | Submit/verify G2P batch payments, GovStack mode |
 | [GovStack Architecture](docs/GOVSTACK.md) | G2P bulk disbursement design and troubleshooting |
+| [OpenG2P](docs/OPENG2P.md) | Deploy OpenG2P G2P payments (commons, PBMS, social-registry, SPAR, g2p-bridge), the step-by-step bulk disbursement demo, and building OpenG2P images |
+| [OpenSPP](docs/OPENSPP.md) | Deploy OpenSPP2 (Odoo 19) social registry: quick start, configuration, first steps and the agri demo |
 | [Local Development](docs/LOCALDEV.md) | hostPath mounts for iterating on Payment Hub EE code |
 | [vNext Standalone](docs/VNEXT-README.md) | Deploy Mojaloop vNext on its own |
 | [Raspberry Pi](docs/RASPBERRY-PI-README.md) | Ubuntu setup on Raspberry Pi 5 |
@@ -36,6 +44,7 @@ sudo ./run.sh -u $USER -m deploy -a all
 | [PHEE Release History](docs/PHEE-RELEASE-HISTORY.md) | reference for PaymentHub EE component versions  |
 | [Mastercard CBS](docs/mastercard/MASTERCARD.md) | Cross-border payment connector for Payment Hub EE — overview, integration, and quick start |
 | [Mastercard CBS — Operator Guide](docs/mastercard/OPERATOR_DEPLOYMENT_GUIDE.md) | Full config reference, CR spec, operator lifecycle, and troubleshooting |
+| [Building Images](docs/BUILDING-IMAGES.md) | Build an image for the host architecture and load it into the cluster |
 
 ## Companion Tools
 

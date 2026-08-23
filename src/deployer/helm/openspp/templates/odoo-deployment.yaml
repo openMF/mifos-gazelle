@@ -1,0 +1,103 @@
+# OpenSPP2 (Odoo 19) application Deployment: web + longpolling ports, a database-wait init
+# container, and HTTP health probes against /web/health. The container self-initialises on first
+# boot (the entrypoint installs base then ODOO_INIT_MODULES), so there is no separate init Job.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openspp.fullname" . }}-odoo
+  labels:
+    {{- include "openspp.labels" . | nindent 4 }}
+    {{- include "openspp.odoo.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.odoo.replicas }}
+  # Recreate (not RollingUpdate): the filestore PVC is ReadWriteOnce, so two pods can't mount it.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openspp.odoo.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openspp.labels" . | nindent 8 }}
+        {{- include "openspp.odoo.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.arch }}
+      nodeSelector:
+        kubernetes.io/arch: {{ .Values.arch }}
+      {{- end }}
+      # Wait for PostGIS before Odoo boots (the postgis image carries pg_isready).
+      initContainers:
+        - name: wait-for-db
+          image: "{{ .Values.postgis.image.repository }}:{{ .Values.postgis.image.tag }}"
+          imagePullPolicy: {{ .Values.postgis.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ include "openspp.postgis.serviceName" . }} -p {{ .Values.postgis.port }} -U {{ .Values.postgis.user }}; do
+                echo "waiting for postgis..."; sleep 3;
+              done
+      containers:
+        - name: odoo
+          image: "{{ .Values.odoo.image.repository }}:{{ .Values.odoo.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.odoo.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.odoo.ports.http }}
+              protocol: TCP
+            - name: longpolling
+              containerPort: {{ .Values.odoo.ports.longpolling }}
+              protocol: TCP
+          env:
+            # Database connection + admin password (from the Secret).
+            {{- include "openspp.odoo.dbEnv" . | nindent 12 }}
+            # Module installed on first boot (entrypoint self-init).
+            - name: ODOO_INIT_MODULES
+              value: {{ .Values.odoo.modules | quote }}
+            - name: DB_SSLMODE
+              value: {{ .Values.odoo.env.DB_SSLMODE | quote }}
+            - name: DB_FILTER
+              value: {{ .Values.odoo.env.DB_FILTER | quote }}
+            - name: LIST_DB
+              value: {{ .Values.odoo.env.LIST_DB | quote }}
+            - name: PROXY_MODE
+              value: {{ .Values.odoo.env.PROXY_MODE | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.odoo.env.LOG_LEVEL | quote }}
+            - name: ODOO_WORKERS
+              value: {{ .Values.odoo.env.workers | quote }}
+            - name: ODOO_CRON_THREADS
+              value: {{ .Values.odoo.env.cronThreads | quote }}
+          volumeMounts:
+            - name: filestore
+              mountPath: /var/lib/odoo
+          # First boot self-initialises the DB (can take a few minutes), so gate the other probes
+          # behind a startupProbe with a generous budget.
+          startupProbe:
+            httpGet:
+              path: /web/health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 40
+          readinessProbe:
+            httpGet:
+              path: /web/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /web/health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.odoo.resources | nindent 12 }}
+      volumes:
+        - name: filestore
+          persistentVolumeClaim:
+            claimName: {{ include "openspp.fullname" . }}-filestore

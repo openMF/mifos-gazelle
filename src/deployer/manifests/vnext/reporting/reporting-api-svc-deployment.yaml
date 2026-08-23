@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: reporting-api-svc
+    mojaloop.layer: reporting
+  name: reporting-api-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      mojaloop.service: reporting-api-svc
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+      creationTimestamp: null
+      labels:
+        mojaloop.service: reporting-api-svc
+        mojaloop.layer: reporting
+    spec:
+      containers:
+        - env:
+          - name: AUTH_N_SVC_BASEURL
+            value: http://authentication-svc:3201
+          - name: AUTH_N_TOKEN_AUDIENCE
+            value: mojaloop.vnext.dev.default_audience
+          - name: AUTH_N_TOKEN_ISSUER_NAME
+            value: mojaloop.vnext.dev.default_issuer
+          - name: AUTH_Z_SVC_BASEURL
+            value: http://authorization-svc:3202
+          - name: KAFKA_LOGS_TOPIC
+            value: logs
+          - name: KAFKA_URL
+            value: kafka.infra.svc.cluster.local:9092
+          - name: KAFKA_AUDITS_TOPIC
+            value: audits
+          - name: MONGO_URL
+            value: mongodb://root:mongoDbPas42@mongodb.infra.svc.cluster.local:27017/
+          - name: PARTICIPANTS_SVC_URL
+            value: http://participants-svc:3010
+          - name: PLATFORM_CONFIG_BASE_SVC_URL
+            value: http://platform-configuration-svc:3100
+          image: mojaloop/reporting-bc-reporting-api-svc:0.3.12
+          livenessProbe:
+            tcpSocket:
+              port: 5000
+            failureThreshold: 10
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+          name: reporting-api-svc
+          ports:
+            - containerPort: 5000
+          resources: {}
+      restartPolicy: Always
+status: {}

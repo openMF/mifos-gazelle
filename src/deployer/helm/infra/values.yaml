@@ -18,14 +18,14 @@ kafka:
 
   broker:
     replicaCount: 1
-    heapOpts: "-Xms64M -Xmx256M"
-    resources: 
+    heapOpts: "-Xms256M -Xmx512M"
+    resources:
       limits:
-        memory: "500Mi" # Using Mi for clarity and consistency
-        cpu: "500m"
-      requests: 
-        memory: "64Mi" # Using Mi for clarity and consistency
-        cpu: "100m"
+        memory: "1Gi"  # Must exceed heap + JVM overhead (metaspace, native, GC threads)
+        cpu: "1000m"
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
   
   extraConfig: |
     auto.create.topics.enable=true
@@ -171,7 +171,7 @@ redpanda-console:
     enabled: true
     className: nginx
     hosts:
-      - host: redpanda-console.mifos.gazelle.localhost
+      - host: redpanda-console.mifos.gazelle.local
         paths:
           - path: /
             pathType: ImplementationSpecific
@@ -188,7 +188,18 @@ mongodb:
   settings:
     rootUsername: root
     rootPassword: mongoDbPas42
-    
+
+  # Cap WiredTiger cache to 256MB — default is 50% of node RAM which starves
+  # other pods on a single-node dev cluster.
+  args:
+    - "--wiredTigerCacheSizeGB=0.25"
+
+  resources:
+    requests:
+      memory: "384Mi"
+    limits:
+      memory: "768Mi"
+
   extraEnv:
     - name: MONGO_INITDB_ROOT_USERNAME
       value: "root"
@@ -204,11 +215,16 @@ mongo-express:
   # image:
   #   tag: 1.0.0
 
+  livenessProbe:
+    initialDelaySeconds: 30
+  readinessProbe:
+    initialDelaySeconds: 30
+
   ingress:
     enabled: true
     ingressClassName: nginx
     hosts:
-      - host: mongoexpress.mifos.gazelle.localhost
+      - host: mongoexpress.mifos.gazelle.local
         paths:
           - /
 
@@ -246,9 +262,7 @@ elasticsearch:
     repository: bitnamilegacy/elasticsearch
     tag: 8.10.4-debian-11-r0
   sysctlImage:
-    registry: docker.io
-    repository: bitnamilegacy/os-shell
-    tag: 11-debian-11-r90
+    enabled: false
 
   security:
     elasticPassword: elasticSearchPas42
@@ -263,18 +277,14 @@ elasticsearch:
     replicaCount: 1
     persistence:
       enabled: false
-    env:
-      - name: ES_JAVA_OPTS
-        # Set Xmx and Xms to the same value for stability. 768m is a common low-end starting point.
-        value: "-Xms256m -Xmx256m -XX:+HeapDumpOnOutOfMemoryError" 
-    # Define resources for this single 'all-in-one' master node
+    heapSize: 512m
     resources:
       requests:
-        memory: "128Mi"  # Request enough memory for the heap + overhead
+        memory: "768Mi"
         cpu: "100m"
-      # limits:
-      #   memory: "800Mi" # Allow some buffer over the heap for OS page cache and other overhead
-      #   cpu: "41m" # 
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
 
 
   data:
@@ -287,7 +297,7 @@ elasticsearch:
   ingress:
     enabled: true
     ingressClassName: nginx
-    hostname: elasticsearch.mifos.gazelle.localhost
+    hostname: elasticsearch.mifos.gazelle.local
     tls:
       - enabled: false
 
@@ -312,39 +322,45 @@ elasticsearch:
     ingress:
       enabled: true
       ingressClassName: nginx
-      hostname: kibana.mifos.gazelle.localhost
+      hostname: kibana.mifos.gazelle.local
       tls:
         enabled: false
 
-############### MySQL  ####################
-mysql:
-  fullnameOverride: "mysql"
+## GAZ-305 (MifosX moved from MySQL to Postgres) 
+postgresql:
   enabled: true
-  auth:
-    database: "tenants"
-    username: "mifos"
-    password: "password"
-    rootPassword: "mysqlpw"
-    # rootPassword: "ethieTieCh8ahv"
+  fullnameOverride: "postgres"   # -> postgres.infra.svc.cluster.local:5432
   image:
-    tag: "5.7"
-    repository: bitnamilegacy/mysql
+    repository: bitnamilegacy/postgresql
+    tag: "16.6.0"
     debug: false
-  initdbScripts:
-    setup.sql: |-
-      # CREATE DATABASE IF NOT EXISTS messagegateway;
-      # CREATE DATABASE IF NOT EXISTS `identity_account_mapper`;
-      # CREATE DATABASE IF NOT EXISTS `voucher_management`;
-      # CREATE DATABASE IF NOT EXISTS `fineract_tenants`;
-      # CREATE DATABASE IF NOT EXISTS `fineract_default`;
-      # CREATE DATABASE IF NOT EXISTS `greenbank`;
-      # CREATE DATABASE IF NOT EXISTS `bluebank`;
-      # GRANT ALL PRIVILEGES ON messagegateway.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `identity_account_mapper`.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `voucher_management`.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `fineract_tenants`.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `fineract_default`.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `greenbank`.* TO 'mifos';
-      # GRANT ALL PRIVILEGES ON `bluebank`.* TO 'mifos';
-      GRANT ALL ON *.* TO 'root'@'%';
+  auth:
+    # Fineract connects as the postgres superuser (mirrors MySQL's root usage).
+    postgresPassword: "postgrespw"
+  primary:
+    resources:
+      requests:
+        # bumped 256Mi -> 384Mi; this instance now also hosts the
+        # mifos_flowable schema for the Workflow Engine (Flowable).
+        memory: "384Mi"
+      limits:
+        # (see requests note above).
+        memory: "768Mi"
+    # Create the two bootstrap DBs Fineract needs on first init, mirroring the
+    # upstream mifosx-platform postgresql/ init script. Tenant DBs (greenbank/
+    # bluebank/redbank) are created later by the ported update-mifos-tenants.sh.
+    initdb:
+      scripts:
+        01-create-fineract-dbs.sql: |
+          CREATE DATABASE fineract_tenants;
+          CREATE DATABASE fineract_default;
+          CREATE DATABASE creditbureau;
+        # Workflow Engine (Flowable) DB. Flowable auto-creates its own
+        # tables inside this database on first startup (schema-update=true).
+        02-create-workflow-db.sql: |
+          CREATE DATABASE mifos_flowable;
+        03-create-messagegateway-db.sql: |
+          CREATE DATABASE messagegateway;
+        04-create-loanrisk-db.sql: |
+          CREATE DATABASE loanrisk;
 

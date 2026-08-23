@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-ui-ingress
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    #external-dns.alpha.kubernetes.io/hostname: vnextadmin.mifos.gazelle.test
+    #cert-manager.io/issuer: letsencrypt-staging
+spec:
+  ingressClassName: nginx
+  #tls:
+  #   - hosts:
+  #       - vnextadmin.mifos.gazelle.test
+  #     secretName: quickstart-example-tls
+  rules:
+  - host: vnextadmin.mifos.gazelle.test
+    http:
+      paths:
+      - path: "/"
+        pathType: Prefix
+        backend:
+          service:
+            name: admin-ui
+            port:
+              number: 4200

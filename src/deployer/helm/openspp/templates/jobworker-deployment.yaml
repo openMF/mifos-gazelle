@@ -1,0 +1,62 @@
+{{- if .Values.jobworker.enabled }}
+# OpenSPP2 background job worker (upstream "queue-worker"): processes async queue jobs in a
+# separate process, using the same image and DB connection as Odoo. No HTTP, no filestore.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openspp.fullname" . }}-jobworker
+  labels:
+    {{- include "openspp.labels" . | nindent 4 }}
+    app: openspp-jobworker
+    tier: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openspp-jobworker
+  template:
+    metadata:
+      labels:
+        {{- include "openspp.labels" . | nindent 8 }}
+        app: openspp-jobworker
+        tier: worker
+    spec:
+      {{- if .Values.arch }}
+      nodeSelector:
+        kubernetes.io/arch: {{ .Values.arch }}
+      {{- end }}
+      # Wait until Odoo has INITIALISED the DB (ir_module_module exists), not just until Postgres is
+      # up. Both odoo and this worker run the same entrypoint, which tries to init the DB on an empty
+      # database; starting the worker only after odoo has initialised avoids racing for the init lock.
+      initContainers:
+        - name: wait-for-db-init
+          image: "{{ .Values.postgis.image.repository }}:{{ .Values.postgis.image.tag }}"
+          imagePullPolicy: {{ .Values.postgis.image.pullPolicy }}
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openspp.secretName" . }}
+                  key: db-password
+          command:
+            - sh
+            - -c
+            - |
+              until psql -h {{ include "openspp.postgis.serviceName" . }} -p {{ .Values.postgis.port }} -U {{ .Values.postgis.user }} -d {{ .Values.postgis.database }} -tAc "select 1 from ir_module_module limit 1" >/dev/null 2>&1; do
+                echo "waiting for odoo to initialise the database..."; sleep 5;
+              done
+      containers:
+        - name: jobworker
+          image: "{{ .Values.odoo.image.repository }}:{{ .Values.odoo.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.odoo.image.pullPolicy }}
+          # args (not command): keep the image entrypoint, which generates /etc/odoo/odoo.conf before
+          # running the runner (without it the addons_path is wrong and job_worker won't import).
+          args:
+            ["python", "/mnt/extra-addons/odoo-job-worker/job_worker_runner.py", "-c", "/etc/odoo/odoo.conf"]
+          env:
+            {{- include "openspp.odoo.dbEnv" . | nindent 12 }}
+            - name: LOG_LEVEL
+              value: {{ .Values.odoo.env.LOG_LEVEL | quote }}
+          resources:
+            {{- toYaml .Values.jobworker.resources | nindent 12 }}
+{{- end }}

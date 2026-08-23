@@ -9,19 +9,13 @@ DEFAULT_CONFIG_FILE="$RUN_DIR/config/config.ini"
 
 #------------------------------------------------------------------------------
 # function: resolve_invoker_user
-# Description: Resolves the username of the user who invoked the script,
-#              handling cases where sudo is used.
+# Description: Resolves the username of the user who invoked the script.
+#              In setup-env.sh (sudo context) checks SUDO_USER first.
+#              In run.sh (no sudo) whoami is always correct.
 #------------------------------------------------------------------------------
-function resolve_invoker_user() {
+resolve_invoker_user() {
   if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
     printf '%s\n' "$SUDO_USER"
-    return
-  fi
-  if invoker="$(logname 2>/dev/null)"; then
-    [[ -n "$invoker" ]] && printf '%s\n' "$invoker" && return
-  fi
-  if [[ -n "${LOGNAME:-}" && "${LOGNAME}" != "root" ]]; then
-    printf '%s\n' "$LOGNAME"
     return
   fi
   whoami
@@ -31,24 +25,44 @@ function resolve_invoker_user() {
 # Function : install_crudini
 # Description: Installs the 'crudini' tool if it is not already installed.
 #------------------------------------------------------------------------------
-function install_crudini() {
+install_crudini() {
     if ! command -v crudini &> /dev/null; then
-        logWithLevel "$INFO" "crudini not found. Attempting to install..."
-        if command -v apt-get &> /dev/null; then
+        log_with_level "$INFO" "crudini not found. Attempting to install..."
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            # crudini is a Python CLI tool (not a Homebrew formula).
+            # Modern macOS with Homebrew-managed Python blocks plain pip install;
+            # use pipx which handles the venv isolation automatically.
+            local user_home
+            user_home=$(eval echo "~${SUDO_USER:-$k8s_user}")
+            # Ensure ~/.local/bin is on PATH (pipx installs there)
+            export PATH="$user_home/.local/bin:$PATH"
+            if ! command -v pipx &>/dev/null; then
+                run_brew install pipx >/dev/null 2>&1
+            fi
+            local pipx_bin=""
+            for candidate in /opt/homebrew/bin/pipx /usr/local/bin/pipx "$user_home/.local/bin/pipx"; do
+                if [[ -x "$candidate" ]]; then pipx_bin="$candidate"; break; fi
+            done
+            if [[ -z "$pipx_bin" ]]; then
+                log_with_level "$ERROR" "pipx not found after install. Please install crudini manually: brew install pipx && pipx install crudini"
+                exit 1
+            fi
+            sudo -u "${SUDO_USER:-$k8s_user}" "$pipx_bin" install crudini >/dev/null 2>&1
+        elif command -v apt-get &> /dev/null; then
             sudo apt-get update && sudo apt-get install -y crudini
         elif command -v dnf &> /dev/null; then
             sudo dnf install -y crudini
         elif command -v yum &> /dev/null; then
             sudo yum install -y crudini
         else
-            logWithLevel "$ERROR" "Neither apt-get, dnf, nor yum found. Please install crudini manually."
+            log_with_level "$ERROR" "No supported package manager found (brew/apt-get/dnf/yum). Please install crudini manually."
             exit 1
         fi
         if ! command -v crudini &> /dev/null; then
-            logWithLevel "$ERROR" "Failed to install crudini. Exiting."
+            log_with_level "$ERROR" "Failed to install crudini. Exiting."
             exit 1
         fi
-        logWithLevel "$INFO" "crudini installed successfully."
+        log_with_level "$INFO" "crudini installed successfully."
     fi
 }
 
@@ -61,7 +75,7 @@ function install_crudini() {
 # Parameters:
 #   $1 - Path to config.ini
 #------------------------------------------------------------------------------
-function setup_logging() {
+setup_logging() {
     local config="$1"
     local log_enabled
     log_enabled=$(grep -E '^\s*logging\s*=' "$config" 2>/dev/null | tail -1 \
@@ -76,17 +90,17 @@ function setup_logging() {
 }
 
 #------------------------------------------------------------------------------
-# Function : loadConfigFromFile
+# Function : load_config_from_file
 # Description: Loads configuration parameters from the specified INI file using 'crudini'.
 # Parameters:
 #   $1 - Path to the configuration INI file.
 #------------------------------------------------------------------------------
-function loadConfigFromFile() {
+load_config_from_file() {
     local config_path="$1"
-    logWithLevel "$INFO" "Attempting to load configuration from $config_path using crudini."
+    log_with_level "$INFO" "Attempting to load configuration from $config_path using crudini."
 
     if [ ! -f "$config_path" ]; then
-        logWithLevel "$WARNING" "Configuration file not found: $config_path. Proceeding with defaults and command-line arguments."
+        log_with_level "$WARNING" "Configuration file not found: $config_path. Proceeding with defaults and command-line arguments."
         return 0
     fi
 
@@ -109,7 +123,7 @@ function loadConfigFromFile() {
     if [[ -n "$config_k8s_user" ]]; then
         if [[ "$config_k8s_user" == "\$USER" || "$config_k8s_user" == '$USER' ]]; then
             k8s_user="$(resolve_invoker_user)"
-            #logWithLevel "$INFO" "Expanded '\$USER' in config to invoking username: $k8s_user"
+            #log_with_level "$INFO" "Expanded '\$USER' in config to invoking username: $k8s_user"
         else
             k8s_user="$config_k8s_user"
         fi
@@ -119,7 +133,7 @@ function loadConfigFromFile() {
         if [[ "$config_kubeconfig_path" == "~/.kube/config" ]]; then
             k8s_user_home=$(eval echo "~$k8s_user")
             kubeconfig_path="$k8s_user_home/.kube/config"
-            #logWithLevel "$INFO" "Expanded kubeconfig_path to: $kubeconfig_path"
+            #log_with_level "$INFO" "Expanded kubeconfig_path to: $kubeconfig_path"
         else
             kubeconfig_path="$config_kubeconfig_path"
         fi
@@ -128,8 +142,10 @@ function loadConfigFromFile() {
     if [[ -n "$config_helm_version" ]]; then helm_version="$config_helm_version"; fi
     # local config_k8s_current_release_list=$(crudini --get "$config_path" kubernetes k8s_current_release_list 2>/dev/null)
     # if [[ -n "$config_k8s_current_release_list" ]]; then k8s_current_release_list="$config_k8s_current_release_list"; fi
-    local config_min_ram=$(crudini --get "$config_path" kubernetes min_ram 2>/dev/null)
-    if [[ -n "$config_min_ram" ]]; then min_ram="$config_min_ram"; fi
+    local config_k8s_cpu=$(crudini --get "$config_path" kubernetes k8s_cpu 2>/dev/null)
+    if [[ -n "$config_k8s_cpu" ]]; then k8s_cpu="$config_k8s_cpu"; fi
+    local config_k8s_mem=$(crudini --get "$config_path" kubernetes k8s_mem 2>/dev/null)
+    if [[ -n "$config_k8s_mem" ]]; then k8s_mem="$config_k8s_mem"; fi
     local config_min_free_space=$(crudini --get "$config_path" kubernetes min_free_space 2>/dev/null)
     if [[ -n "$config_min_free_space" ]]; then min_free_space="$config_min_free_space"; fi
     local config_linux_os_list=$(crudini --get "$config_path" kubernetes linux_os_list 2>/dev/null)
@@ -139,14 +155,14 @@ function loadConfigFromFile() {
 
     # Read app enablement flags and construct the 'apps' variable
     local enabled_apps_list=""
-    local valid_apps=("infra" "vnext" "phee" "mifosx" "mastercard-demo")
+    local valid_apps=("infra" "vnext" "paymenthub" "mifosx" "mastercard-demo" "openg2p" "openspp")
 
     for app_name in "${valid_apps[@]}"; do
         local app_enabled=$(crudini --get "$config_path" "$app_name" enabled 2>/dev/null)
         app_enabled=$(echo "$app_enabled" | tr '[:upper:]' '[:lower:]')
         if [[ "$app_enabled" == "true" ]]; then
             enabled_apps_list+=" $app_name"
-            #logWithLevel "$INFO" "Config indicates '$app_name' is enabled."
+            #log_with_level "$INFO" "Config indicates '$app_name' is enabled."
         fi
     done
     apps=$(echo "$enabled_apps_list" | xargs)
@@ -169,10 +185,10 @@ function loadConfigFromFile() {
                     if [[ -n "$value" ]]; then
                         # Store value as-is, let bash expand variables when referenced
                         eval "export $var_name=\"\$value\""
-                        #logWithLevel "$INFO" "Loaded from config [$section]: $var_name=$value"
+                        #log_with_level "$INFO" "Loaded from config [$section]: $var_name=$value"
                     fi
                 #else
-                    #logWithLevel "$INFO" "Skipped (already set) [$section]: $var_name=$current_value"
+                    #log_with_level "$INFO" "Skipped (already set) [$section]: $var_name=$current_value"
                 fi
             fi
         done <<< "$section_keys"
@@ -183,7 +199,7 @@ function loadConfigFromFile() {
 # Function : welcome
 # Description: Displays a welcome message for Mifos Gazelle.
 #------------------------------------------------------------------------------
-function welcome {
+welcome() {
     echo -e "${BLUE}"
     echo -e " ██████   █████  ███████ ███████ ██      ██      ███████ "
     echo -e "██       ██   ██    ███  ██      ██      ██      ██      "
@@ -197,31 +213,52 @@ function welcome {
 }
 
 #------------------------------------------------------------------------------
-# Function : showUsage
+# Function : show_usage
 # Description: Displays usage information for the script.
 #------------------------------------------------------------------------------
-function showUsage {
+show_usage() {
     echo "
-    USAGE: $0 [-f <config_file_path>] -m [mode] -u [user] -a [apps] -e [environment] -d [true/false] -r [true/false]
-    Example 1 : sudo $0                                          # deploy all apps enabled in config.ini and user \$USER from config.ini
-    Example 2 : sudo $0 -m cleanapps -d true                     # delete all apps enabled in config.init,  debug mode \$USER from config.ini
-    Example 3 : sudo $0 -m cleanall                              # delete all apps, all local Kubernetes artifacts, and local kubernetes server
-    Example 4 : sudo $0 -a phee                                  # deploy PHEE only, user \$USER from config.ini
-    Example 6 : sudo $0 -a \"mifosx,vnext\"                        # deploy MifosX and vNext only 
-    Example 7 : sudo $0 -f /opt/my_config.ini                    # Use a custom config file
-    Example 8 : sudo $0 -a \"phee,mifosx\" -e remote -d true       # deploy PHEE and MifosX on remote cluster with debug mode
-    Example 9 : sudo $0 -a setup-data                            # re-run data generation after a slow first boot
+    USAGE: $0 [-f <config_file_path>] -m [mode] -a [apps] -e [environment] -d [true/false] -r [true/false]
+
+    Deploys or removes Mifos Gazelle applications on an already-configured cluster.
+    Run 'sudo ./setup-env.sh' first to set up the environment (k3s, /etc/hosts, tools).
+
+    Example 1 : $0 -m deploy                                  # deploy all apps enabled in config.ini
+    Example 2 : $0 -m deploy -a paymenthub                    # deploy PaymentHub only
+    Example 3 : $0 -m deploy -a \"mifosx,vnext\"                # deploy MifosX and vNext only
+    Example 4 : $0 -m deploy -e remote -d true                # deploy on remote cluster with debug
+    Example 5 : $0 -m cleanapps                               # delete all deployed apps
+    Example 6 : $0 -m cleanapps -a paymenthub                 # delete PaymentHub only
+    Example 7 : $0 -f /opt/my_config.ini -m deploy            # use a custom config file
+    Example 8 : $0 -m deploy -a setup-data                    # re-run data generation
 
     Options:
     -f config_file_path .. Specify an alternative config.ini file path (optional)
-    -m mode .............. deploy|cleanapps|cleanall (required)
-    -u user .............. (non root) user that the process will use for execution (required)
-    -a apps .............. Comma-separated list of apps (vnext,phee,mifosx,infra,mastercard-demo,setup-data) or 'all' (optional)
-    -e environment ....... Cluster environment (local or remote, optional, default=local)
-    -d debug ............. Enable debug mode (true|false, optional, default=false)
-    -r redeploy .......... Force redeployment of apps (true|false, optional, default=true)
-    -h|H ................. Display this message
+    -m mode .............. deploy|cleanapps (required)
+    -u user .............. non-root user for k8s operations (optional, defaults to \$USER)
+    -a apps .............. Comma-separated list of apps or 'all' (optional)
+                           Valid: vnext paymenthub mifosx infra mastercard-demo openg2p openspp setup-data all
+    -e environment ....... local (default) | remote
+    -d debug ............. true|false (optional, default=false)
+    -r redeploy .......... true|false (optional, default=true)
+    -h|H ................. display this message
+
+    For environment setup and teardown use sudo ./setup-env.sh (see --help).
     "
+}
+
+#------------------------------------------------------------------------------
+# Function : auto_detect_environment
+# Description: Promotes 'local' to 'mac' on macOS so the Colima code path is
+#              used automatically without any config change.
+#------------------------------------------------------------------------------
+auto_detect_environment() {
+    if [[ "${environment:-local}" == "local" && "$(uname -s)" == "Darwin" ]]; then
+        environment="mac"
+        log_with_level "$INFO" "Detected OS: macOS — using Colima/Homebrew path"
+    elif [[ "${environment:-local}" == "local" ]]; then
+        log_with_level "$INFO" "Detected OS: $(uname -s) — using local k3s path"
+    fi
 }
 
 #------------------------------------------------------------------------------
@@ -230,9 +267,9 @@ function showUsage {
 # Parameters:
 #   $1 - Name of the array variable to check (passed by name).
 #------------------------------------------------------------------------------
-function check_duplicates() {
+check_duplicates() {
     local -n arr=$1
-    declare -A seen
+    local -A seen
     
     for app in "${arr[@]}"; do
         if [[ ${seen[$app]} ]]; then
@@ -245,25 +282,26 @@ function check_duplicates() {
 }
 
 #------------------------------------------------------------------------------
-# Function : validateInputs
+# Function : validate_inputs
 # Description: Validates command-line inputs and configuration parameters.
 #------------------------------------------------------------------------------
-function validateInputs {
+validate_inputs() {
     if [[ -z "$mode" || -z "$k8s_user" ]]; then
         log_error "Required options -m (mode) and -u (user) must be provided."
-        showUsage
+        show_usage
         exit 1
     fi
 
     if [[ "$k8s_user" == "root" ]]; then
         log_error "The specified user cannot be root. Please specify a non-root user."
-        showUsage
+        show_usage
         exit 1
     fi
 
-    if [[ "$mode" != "deploy" && "$mode" != "cleanapps" && "$mode" != "cleanall" ]]; then
-        log_error "Invalid mode '$mode'. Must be one of: deploy, cleanapps, cleanall."
-        showUsage
+    if [[ "$mode" != "deploy" && "$mode" != "cleanapps" ]]; then
+        log_error "Invalid mode '$mode'. run.sh accepts: deploy | cleanapps"
+        log_error "For environment setup and teardown use: sudo ./setup-env.sh [-m cleanall]"
+        show_usage
         exit 1
     fi
 
@@ -272,12 +310,12 @@ function validateInputs {
             log_warn "No apps specified via -a or config file. Defaulting to 'all'."
             apps="all"
         fi
-        local ALL_VALID_APPS="infra vnext phee mifosx mastercard-demo setup-data all"
-        local CORE_APPS="infra vnext phee mifosx"
+        local ALL_VALID_APPS="infra vnext paymenthub mifosx mastercard-demo openg2p openspp setup-data all"
+        local CORE_APPS="infra vnext paymenthub mifosx openg2p"
 
         local current_apps_array
         IFS=' ' read -r -a current_apps_array <<< "$apps"
-        logWithVerboseCheck "$debug" "$DEBUG" "Apps array: ${current_apps_array[*]}"
+        log_with_verbose_check "$debug" "$DEBUG" "Apps array: ${current_apps_array[*]}"
 
         local found_all_keyword="false"
         local specific_apps_count=0
@@ -285,7 +323,7 @@ function validateInputs {
         for app_item in "${current_apps_array[@]}"; do
             if ! [[ " $ALL_VALID_APPS " =~ " $app_item " ]]; then
                 log_error "Invalid app '$app_item'. Must be one of: ${ALL_VALID_APPS// /, }."
-                showUsage
+                show_usage
                 exit 1
             fi
             if [[ "$app_item" == "all" ]]; then
@@ -298,57 +336,57 @@ function validateInputs {
         # Check for duplicate apps
         if ! check_duplicates current_apps_array; then
             log_error "Duplicate applications specified in -a flag."
-            showUsage
+            show_usage
             exit 1
         fi
 
         if [[ "$found_all_keyword" == "true" ]]; then
             if [[ "$specific_apps_count" -gt 0 ]]; then
                 log_error "Cannot combine 'all' with specific apps. Use either 'all' or a list, not both."
-                showUsage
+                show_usage
                 exit 1
             fi
             apps="$CORE_APPS"
-            logWithVerboseCheck "$debug" "$DEBUG" "Expanded 'all' to: $apps"
+            log_with_verbose_check "$debug" "$DEBUG" "Expanded 'all' to: $apps"
         fi
 
-        logWithVerboseCheck "$debug" "$DEBUG" "Apps to process: $apps"
+        log_with_verbose_check "$debug" "$DEBUG" "Apps to process: $apps"
         if [[ " $apps " =~ " infra " ]]; then
             if [[ "$mode" == "deploy" ]]; then
                 # for mode = deploy ensure 'infra' is first app if present
-                apps="infra $(echo $apps | sed 's/infra//')"
-                apps=$(echo $apps | xargs)
+                apps="infra $(echo "$apps" | sed 's/infra//')"
+                apps=$(echo "$apps" | xargs)
             else # mode = cleanapps
                 # for mode = cleanapps ensure 'infra' is last app if present
-                apps="$(echo $apps | sed 's/infra//') infra"
-                apps=$(echo $apps | xargs)
+                apps="$(echo "$apps" | sed 's/infra//') infra"
+                apps=$(echo "$apps" | xargs)
             fi
         fi
-        logWithVerboseCheck "$debug" "$DEBUG" "Final app order: $apps"
+        log_with_verbose_check "$debug" "$DEBUG" "Final app order: $apps"
     fi
 
     if [[ -n "$debug" && "$debug" != "true" && "$debug" != "false" ]]; then
         log_error "Invalid value for debug. Use 'true' or 'false'."
-        showUsage
+        show_usage
         exit 1
     fi
 
     if [[ -n "$redeploy" && "$redeploy" != "true" && "$redeploy" != "false" ]]; then
         log_error "Invalid value for redeploy. Use 'true' or 'false'."
-        showUsage
+        show_usage
         exit 1
     fi
 
-    if [[ -n "$environment" && "$environment" != "local" && "$environment" != "remote" ]]; then
+    if [[ -n "$environment" && "$environment" != "local" && "$environment" != "remote" && "$environment" != "mac" ]]; then
         log_error "Invalid environment '$environment'. Must be 'local' or 'remote'."
-        showUsage
+        show_usage
         exit 1
     fi
 
     if [[ "$environment" == "local" ]]; then
         if [[ -z "$k8s_version" ]]; then
             log_error "k8s_version must be specified for local environment."
-            showUsage
+            show_usage
             exit 1
         fi
     fi
@@ -356,42 +394,45 @@ function validateInputs {
     if [[ "$environment" == "remote" && -n "$kubeconfig_path" ]]; then
         if [[ ! -f "$kubeconfig_path" ]]; then
             log_error "kubeconfig_path '$kubeconfig_path' does not exist or is not a file."
-            showUsage
+            show_usage
             exit 1
         fi
     fi
 
-    if [[ ! " $linux_os_list " =~ " Ubuntu " ]]; then
-        log_error "Only Ubuntu is supported in linux_os_list: $linux_os_list."
-        showUsage
-        exit 1
-    fi
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        if [[ ! " $linux_os_list " =~ " Ubuntu " ]]; then
+            log_error "Only Ubuntu is supported in linux_os_list: $linux_os_list."
+            show_usage
+            exit 1
+        fi
 
-    local os_version=$(lsb_release -r -s | cut -d'.' -f1)
-    if [[ ! " $ubuntu_ok_versions_list " =~ " $os_version " ]]; then
-        log_error "Ubuntu version '$os_version' is not supported. Supported versions: $ubuntu_ok_versions_list."
-        showUsage
-        exit 1
+        local os_version
+        os_version=$(lsb_release -r -s | cut -d'.' -f1)
+        if [[ ! " $ubuntu_ok_versions_list " =~ " $os_version " ]]; then
+            log_error "Ubuntu version '$os_version' is not supported. Supported versions: $ubuntu_ok_versions_list."
+            show_usage
+            exit 1
+        fi
     fi
 
     environment="${environment:-local}"
     debug="${debug:-false}"
     redeploy="${redeploy:-true}"
-    if [[ "$environment" == "remote" && -z "$kubeconfig_path" ]]; then
+    if [[ ( "$environment" == "remote" || "$environment" == "mac" ) && -z "$kubeconfig_path" ]]; then
         k8s_user_home=$(eval echo "~$k8s_user")
         kubeconfig_path="$k8s_user_home/.kube/config"
-        logWithLevel "$INFO" "No kubeconfig_path specified in config.ini for remote environment. Defaulting to $kubeconfig_path"
+        log_with_level "$INFO" "No kubeconfig_path specified in config.ini for $environment environment. Defaulting to $kubeconfig_path"
     fi
-} #validateInputs
+} #validate_inputs
 
 #------------------------------------------------------------------------------
-# Function : getOptions
+# Function : get_options
 # Description: Parses command-line options and populates a map with the values.
 # Parameters:
 #   $1 - Name of the associative array to populate with options.
 #   Remaining parameters - Command-line arguments to parse.
 #------------------------------------------------------------------------------
-function getOptions() {
+get_options() {
     local -n options_map=$1
     shift
 
@@ -405,35 +446,35 @@ function getOptions() {
             u) options_map["k8s_user"]="${OPTARG}" ;;
             r) options_map["redeploy"]="${OPTARG}" ;;
             e) options_map["environment"]="${OPTARG}" ;;
-            h|H) showUsage;
+            h|H) show_usage;
                  exit 0 ;;
             *) echo "Unknown option: -${OPTION}"
-               showUsage;
+               show_usage;
                exit 1 ;;
         esac
     done
 }
 
 #------------------------------------------------------------------------------
-# Function : cleanUp
+# Function : clean_up
 # Description: Performs graceful cleanup on script exit.
 #------------------------------------------------------------------------------
-function cleanUp() {
+clean_up() {
     echo
     log_warn "Caught interrupt — performing graceful cleanup."
     exit 2
 }
 
 #------------------------------------------------------------------------------
-# Function : trapCtrlc
+# Function : trap_ctrlc
 # Description: Handles Ctrl-C (SIGINT) signal to perform cleanup.
 #------------------------------------------------------------------------------
-function trapCtrlc {
+trap_ctrlc() {
     echo
-    cleanUp
+    clean_up
 }
 
-trap "trapCtrlc" 2
+trap "trap_ctrlc" 2
 
 
 # Global variables that will hold the final configuration
@@ -445,42 +486,40 @@ debug="false"
 redeploy="true"
 kubeconfig_path=""
 #helm_version=""
-# min_ram=6
 # min_free_space=30
 # linux_os_list="Ubuntu"
 #ubuntu_ok_versions_list=""
-export KUBECONFIG=$kubeconfig_path
 CONFIG_FILE_PATH="$DEFAULT_CONFIG_FILE"
 
-function main {
+main() {
     # Determine config file path early (before full option parsing) so that
     # logging can be set up before welcome() prints anything.
-    local _early_config="$DEFAULT_CONFIG_FILE"
-    local _args=("$@")
-    for ((i=0; i<${#_args[@]}; i++)); do
-        if [[ "${_args[i]}" == "-f" && $((i+1)) -lt ${#_args[@]} ]]; then
-            _early_config="${_args[$((i+1))]}"
+    local early_config="$DEFAULT_CONFIG_FILE"
+    local args=("$@")
+    for ((i=0; i<${#args[@]}; i++)); do
+        if [[ "${args[i]}" == "-f" && $((i+1)) -lt ${#args[@]} ]]; then
+            early_config="${args[$((i+1))]}"
             break
         fi
     done
-    setup_logging "$_early_config"
+    setup_logging "$early_config"
 
     welcome
     install_crudini
     if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
         echo "ERROR: Invalid command syntax. All options must start with a hyphen (e.g., -m)."
-        showUsage
+        show_usage
         exit 1
     fi
 
-    declare -A cmd_args_map
-    getOptions cmd_args_map "$@"
+    local -A cmd_args_map
+    get_options cmd_args_map "$@"
 
     for key in "${!cmd_args_map[@]}"; do
         if [[ "${cmd_args_map[$key]}" =~ ^- ]]; then
             echo "ERROR: Argument for flag '-${key:0:1}' cannot start with a hyphen (found '${cmd_args_map[$key]}')."
             echo "It looks like you missed a value or provided flags out of order."
-            showUsage
+            show_usage
             exit 1
         fi
     done
@@ -488,47 +527,43 @@ function main {
     if [[ $# -gt 0 ]]; then
         echo "ERROR: Unexpected or malformed argument(s) detected: $@"
         echo "Every option must have a flag (e.g., use -m instead of just m)."
-        showUsage
+        show_usage
         exit 1
     fi
 
     if [[ -n "${cmd_args_map["config_file_path"]}" ]]; then
         CONFIG_FILE_PATH="${cmd_args_map["config_file_path"]}"
     fi
-    logWithLevel "$INFO" "Using config file: $CONFIG_FILE_PATH"
+    log_with_level "$INFO" "Using config file: $CONFIG_FILE_PATH"
 
-    loadConfigFromFile "$CONFIG_FILE_PATH"
+    load_config_from_file "$CONFIG_FILE_PATH"
 
 
     if [[ -n "${cmd_args_map["mode"]}" ]]; then mode="${cmd_args_map["mode"]}"; fi
     if [[ -n "${cmd_args_map["k8s_user"]}" ]]; then k8s_user="${cmd_args_map["k8s_user"]}"; fi
     if [[ -n "${cmd_args_map["apps"]}" ]]; then
         apps=$(echo "${cmd_args_map["apps"]}" | tr ',' ' ')
-        logWithLevel "$INFO" "CLI apps converted to space-separated: $apps"
+        log_with_level "$INFO" "CLI apps converted to space-separated: $apps"
     fi
     if [[ -n "${cmd_args_map["debug"]}" ]]; then debug="${cmd_args_map["debug"]}"; fi
     if [[ -n "${cmd_args_map["redeploy"]}" ]]; then redeploy="${cmd_args_map["redeploy"]}"; fi
     if [[ -n "${cmd_args_map["environment"]}" ]]; then environment="${cmd_args_map["environment"]}"; fi
 
-    validateInputs
+    auto_detect_environment
+    validate_inputs
+
+    # Set KUBECONFIG now that kubeconfig_path is fully resolved (config + defaults applied)
+    export KUBECONFIG="$kubeconfig_path"
 
     if [ "$mode" == "deploy" ]; then
         echo -e "${YELLOW}WARN${RESET}   This deployment is recommended for demo, test and educational purposes only."
         echo
-        env_setup_main "$mode"
-        deployApps "$apps" "$redeploy"
+        deploy_apps "$apps" "$redeploy"
     elif [ "$mode" == "cleanapps" ]; then
-        logWithVerboseCheck "$debug" "$INFO" "Cleaning up Mifos Gazelle applications only"
-        env_setup_main "$mode"
-        deleteApps "$apps"
-    elif [ "$mode" == "cleanall" ]; then
-        env_setup_main "$mode"
-        # env_setup_main will not remove remote cluster so need to run deleteApps
-        if [[ "$environment" == "remote" ]]; then
-            deleteApps "$mifosx_instances" "all"
-        fi
+        log_with_verbose_check "$debug" "$INFO" "Cleaning up Mifos Gazelle applications only"
+        delete_apps "$apps"
     else
-        showUsage
+        show_usage
         exit 1
     fi
 }

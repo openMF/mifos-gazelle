@@ -1,0 +1,43 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: ph-ee-importer-es
+  namespace: paymenthub
+spec:
+  enabled: false
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: false
+  replicas: 1
+  image: docker.io/openmf/ph-ee-importer-es:v1.14.0
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512M
+    requests:
+      cpu: 100m
+      memory: 256M
+  environment:
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
+    - name: importer_elasticsearch_url
+      value: "http://infra-elasticsearch.infra.svc.cluster.local:9200/"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xmx256M"
+    - name: ELASTICSEARCH_SECURITY_ENABLED
+      value: "false"
+    - name: ELASTICSEARCH_SSLVERIFICATION
+      value: "false"
+    - name: ELASTICSEARCH_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: elastic-credentials
+          key: username
+    - name: ELASTICSEARCH_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: elastic-credentials
+          key: password

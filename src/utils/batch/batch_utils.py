@@ -227,7 +227,7 @@ def check_data_loaded(domain, config_path=None, debug=False):
     auth = "Basic bWlmb3M6cGFzc3dvcmQ="   # mifos:password
     base_url = f"https://mifos.{domain}/fineract-provider/api/v1"
 
-    hint = f"  Fix: sudo ./run.sh -a setup-data"
+    hint = f"  Fix: ./run.sh -m deploy -a setup-data"
     if config_path:
         hint += f" -f {config_path}"
 

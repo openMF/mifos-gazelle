@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: mifos-workflow
+    tier: backend
+  name: mifos-workflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mifos-workflow
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: mifos-workflow
+        tier: backend
+    spec:
+      # Startup ordering: the Workflow Engine must not start until (1) the
+      # shared Postgres (which hosts mifos_flowable) is reachable and (2) Fineract is
+      # ready — otherwise Flowable schema-create races a cold DB and the Fineract
+      # client fails auth against a not-yet-migrated tenant.
+      initContainers:
+        - name: wait-postgres
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for Postgres (postgres.infra.svc.cluster.local:5432)..."
+              until nc -z postgres.infra.svc.cluster.local 5432; do
+                echo "  postgres not reachable yet — retrying in 3s"; sleep 3
+              done
+              echo "Postgres is reachable."
+        - name: wait-fineract
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              url="http://fineract-server:8080/fineract-provider/actuator/health/readiness"
+              echo "Waiting for Fineract readiness ($url)..."
+              until wget -q --spider "$url"; do
+                echo "  fineract not ready yet — retrying in 5s"; sleep 5
+              done
+              echo "Fineract is ready."
+      containers:
+        - name: mifos-workflow
+          image: kanishksingh23/mifos-workflow:07082026
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: >
+                    -Xss512k
+                    -Xms256m
+                    -Xmx640m
+                    -XX:+UseSerialGC
+                    -XX:+HeapDumpOnOutOfMemoryError
+            - name: SERVER_PORT
+              value: "8081"
+            # --- Database: shared infra Postgres, dedicated mifos_flowable DB 
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres.infra.svc.cluster.local:5432/mifos_flowable"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "postgres"
+            - name: SPRING_DATASOURCE_DRIVER_CLASS_NAME
+              value: "org.postgresql.Driver"
+            - name: DB_PASSWORD
+              value: "postgrespw"
+            # --- Fineract integration: in-cluster HTTP, no SSL, seeded greenbank tenant ---
+            - name: WORKFLOW_FINERACT_BASEURL
+              value: "http://fineract-server:8080/fineract-provider/api/v1/"
+            - name: WORKFLOW_FINERACT_TENANTID
+              value: "greenbank"
+            - name: WORKFLOW_FINERACT_VALIDATESSL
+              value: "false"
+            - name: WORKFLOW_FINERACT_USERNAME
+              value: "mifos"
+            - name: FINERACT_PASSWORD
+              value: "password"
+          ports:
+            - containerPort: 8081
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 5
+          resources:
+            requests:
+              memory: "448Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+      restartPolicy: Always

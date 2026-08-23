@@ -8,12 +8,25 @@ BLUE='\033[0;34m'
 YELLOW='\033[0;33m'
 RESET='\033[0m'
 
+# Loop control globals - GAZ-230
+VERIFY_MAX_RETRIES=6        # 6 retries x 20s = 2 minutes
+VERIFY_SLEEP_INTERVAL=20    # seconds between retries
+VERIFY_PAYMENT=false        # set to true with -v flag
+
+# Check for jq - GAZ-230
+if ! command -v jq &> /dev/null; then
+    echo -e "${RED}Error: 'jq' is not installed.${RESET}"
+    echo "This script requires jq to parse API responses for verification."
+    echo "Please install it (e.g., 'sudo apt install jq' or 'brew install jq') and try again."
+    exit 1
+fi
+
 # API Configuration placeholders (will be set after parsing config)
 TRANSFER_URL=""
 MIFOS_CORE_API=""
 MIFOS_AUTH="mifos:password"
 
-function usage() {
+usage() {
 cat <<EOF
 Usage: $0 [-f <config_file>] [-p <payer_msisdn>] [-r <payee_msisdn>] [-t <tenant_id>] [-d <payee_dfsp_id>] [-v]
  -c Path to config.ini file (default: ../config/config.ini) [optional]
@@ -21,16 +34,21 @@ Usage: $0 [-f <config_file>] [-p <payer_msisdn>] [-r <payee_msisdn>] [-t <tenant
  -r Payee MSISDN (default: auto-detect first client from payee tenant) [optional]
  -t Platform-TenantId (default: greenbank) [optional]
  -d X-PayeeDFSP-ID (default: bluebank) [optional]
- -v Enable debug/verbose mode [optional]
+ -v Enable post-payment verification against Mifos X [optional]
+ -V Enable debug/verbose mode [optional]
  -h Show this help message
 
 Note: If -p or -r are not provided, the script will automatically query for the
       first available client in the respective tenant.
+Verification loop controls (can be overridden as env vars):
+      VERIFY_MAX_RETRIES=$VERIFY_MAX_RETRIES        retries before timeout
+      VERIFY_SLEEP_INTERVAL=${VERIFY_SLEEP_INTERVAL}s       between retries
+      Total timeout: $((VERIFY_MAX_RETRIES * VERIFY_SLEEP_INTERVAL))s
 EOF
 }
 
 # Function to lookup client name by MSISDN
-function lookup_client_name() {
+lookup_client_name() {
     local msisdn="$1"
     local tenant_id="$2"
     local client_type="$3"  # "payer" or "payee" for debugging
@@ -103,7 +121,7 @@ function lookup_client_name() {
 }
 
 # Function to get first client MSISDN from tenant
-function get_first_client_msisdn() {
+get_first_client_msisdn() {
     local tenant="$1"
     local client_type="$2"  # "payer" or "payee" for logging
 
@@ -137,6 +155,90 @@ function get_first_client_msisdn() {
     fi
 }
 
+# Function to get Savings Account ID by MSISDN - GAZ-230
+function get_savings_account_id() {
+    local msisdn="$1"
+    local tenant="$2"
+    
+    # Get Client ID first
+    local client_response
+    client_response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
+        "$MIFOS_CORE_API/clients?phoneNumber=$msisdn")
+    
+    local client_id
+    client_id=$(echo "$client_response" | jq -r '.pageItems[0].id // empty')
+
+    if [[ -z "$client_id" ]]; then
+        return 1
+    fi
+
+    # Get Savings Accounts for this Client
+    local accounts_response
+    accounts_response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
+        "$MIFOS_CORE_API/clients/$client_id/accounts")
+
+    # Extract the first active savings account ID
+    local account_id
+    account_id=$(echo "$accounts_response" | jq -r '.savingsAccounts[0].id // empty')
+
+    if [[ -n "$account_id" ]]; then
+        echo "$account_id"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to get the most recent transaction ID for an account - used to baseline before payment
+function get_latest_tx_id() {
+    local account_id="$1"
+    local tenant="$2"
+    local response
+    response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
+        "$MIFOS_CORE_API/savingsaccounts/$account_id?associations=transactions")
+    echo "$response" | jq -r '.transactions[0].id // 0'
+}
+
+# Function to verify payment completion - GAZ-230
+# $5 baseline_tx_id: transaction ID snapshot taken before the payment was sent;
+#    only transactions with id > baseline are considered, preventing false matches
+#    when the same amount was transferred previously.
+function verify_payment() {
+    local account_id="$1"
+    local tenant="$2"
+    local expected_amount="$3"
+    local type="$4"
+    local baseline_tx_id="${5:-0}"
+    local count=0
+    local max_secs=$(( VERIFY_MAX_RETRIES * VERIFY_SLEEP_INTERVAL ))
+
+    while [ $count -lt $VERIFY_MAX_RETRIES ]; do
+        local response balance new_tx_id new_tx_amount
+        response=$(curl -sk -u "$MIFOS_AUTH" -H "Fineract-Platform-TenantId: $tenant" \
+            "$MIFOS_CORE_API/savingsaccounts/$account_id?associations=transactions")
+
+        balance=$(echo "$response" | jq -r '.summary.accountBalance')
+        new_tx_id=$(echo "$response" | jq -r --argjson b "$baseline_tx_id" \
+            '[.transactions[] | select(.id > $b)] | first | .id // empty')
+        new_tx_amount=$(echo "$response" | jq -r --argjson b "$baseline_tx_id" \
+            '[.transactions[] | select(.id > $b)] | first | .amount // 0')
+
+        if [[ -n "$new_tx_id" ]] && (( $(echo "$new_tx_amount == $expected_amount" | bc -l 2>/dev/null || echo "$new_tx_amount == $expected_amount" | awk '{print ($1 == $3)}') )); then
+            echo -e "\r\033[K  ${GREEN}✓${RESET} $type   balance: ${GREEN}\$$balance${RESET}  last tx: ${GREEN}\$$new_tx_amount${RESET}"
+            return 0
+        fi
+
+        count=$(( count + 1 ))
+        local elapsed=$(( count * VERIFY_SLEEP_INTERVAL ))
+        echo -ne "\r\033[K  $type  ${elapsed}s / ${max_secs}s..."
+        sleep "$VERIFY_SLEEP_INTERVAL"
+
+    done
+
+    echo -e "\r\033[K  ${RED}✗${RESET} $type  timed out after ${max_secs}s"
+    return 1
+}
+
 # Defaults
 SCRIPT_DIR=$( cd $(dirname "$0") ; pwd )
 default_config_dir="$( cd $(dirname "$SCRIPT_DIR")/../config ; pwd )"
@@ -150,14 +252,15 @@ payee_dfsp_id="bluebank"
 debug=false
 
 # Parse options
-while getopts ":c:p:r:t:d:vh" opt; do
+while getopts ":c:p:r:t:d:vVh" opt; do
     case $opt in
         c) config_ini="$OPTARG" ;;
         p) payer_msisdn="$OPTARG" ;;
         r) payee_msisdn="$OPTARG" ;;
         t) tenant_id="$OPTARG" ;;
         d) payee_dfsp_id="$OPTARG" ;;
-        v) debug=true ;;
+        v) VERIFY_PAYMENT=true ;;
+        V) debug=true ;;
         h) usage; exit 0 ;;
         \?) echo "Invalid option: -$OPTARG" >&2; usage; exit 1 ;;
         :) echo "Option -$OPTARG requires an argument." >&2; usage; exit 1 ;;
@@ -312,6 +415,22 @@ json_payload=$(cat <<EOF
 EOF
 )
 
+# Snapshot account state before sending — needed to identify the new transaction uniquely
+payer_acc_id=""
+payee_acc_id=""
+payer_baseline_tx_id=0
+payee_baseline_tx_id=0
+if [[ "$VERIFY_PAYMENT" == "true" ]]; then
+    payer_acc_id=$(get_savings_account_id "$payer_msisdn" "$tenant_id")
+    payee_acc_id=$(get_savings_account_id "$payee_msisdn" "$payee_tenant")
+    if [[ -z "$payer_acc_id" ]] || [[ -z "$payee_acc_id" ]]; then
+        echo -e "${RED}Error: Could not retrieve savings account IDs for verification.${RESET}"
+        exit 2
+    fi
+    payer_baseline_tx_id=$(get_latest_tx_id "$payer_acc_id" "$tenant_id")
+    payee_baseline_tx_id=$(get_latest_tx_id "$payee_acc_id" "$payee_tenant")
+fi
+
 # Perform cURL POST and capture HTTP status
 echo "📤 Sending transfer request..."
 
@@ -346,14 +465,28 @@ http_code=$(echo "$response" | tail -n1)
 # Check status and print result
 if [[ "$http_code" == "200" ]]; then
     echo -e "✅ ${GREEN}Transfer successful (HTTP $http_code)${RESET}"
-    echo -e "${GREEN}Response:${RESET} $http_body"
+    echo -e "     Response: $http_body"
     echo ""
-    echo -e "${GREEN}=== Payment Completed ===${RESET}"
+    if [[ "$VERIFY_PAYMENT" == "true" ]]; then
+        echo -e "${BLUE}=== Payment Verification ===${RESET}"
+
+        if ! verify_payment "$payer_acc_id" "$tenant_id" "$amount" "Payer debit  (${tenant_id} #${payer_acc_id})" "$payer_baseline_tx_id"; then
+            echo -e "\n❌ ${RED}Payment validation failed for Payer. Exiting.${RESET}"
+            exit 2
+        fi
+
+        if ! verify_payment "$payee_acc_id" "$payee_tenant" "$amount" "Payee credit (${payee_tenant} #${payee_acc_id})" "$payee_baseline_tx_id"; then
+            echo -e "\n❌ ${RED}Payment validation failed for Payee. Exiting.${RESET}"
+            exit 2
+        fi
+    fi
+
+    echo ""
+    echo -e "${GREEN}=== Payment Process Completed ===${RESET}"
     echo -e "${GREEN}✓ \$${amount} USD transferred from $payer_name to $payee_name${RESET}"
 else
     echo -e "❌ ${RED}Transfer failed (HTTP $http_code)${RESET}"
     echo -e "${RED}Response:${RESET} $http_body"
-    echo -e "${RED}Note: for payments to be processed successfully Mifos Gazelle needs to be fully deployed and running${RESET}"
-    echo -e "${RED}and the hosts added to your hosts file as documented in the MIFOS-GAZELLE-README.md under docs directory${RESET}"
+    echo -e "${RED}Note: for payments to be processed successfully Mifos Gazelle needs to be fully deployed.${RESET}"
     exit 1
 fi

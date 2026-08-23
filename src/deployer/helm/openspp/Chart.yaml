@@ -1,0 +1,16 @@
+apiVersion: v2
+name: openspp
+description: Gazelle-owned Helm wrapper chart for OpenSPP2 (Odoo 19 + PostGIS 18).
+type: application
+version: 0.3.0
+appVersion: "2026.08"
+home: https://github.com/openMF/mifos-gazelle
+sources:
+  - https://github.com/OpenSPP/OpenSPP2
+  - https://github.com/openMF/mifos-gazelle
+maintainers:
+  - name: Ismael Sallami
+    email: ismengineer23@gmail.com
+# No chart dependencies: the PostGIS database is a hand-written StatefulSet
+# (templates/postgis-statefulset.yaml) rather than a bitnami/postgresql subchart, because OpenSPP
+# needs the geospatial extension provided by the postgis/postgis:18-3.6-alpine image.

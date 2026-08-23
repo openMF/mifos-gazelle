@@ -3,9 +3,12 @@
 Submit batch CSV file to Payment Hub bulk-processor.
 """
 
+import csv
 import importlib.util
+import io
 import json
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -93,7 +96,7 @@ def print_curl_commands(domain, csv_file_path, private_key, tenant, correlation_
     print(f"{'─'*72}", file=sys.stderr)
 
     print("\n# 1. Generate signature:", file=sys.stderr)
-    print(f'curl -k -X POST "https://ops.{domain}/api/v1/util/x-signature" \\', file=sys.stderr)
+    print(f'curl -k -X POST "https://ops-bk.{domain}/api/v1/util/x-signature" \\', file=sys.stderr)
     print(f'  -H "X-CorrelationID: {correlation_id}" \\', file=sys.stderr)
     print(f'  -H "Platform-TenantId: {tenant}" \\', file=sys.stderr)
     print(f'  -H "privateKey: {key_display}" \\', file=sys.stderr)
@@ -122,7 +125,7 @@ def print_curl_commands(domain, csv_file_path, private_key, tenant, correlation_
 
 def generate_signature(domain, csv_file_path, private_key, tenant='greenbank', correlation_id=None):
     """Generate X-Signature using ops service. Returns (signature, correlation_id)."""
-    url = f"https://ops.{domain}/api/v1/util/x-signature"
+    url = f"https://ops-bk.{domain}/api/v1/util/x-signature"
     if correlation_id is None:
         correlation_id = str(uuid.uuid4())
 
@@ -219,8 +222,32 @@ def submit_batch_request(domain, csv_file_path, signature, tenant='greenbank',
         return None
 
 
+def regenerate_request_ids(csv_file_path):
+    """Return a NamedTemporaryFile with fresh UUIDs in the request_id column."""
+    with open(csv_file_path, newline='') as f:
+        reader = csv.DictReader(f)
+        if 'request_id' not in (reader.fieldnames or []):
+            return None
+        rows = list(reader)
+        fieldnames = reader.fieldnames
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode='w', suffix='.csv', delete=False, newline='',
+        prefix='batch-', dir='/tmp'
+    )
+    writer = csv.DictWriter(tmp, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        row['request_id'] = str(uuid.uuid4())
+        writer.writerow(row)
+    tmp.flush()
+    tmp.close()
+    return Path(tmp.name)
+
+
 def run_submit(csv_file, config_path, tenant, govstack, registering_institution,
-               program, secret_key, debug, show_curl, skip_data_check=False):
+               program, secret_key, debug, show_curl, skip_data_check=False,
+               fresh_ids=True):
     """
     Full submission pipeline. Returns response dict or None.
     Extracted so verify-batches.py can call it directly.
@@ -232,6 +259,13 @@ def run_submit(csv_file, config_path, tenant, govstack, registering_institution,
     print(f"PAYMENT HUB BATCH TOOL - {domain}", file=sys.stderr)
     print("="*80, file=sys.stderr)
     print(f"Using CSV: {csv_file}", file=sys.stderr)
+
+    tmp_csv = None
+    if fresh_ids:
+        tmp_csv = regenerate_request_ids(csv_file)
+        if tmp_csv:
+            print(f"✓ Fresh request_ids generated (use --no-fresh-ids to reuse CSV ids)", file=sys.stderr)
+            csv_file = tmp_csv
 
     if skip_data_check:
         print("⚠️  Skipping Fineract data check (--skip-data-check)", file=sys.stderr)
@@ -308,14 +342,18 @@ def run_submit(csv_file, config_path, tenant, govstack, registering_institution,
             signature, govstack, registering_institution, program
         )
 
-    return submit_batch_request(
-        domain, csv_file, signature,
-        tenant=tenant,
-        correlation_id=correlation_id,
-        govstack=govstack,
-        registering_institution=registering_institution,
-        program=program,
-    )
+    try:
+        return submit_batch_request(
+            domain, csv_file, signature,
+            tenant=tenant,
+            correlation_id=correlation_id,
+            govstack=govstack,
+            registering_institution=registering_institution,
+            program=program,
+        )
+    finally:
+        if tmp_csv and tmp_csv.exists():
+            tmp_csv.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +551,8 @@ EXAMPLES:
                         help='Interactive mode — prompt for any missing options')
     parser.add_argument('--skip-data-check', action='store_true',
                         help='Skip Fineract client check (use for GovStack clusters without Mifos/Fineract)')
+    parser.add_argument('--no-fresh-ids', action='store_true',
+                        help='Reuse request_ids from CSV as-is (default: generate fresh UUIDs per run)')
 
     args = parser.parse_args()
 
@@ -544,6 +584,7 @@ EXAMPLES:
         debug=args.debug,
         show_curl=args.show_curl,
         skip_data_check=args.skip_data_check,
+        fresh_ids=not args.no_fresh_ids,
     )
 
     if result:

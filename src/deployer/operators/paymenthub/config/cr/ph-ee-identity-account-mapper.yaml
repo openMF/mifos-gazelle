@@ -1,0 +1,96 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: ph-ee-identity-account-mapper
+  namespace: paymenthub
+spec:
+  enabled: true
+  waitForGatewayEnabled: true
+  rbacEnabled: false
+  secretEnabled: true
+  configMapEnabled: false
+  ingressEnabled: true
+  initContainerEnabled: true
+  volMount:
+    enabled: false
+  replicas: 1
+  image: docker.io/openmf/ph-ee-identity-account-mapper:mifos-v2.0.0
+  containerPort: 8080
+  resources:
+    limits:
+      cpu: 500m
+      memory: 768M
+    requests:
+      cpu: 100m
+      memory: 384M
+  ingress:
+    className: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      nginx.ingress.kubernetes.io/cors-allow-headers: 'x-registering-institution-id, content-type, X-CallbackURL'
+      nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS, DELETE
+      nginx.ingress.kubernetes.io/cors-allow-origin: '*'
+      nginx.ingress.kubernetes.io/enable-cors: "true"
+    tls:
+      - secretName: sandbox-secret
+    rules:
+      - host: identity-mapper.local
+        paths:
+          - path: "/"
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ph-ee-identity-account-mapper
+                port:
+                  number: 80
+  services:
+    - name: ph-ee-identity-account-mapper
+      ports:
+        - name: port
+          port: 80
+          targetPort: 8080
+          protocol: TCP
+      selector:
+        app: ph-ee-identity-account-mapper
+      sessionAffinity: None
+      type: ClusterIP
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8080
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "paymenthub-infra-zeebe-gateway:26500"
+    - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
+      value: "10"
+    - name: ZEEBE_CLIENT_POLL-INTERVAL
+      value: "10"
+    - name: SPRING_DATASOURCE_URL
+      value: "jdbc:mysql://operationsmysql:3306/identity_account_mapper"
+    - name: SPRING_DATASOURCE_USERNAME
+      value: "mifos"
+    - name: SPRING_DATASOURCE_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: ph-ee-identity-account-mapper-secret
+          key: database-password
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
+
+# =============================================================================
+# Disabled components — set enabled: true to activate via operator
+# =============================================================================

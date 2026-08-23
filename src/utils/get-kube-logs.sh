@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # get all pod logs from the deployed applications
 # copy them from the pods and put into a 
 # temporary directory in /tmp
@@ -30,17 +30,16 @@ check_namespace() {
 # Function to copy integration report
 copy_integration_report() {
     echo "Copying integration report..."
-    TEST_POD=$(kubectl get pods -n "$NAMESPACE" | grep "$TEST_POD_PREFIX" | cut -d " " -f1)
-    
-    if [ -z "$TEST_POD" ]; then
+    local test_pod
+    test_pod=$(kubectl get pods -n "$NAMESPACE" | grep "$TEST_POD_PREFIX" | cut -d " " -f1)
+
+    if [ -z "$test_pod" ]; then
         echo "No test pod found with prefix $TEST_POD_PREFIX"
         return 1
     fi
-    
+
     mkdir -p "$INTEGRATION_REPORT_DIR"
-    kubectl cp "$NAMESPACE/$TEST_POD:/ph-ee-connector-integration-test/build" "$INTEGRATION_REPORT_DIR/test-report"
-    
-    if [ $? -eq 0 ]; then
+    if kubectl cp "$NAMESPACE/$test_pod:/ph-ee-connector-integration-test/build" "$INTEGRATION_REPORT_DIR/test-report"; then
         echo "Successfully copied integration report to $INTEGRATION_REPORT_DIR/test-report"
     else
         echo "Failed to copy integration report"
@@ -56,42 +55,43 @@ collect_logs() {
     echo "Logs will be saved in: $LOG_DIR"
     
     # Create a summary file
-    SUMMARY_FILE="$LOG_DIR/_summary.txt"
-    echo "Log Collection Summary - $(date)" > "$SUMMARY_FILE"
-    echo "Namespace: $NAMESPACE" >> "$SUMMARY_FILE"
-    echo "----------------------------------------" >> "$SUMMARY_FILE"
+    local summary_file="$LOG_DIR/_summary.txt"
+    echo "Log Collection Summary - $(date)" > "$summary_file"
+    echo "Namespace: $NAMESPACE" >> "$summary_file"
+    echo "----------------------------------------" >> "$summary_file"
     
     # Get all pods and collect logs
     kubectl get pods -n "$NAMESPACE" --no-headers | while read -r pod_line; do
+        local pod pod_status containers log_file
         pod=$(echo "$pod_line" | cut -d " " -f1)
         pod_status=$(echo "$pod_line" | awk '{print $3}')
         containers=$(kubectl get pod "$pod" -n "$NAMESPACE" -o jsonpath='{.spec.containers[*].name}')
-        
+
         echo "Collecting logs from pod: $pod"
-        echo "Pod: $pod - Status: $pod_status" >> "$SUMMARY_FILE"
-        
+        echo "Pod: $pod - Status: $pod_status" >> "$summary_file"
+
         for container in $containers; do
             log_file="$LOG_DIR/${pod}_${container}.log"
-            echo "  Container: $container - Log file: $log_file" >> "$SUMMARY_FILE"
-            
+            echo "  Container: $container - Log file: $log_file" >> "$summary_file"
+
             echo "--------------------------------------------------------------------" > "$log_file"
             echo "Pod: $pod - Container: $container" >> "$log_file"
             echo "Status: $pod_status" >> "$log_file"
             echo "Timestamp: $(date)" >> "$log_file"
             echo "--------------------------------------------------------------------" >> "$log_file"
             echo "" >> "$log_file"
-            
+
             kubectl logs -n "$NAMESPACE" "$pod" -c "$container" >> "$log_file" 2>&1
         done
-        echo "" >> "$SUMMARY_FILE"
+        echo "" >> "$summary_file"
     done
     
     # Create a tar archive of all logs
     tar_file="/tmp/kube_logs_${TIMESTAMP}.tar.gz"
     tar -czf "$tar_file" -C "/tmp" "kube_logs_${TIMESTAMP}"
     
-    echo "----------------------------------------" >> "$SUMMARY_FILE"
-    echo "Log collection completed at $(date)" >> "$SUMMARY_FILE"
+    echo "----------------------------------------" >> "$summary_file"
+    echo "Log collection completed at $(date)" >> "$summary_file"
     echo "Logs have been collected in: $LOG_DIR"
     echo "Logs have been archived to: $tar_file"
 }

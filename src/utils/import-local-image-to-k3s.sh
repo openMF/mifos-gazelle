@@ -9,7 +9,7 @@ IMAGE_NAME=""
 IMAGE_TAG=""
 VERBOSE=false
 
-function showUsage() {
+showUsage() {
     cat << EOF
 Usage: $(basename $0) [OPTIONS]
 Publish a local Docker image to k3s Kubernetes cluster.
@@ -31,20 +31,24 @@ EOF
     exit 1
 }
 
-function log() {
+log() {
     if [[ "$VERBOSE" == true ]]; then
         echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
     fi
 }
 
-function error() {
+error() {
     echo "ERROR: $1" >&2
     exit 1
 }
 
-function set_user() {
+set_user() {
     # set the k8s_user
-    k8s_user=$(who am i | cut -d " " -f1)
+    # $SUDO_USER is set when the script is run with sudo, which is how it is normally invoked.
+    # Fall back to the session record for a plain root shell; 'who am i' is empty without a tty,
+    # so on its own it fails over a non-interactive ssh or in CI.
+    k8s_user="${SUDO_USER:-$(who am i | cut -d " " -f1)}"
+    [[ -z "$k8s_user" ]] && error "Cannot determine the user that owns the docker images. Run this with sudo."
     log "k8s_user = $k8s_user"
 }
 
@@ -92,7 +96,10 @@ printf "*************** << START >> *******************\n\n"
 set_user
 
 # Define tarfile path
-tarfile="/tmp/${IMAGE_NAME}.tar"
+# A registry-qualified image name contains slashes (ghcr.io/openmf/openspp), and those cannot go
+# straight into a file path: docker save would fail with "invalid output path". Flatten them.
+# The tag is part of the name so two tags of the same image do not share the file.
+tarfile="/tmp/$(echo "$IMAGE_NAME:$IMAGE_TAG" | tr '/:' '__').tar"
 
 # Clean up any existing tarfile
 if [[ -f "$tarfile" ]]; then
@@ -101,7 +108,7 @@ if [[ -f "$tarfile" ]]; then
 fi
 
 # Export Docker image
-printf "==> export docker image using docker save --output %s %s \n" "$tarfile" "$IMAGE_NAME"
+printf "==> export docker image using docker save --output %s %s \n" "$tarfile" "$IMAGE_NAME:$IMAGE_TAG"
 if ! su - "$k8s_user" -c "docker save --output $tarfile $IMAGE_NAME:$IMAGE_TAG"; then
     error "Failed to save Docker image"
 fi

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: auditing-svc
+    mojaloop.layer: crosscut
+  name: auditing-svc
+spec:
+  ports:
+    - name: "3050"
+      port: 3050
+      targetPort: 3050
+  selector:
+    mojaloop.service: auditing-svc
+    mojaloop.layer: crosscut
+status:
+  loadBalancer: { }

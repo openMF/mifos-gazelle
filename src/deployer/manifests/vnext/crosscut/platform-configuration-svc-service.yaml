@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: platform-configuration-svc
+    mojaloop.layer: crosscut
+  name: platform-configuration-svc
+spec:
+  ports:
+    - name: "3100"
+      port: 3100
+      targetPort: 3100
+  selector:
+    mojaloop.service: platform-configuration-svc
+    mojaloop.layer: crosscut
+status:
+  loadBalancer: {}

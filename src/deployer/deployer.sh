@@ -4,67 +4,27 @@
 source "$RUN_DIR/src/deployer/core.sh" || { echo "FATAL: Could not source core.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/vnext.sh" || { echo "FATAL: Could not source vnext.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/mifosx.sh" || { echo "FATAL: Could not source mifosx.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
-source "$RUN_DIR/src/deployer/phee.sh"   || { echo "FATAL: Could not source phee.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/deployer/paymenthub.sh" || { echo "FATAL: Could not source paymenthub.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/deployer/mastercard.sh" || { echo "FATAL: Could not source mastercard.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/deployer/openg2p.sh" || { echo "FATAL: Could not source openg2p.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/deployer/openspp.sh" || { echo "FATAL: Could not source openspp.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/utils/helpers.sh" || { echo "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 
 #------------------------------------------------------------
-# Description : Clones/updates a Git repo. Reclones only if repo or branch missing.
-# Usage : cloneRepo <branch> <repo_link> <target_dir> <dir_name>
-# Example: cloneRepo main link target-dir repo-name
-#------------------------------------------------------------
-function cloneRepo() {
-  if [ "$#" -ne 4 ]; then
-    echo "Usage: cloneRepo <branch> <repo_link> <target_directory> <cloned_directory_name>"
-    return 1
-  fi
-
-  local branch="$1"
-  local repo_link="$2"
-  local target_directory="$3"
-  local cloned_directory_name="$4"
-  local repo_path="$target_directory/$cloned_directory_name"
-
-  # Create target directory if it doesn't exist
-  run_as_user "mkdir -p \"$target_directory\" " >/dev/null 2>&1
-
-  # Check if repository and branch exist
-  if [ -d "$repo_path" ]; then
-    cd "$repo_path" || return 1
-    # Check if specified branch exists locally
-    if git show-ref --verify --quiet "refs/heads/$branch"; then
-      return 0
-    fi
-    # Remove repo if branch doesn't exist
-    echo "Branch $branch not found in $repo_path. Recloning..."
-    rm -rf "$repo_path"
-  fi
-
-  # Clone the repository
-  run_as_user "git clone -b \"$branch\" \"$repo_link\" \"$repo_path\" " >/dev/null 2>&1
-  if [ $? -eq 0 ]; then
-    logWithVerboseCheck "$debug" "$DEBUG" "Cloned $repo_link → $repo_path"
-  else
-    log_error "Failed to clone $repo_link to $repo_path"
-    return 1
-  fi
-}
-
-#------------------------------------------------------------
 # Description : Deletes K8s namespaces matching a regex pattern.
-# Usage : deleteResourcesInNamespaceMatchingPattern <regex_pattern>
-# Example: deleteResourcesInNamespaceMatchingPattern "app-.*"
+# Usage : delete_resources_in_namespace_matching_pattern <regex_pattern>
+# Example: delete_resources_in_namespace_matching_pattern "app-.*"
 #------------------------------------------------------------
-function deleteResourcesInNamespaceMatchingPattern() {
+delete_resources_in_namespace_matching_pattern() {
     local pattern="$1"
     if [ -z "$pattern" ]; then
-        log_error "deleteResourcesInNamespaceMatchingPattern: pattern argument required"
+        log_error "delete_resources_in_namespace_matching_pattern: pattern argument required"
         exit 1
     fi
         
     # Get all namespaces and filter them locally
     local all_namespaces_output matching_namespaces
-    all_namespaces_output=$(run_as_user "kubectl get namespaces -o name" 2>&1)
+    all_namespaces_output=$(kubectl get namespaces -o name 2>&1)
     check_command_execution $? "kubectl get namespaces -o name"
     
     # Filter the output for namespaces matching the pattern, stripping the "namespace/" prefix
@@ -72,7 +32,6 @@ function deleteResourcesInNamespaceMatchingPattern() {
     matching_namespaces=$(echo "$all_namespaces_output" | grep -E "$pattern" | sed 's/^namespace\///' || true)
 
     if [ -z "$matching_namespaces" ]; then
-        # printf "      namespaces %s not found    [skipping] \n"  $pattern
         return 0
     fi
     
@@ -85,7 +44,7 @@ function deleteResourcesInNamespaceMatchingPattern() {
         fi
 
         # Delete the namespace (this removes all resources within it)
-        if ! run_as_user "kubectl delete ns \"$namespace\" --ignore-not-found=true" >> /dev/null 2>&1 ; then
+        if ! kubectl delete ns "$namespace" --ignore-not-found=true >> /dev/null 2>&1 ; then
             log_failed "Failed to delete namespace $namespace"
             exit_code=1
         fi
@@ -96,12 +55,12 @@ function deleteResourcesInNamespaceMatchingPattern() {
 
 #------------------------------------------------------------
 # Description : Deploys a Helm chart from a local dir to a K8s NS.
-# Usage : deployHelmChartFromDir <dir> <ns> <release> [values_file]
-# Example: deployHelmChartFromDir ./chart infra infra-rls values.yaml
+# Usage : deploy_helm_chart_from_dir <dir> <ns> <release> [values_file]
+# Example: deploy_helm_chart_from_dir ./chart infra infra-rls values.yaml
 #------------------------------------------------------------
-function deployHelmChartFromDir() {
+deploy_helm_chart_from_dir() {
   if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
-    echo "Usage: deployHelmChartFromDir <chart_dir> <namespace> <release_name> [values_file]"
+    echo "Usage: deploy_helm_chart_from_dir <chart_dir> <namespace> <release_name> [values_file]"
     return 1
   fi
 
@@ -115,16 +74,25 @@ function deployHelmChartFromDir() {
     return 1
   fi
 
-  # Build helm install command
-  local helm_cmd="helm install --wait --timeout ${startup_timeout}s $release_name $chart_dir -n $namespace"
+  # Build helm command — upgrade --install is idempotent: works whether the
+  # release exists or not, avoiding "already exists" failures on re-runs.
+  local helm_cmd=(helm upgrade --install --wait --timeout "${startup_timeout}s" "$release_name" "$chart_dir" -n "$namespace")
   if [ -n "$values_file" ]; then
-      helm_cmd="$helm_cmd -f $values_file"
+      helm_cmd+=(-f "$values_file")
   fi
 
-  run_as_user "$helm_cmd" #> /dev/null 2>&1
-  check_command_execution $? "$helm_cmd"
-  
-  if is_app_running $namespace; then
+  # Run helm and capture the exit code WITHOUT calling exit here.
+  # deploy_infrastructure wraps this call with >/dev/null 2>&1 in non-debug
+  # mode to suppress verbose output.  Any exit called inside that suppressed
+  # block would terminate the whole script silently — returning lets the
+  # caller's check_command_execution show a visible error instead.
+  "${helm_cmd[@]}"
+  local helm_exit=$?
+  if [[ $helm_exit -ne 0 ]]; then
+    return $helm_exit
+  fi
+
+  if is_app_running "$namespace"; then
     return 0
   else
     log_error "Helm chart deployment failed in namespace '$namespace'."
@@ -135,37 +103,54 @@ function deployHelmChartFromDir() {
 #------------------------------------------------------------
 # Description : Creates a K8s namespace if it doesn't exist.
 #               Configures Docker Hub authentication if credentials available.
-# Usage : createNamespace <namespace>
-# Example: createNamespace mifosx-ns
+# Usage : create_namespace <namespace>
+# Example: create_namespace mifosx-ns
 #------------------------------------------------------------
-function createNamespace() {
+create_namespace() {
   local namespace=$1
 
-  # Check if the namespace already exists
-  if ! run_as_user "kubectl get namespace \"$namespace\"" >> /dev/null 2>&1; then
-    # Create the namespace
-    run_as_user "kubectl create namespace \"$namespace\"" >> /dev/null 2>&1
+  # If namespace is in Terminating state, wait for natural deletion then force-clear
+  # finalizers if it's stuck (common when operator was stopped before CR finalizers
+  # were removed, or when a previous deploy was interrupted mid-teardown).
+  if kubectl get namespace "$namespace" > /dev/null 2>&1; then
+    local phase
+    phase=$(kubectl get namespace "$namespace" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [[ "$phase" == "Terminating" ]]; then
+      kubectl wait --for=delete namespace/"$namespace" --timeout=60s > /dev/null 2>&1 || true
+      # If still stuck, force-remove namespace-level finalizers so Kubernetes can proceed
+      if kubectl get namespace "$namespace" > /dev/null 2>&1; then
+        kubectl patch namespace "$namespace" --type=merge \
+          -p '{"spec":{"finalizers":null}}' > /dev/null 2>&1 || true
+        kubectl wait --for=delete namespace/"$namespace" --timeout=60s > /dev/null 2>&1 || true
+      fi
+    fi
+  fi
+
+  # Create namespace if it still doesn't exist
+  if ! kubectl get namespace "$namespace" > /dev/null 2>&1; then
+    kubectl create namespace "$namespace" > /dev/null 2>&1
     check_command_execution $? "kubectl create namespace $namespace"
   fi
 
   # Configure Docker Hub authentication for this namespace
   # Script exits silently if DOCKERHUB_USERNAME/PASSWORD not set
   if [[ -f "$UTILS_DIR/k3s-docker-login.sh" ]]; then
-    local docker_cmd="export DOCKERHUB_USERNAME='${DOCKERHUB_USERNAME:-}' DOCKERHUB_PASSWORD='${DOCKERHUB_PASSWORD:-}' DOCKERHUB_EMAIL='${DOCKERHUB_EMAIL:-}'; $UTILS_DIR/k3s-docker-login.sh \"$namespace\""
     if [ "$debug" = true ]; then
-      run_as_user "$docker_cmd"
+      DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}" DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD:-}" DOCKERHUB_EMAIL="${DOCKERHUB_EMAIL:-}" \
+        "$UTILS_DIR/k3s-docker-login.sh" "$namespace"
     else
-      run_as_user "$docker_cmd" > /dev/null 2>&1
+      DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}" DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD:-}" DOCKERHUB_EMAIL="${DOCKERHUB_EMAIL:-}" \
+        "$UTILS_DIR/k3s-docker-login.sh" "$namespace" > /dev/null 2>&1
     fi
   fi
 }
 
 #------------------------------------------------------------
 # Description : Deploys infrastructure chart via Helm.
-# Usage : deployInfrastructure [redeploy_bool]
-# Example: deployInfrastructure true
+# Usage : deploy_infrastructure [redeploy_bool]
+# Example: deploy_infrastructure true
 #------------------------------------------------------------
-function deployInfrastructure() {
+deploy_infrastructure() {
   local redeploy="${1:-false}"
 
   if is_app_running "$INFRA_NAMESPACE" && [[ "$redeploy" == "false" ]]; then
@@ -176,13 +161,13 @@ function deployInfrastructure() {
 
   if is_app_running "$INFRA_NAMESPACE"; then
     log_step "Removing existing infrastructure"
-    deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
+    delete_resources_in_namespace_matching_pattern "$INFRA_NAMESPACE"
     log_ok
   fi
 
   log_step "Creating namespace $INFRA_NAMESPACE"
-  createNamespace "$INFRA_NAMESPACE"
-  check_command_execution $? "createNamespace $INFRA_NAMESPACE"
+  create_namespace "$INFRA_NAMESPACE"
+  check_command_execution $? "create_namespace $INFRA_NAMESPACE"
   log_ok
 
   log_step "Updating FQDNs"
@@ -193,11 +178,11 @@ function deployInfrastructure() {
 
   log_step "Helm chart (infra)"
   if [ "$debug" = true ]; then
-    deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME"
+    deploy_helm_chart_from_dir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME"
   else
-    deployHelmChartFromDir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" >> /dev/null 2>&1
+    deploy_helm_chart_from_dir "$RUN_DIR/src/deployer/helm/infra" "$INFRA_NAMESPACE" "$INFRA_RELEASE_NAME" >> /dev/null 2>&1
   fi
-  check_command_execution $? "deployHelmChartFromDir infra"
+  check_command_execution $? "deploy_helm_chart_from_dir infra"
   log_ok
 
   log_banner "Infrastructure Deployed"
@@ -205,12 +190,12 @@ function deployInfrastructure() {
 
 #------------------------------------------------------------
 # Description : Applies K8s YAML manifests from a directory.
-# Usage : applyKubeManifests <directory> <namespace>
-# Example: applyKubeManifests ./k8s-files mifosx-ns
+# Usage : apply_kube_manifests <directory> <namespace>
+# Example: apply_kube_manifests ./k8s-files mifosx-ns
 #------------------------------------------------------------
-function applyKubeManifests() {
+apply_kube_manifests() {
     if [ "$#" -ne 2 ]; then
-        echo "Usage: applyKubeManifests <directory> <namespace>"
+        echo "Usage: apply_kube_manifests <directory> <namespace>"
         return 1
     fi
     
@@ -225,7 +210,7 @@ function applyKubeManifests() {
     # Apply persistence-related manifests first
     for file in "$directory"/*persistence*.yaml; do
       if [ -f "$file" ]; then
-        run_as_user "kubectl apply -f $file -n $namespace" >> /dev/null 2>&1
+        kubectl apply -f "$file" -n "$namespace" >> /dev/null 2>&1
         check_command_execution $? "kubectl apply -f $file -n $namespace"
       fi
   done
@@ -233,44 +218,16 @@ function applyKubeManifests() {
     # Apply other manifests
     for file in "$directory"/*.yaml; do
       if [[ "$file" != *persistence*.yaml && -f "$file" ]]; then
-        run_as_user "kubectl apply -f $file -n $namespace" >> /dev/null 2>&1
+        kubectl apply -f "$file" -n "$namespace" >> /dev/null 2>&1
         check_command_execution $? "kubectl apply -f $file -n $namespace"
       fi
     done
 }
 
 #------------------------------------------------------------
-# Description : Placeholder for vNext application testing logic.
-# Usage : test_vnext
-# Example: test_vnext
-#------------------------------------------------------------
-function test_vnext() {
-  echo "TODO" #TODO Write function to test apps
-}
-
-#------------------------------------------------------------
-# Description : Placeholder for Phee application testing logic.
-# Usage : test_phee
-# Example: test_phee
-#------------------------------------------------------------
-function test_phee() {
-  echo "TODO"
-}
-
-#------------------------------------------------------------
-# Description : Placeholder for MifosX application testing logic.
-# Usage : test_mifosx <instance_name>
-# Example: test_mifosx default
-#------------------------------------------------------------
-function test_mifosx() {
-  local instance_name=$1
-  # TODO: Implement testing logic
-}
-
-#------------------------------------------------------------
 # Description : Prints cleanup end message .
 #------------------------------------------------------------
-function print_cleanup_end_message() {
+print_cleanup_end_message() {
   log_banner "Cleanup Complete"
   echo
 }
@@ -280,7 +237,7 @@ function print_cleanup_end_message() {
 # Usage : print_deployment_end_message
 # Example: print_deployment_end_message
 #------------------------------------------------------------
-function print_deployment_end_message() {
+print_deployment_end_message() {
   local data_gen_failed="${1:-false}"
 
   log_banner "Mifos Gazelle Ready"
@@ -294,17 +251,17 @@ function print_deployment_end_message() {
   echo
   if [[ "$data_gen_failed" == "true" ]]; then
     log_warn "Data generation did not complete — test payments and batch submissions will not work."
-    log_warn "Once the cluster is stable, re-run:  sudo $RUN_DIR/run.sh -a setup-data -f \"$CONFIG_FILE_PATH\""
+    log_warn "Once the cluster is stable, re-run:  $RUN_DIR/run.sh -m deploy -a setup-data -f \"$CONFIG_FILE_PATH\""
     echo
   fi
 }
 
 #------------------------------------------------------------
 # Description : Deletes all or specific applications by namespace.
-# Usage : deleteApps <ignored> <"app1 app2"|all>
-# Example: deleteApps _ "mifosx vnext"
+# Usage : delete_apps <ignored> <"app1 app2"|all>
+# Example: delete_apps _ "mifosx vnext"
 #------------------------------------------------------------
-function deleteApps() {
+delete_apps() {
   local appsToDelete="$1"
 
   log_section "Removing applications"
@@ -312,22 +269,22 @@ function deleteApps() {
     case "$app" in
       "vnext")
         log_step "Removing vNext"
-        deleteResourcesInNamespaceMatchingPattern "$VNEXT_NAMESPACE"
+        delete_resources_in_namespace_matching_pattern "$VNEXT_NAMESPACE"
         log_ok
         ;;
       "mifosx")
         log_step "Removing MifosX"
-        deleteResourcesInNamespaceMatchingPattern "$MIFOSX_NAMESPACE"
+        delete_resources_in_namespace_matching_pattern "$MIFOSX_NAMESPACE"
         log_ok
         ;;
-      "phee")
+      "paymenthub")
         log_step "Removing Payment Hub EE"
-        deleteResourcesInNamespaceMatchingPattern "$PH_NAMESPACE"
+        clean_phee
         log_ok
         ;;
       "infra")
         log_step "Removing infrastructure"
-        deleteResourcesInNamespaceMatchingPattern "$INFRA_NAMESPACE"
+        delete_resources_in_namespace_matching_pattern "$INFRA_NAMESPACE"
         log_ok
         ;;
       "mastercard-demo")
@@ -335,9 +292,17 @@ function deleteApps() {
         cleanup
         log_ok
         ;;
+      "openg2p")
+        clean_openg2p
+        ;;
+      "openspp")
+        log_step "Removing OpenSPP"
+        cleanup_openspp
+        log_ok
+        ;;
       *)
-        log_error "Invalid app '$app' for deletion. This should have been caught by validateInputs."
-        showUsage
+        log_error "Invalid app '$app' for deletion. This should have been caught by validate_inputs."
+        show_usage
         exit 1
         ;;
     esac
@@ -348,56 +313,68 @@ function deleteApps() {
 
 #------------------------------------------------------------
 # Description : Orchestrates deployment of apps (infra, vnext, etc.).
-# Usage : deployApps <"app1 app2"... > [redeploy]
-# Example: deployApps _ "vnext mifosx" true
+# Usage : deploy_apps <"app1 app2"... > [redeploy]
+# Example: deploy_apps _ "vnext mifosx" true
 #------------------------------------------------------------
-function deployApps() {
+deploy_apps() {
   local appsToDeploy="$1"
   local redeploy="${2:-false}"
   local data_gen_failed=false
 
-  logWithVerboseCheck "$debug" "$DEBUG" "Apps to deploy: $appsToDeploy (redeploy=$redeploy)"
+  log_with_verbose_check "$debug" "$DEBUG" "Apps to deploy: $appsToDeploy (redeploy=$redeploy)"
+
+  # Ensure infra is up before any DPG deployment. The idempotency guard inside
+  # deploy_infrastructure makes this a no-op if infra is already running.
+  # Skip when infra itself is being deployed — its case arm handles that below.
+  # Also skip for an OpenSPP-only deploy: OpenSPP brings its own PostGIS DB and does not use
+  # the shared infra chart.
+  if [[ "$appsToDeploy" != *"infra"* && "$appsToDeploy" != "openspp" ]]; then
+    deploy_infrastructure "false"
+  fi
 
   for app in $appsToDeploy; do
     case "$app" in
       "infra")
-        deployInfrastructure "$redeploy"
+        deploy_infrastructure "$redeploy"
         ;;
       "vnext")
-        deployInfrastructure "false"
-        deployvNext
+        deploy_vnext
         ;;
       "mifosx")
-        deployInfrastructure "false"
-        DeployMifosXfromYaml "$MIFOSX_MANIFESTS_DIR"
-        if ! generateMifosXandVNextData; then
+        deploy_mifosx_from_yaml "$MIFOSX_MANIFESTS_DIR"
+        if ! generate_mifosx_and_vnext_data; then
           data_gen_failed=true
         fi
         ;;
       "setup-data")
-        if ! generateMifosXandVNextData; then
+        if ! generate_mifosx_and_vnext_data; then
           data_gen_failed=true
         fi
         ;;
-      "phee")
-        deployInfrastructure "false"
-        deployPH
+      "paymenthub")
+        deploy_ph
         ;;
       "mastercard-demo")
         if [[ "$redeploy" == "true" ]]; then
-          deleteApps "mastercard-demo"
+          delete_apps "mastercard-demo"
         fi
-        deployInfrastructure "false"
-        if ! run_as_user "kubectl get namespace \"$PH_NAMESPACE\"" &> /dev/null; then
-          log_error "Payment Hub namespace not found. Deploy phee first: ./run.sh -a phee"
+        if ! kubectl get namespace "$PH_NAMESPACE" &> /dev/null; then
+          log_error "Payment Hub namespace not found. Deploy paymenthub first: ./run.sh -a paymenthub"
           exit 1
         fi
-        logWithVerboseCheck "$debug" "$DEBUG" "MASTERCARD_CBS_HOME=$MASTERCARD_CBS_HOME"
+        log_with_verbose_check "$debug" "$DEBUG" "MASTERCARD_CBS_HOME=$MASTERCARD_CBS_HOME"
         deploy_mastercard
+        ;;
+      "openg2p")
+        deploy_openg2p
+        ;;
+      "openspp")
+        # deploy_openspp handles redeploy itself, so its checks run before anything is removed.
+        deploy_openspp
         ;;
       *)
         log_error "Unknown application '$app'. This should have been caught by validation."
-        showUsage
+        show_usage
         exit 1
         ;;
     esac

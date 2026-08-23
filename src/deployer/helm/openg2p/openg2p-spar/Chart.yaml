@@ -1,0 +1,13 @@
+apiVersion: v2
+description: OpenG2P SPAR for Mifos Gazelle
+name: gazelle-openg2p-spar
+version: 0.1.0
+home: https://github.com/openMF/mifos-gazelle
+sources:
+- https://github.com/openMF/mifos-gazelle
+
+dependencies:
+- name: openg2p-spar
+  alias: spar
+  version: "0.0.0-develop"
+  repository: https://openg2p.github.io/openg2p-helm

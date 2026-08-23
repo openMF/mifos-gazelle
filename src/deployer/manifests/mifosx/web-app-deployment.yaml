@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+  labels:
+    app: web-app
+  name: web-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-app
+  template:
+    metadata:
+      labels:
+        app: web-app
+    spec:
+      containers:
+        - env:
+            - name: FINERACT_API_PROVIDER
+              value: /fineract-provider/api
+            - name: FINERACT_API_URL
+              value: https://mifos.mifos.gazelle.test
+            - name: FINERACT_API_VERSION
+              value: /v1
+            - name: FINERACT_PLATFORM_TENANTS_IDENTIFIER
+              value: "greenbank, bluebank, default"  
+            - name: FINERACT_PLATFORM_TENANT_IDENTIFIER
+              value: greenbank
+            - name: MIFOS_DEFAULT_CHAR_DELIMITER
+              value: ','
+            - name: MIFOS_DEFAULT_LANGUAGE
+              value: en-US
+            - name: MIFOS_PRELOAD_CLIENTS
+              value: "true"
+            - name: MIFOS_SUPPORTED_LANGUAGES
+              value: cs-CS,de-DE,en-US,es-MX,fr-FR,it-IT,ko-KO,li-LI,lv-LV,ne-NE,pt-PT,sw-SW
+          #image: openmf/web-app:master
+          image: openmf/web-app:dev-10d24b8
+          imagePullPolicy: IfNotPresent
+          name: web-app
+          ports:
+            - containerPort: 80
+              protocol: TCP
+      restartPolicy: Always

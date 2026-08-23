@@ -16,8 +16,11 @@ git clone --branch dev https://github.com/openMF/mifos-gazelle.git
 # Enter the project directory
 cd mifos-gazelle
 
+# Set up environment (one-time)
+sudo ./setup-env.sh 
+
 # Deploy only vNext and the underlying infrastructure services 
-sudo ./run.sh -u $USER -m deploy -d true -a vNext 
+./run.sh -m deploy -d true -a vnext
 ```
 
 > **Reminder**: currently Mifos Gazelle deployments including those of vNext Beta1 are  not intended for production use.
@@ -30,15 +33,15 @@ sudo ./run.sh -u $USER -m deploy -d true -a vNext
 - **Resource Efficient**: Optimized resource usage for testing environments
 - **vNext only**: using the -a flag on the Mifos Gazelle installer 
 
-## Supported Environments
-- the Mifos Gazelle vNext Beta install works on Ubuntu 20.04 and 22.04 LTS on x86_64 or ARM64:
+## Tested Environments
+- the Mifos Gazelle vNext Beta install has been tested on Ubuntu 22.04 and 24.04 LTS on x86_64 or ARM64: nd should run on 
   - Bare metal servers
-  - Virtual machines (VirtualBox, Parallels, UTM, QEMU)
-  - Cloud instances (AWS, GCP, Azure, etc.)
+  - Virtual machines (VirtualBox, Parallels, UTM, QEMU, WSL )
+  - Cloud instances of the correct Kubernetes release (AWS, GCP, Azure, etc.)
 
 ## Prerequisites
 As listed in the main Mifos Gazelle README.md but additionally this has been tested against 
-- Ubuntu 20.04 or 22.04 LTS 
+- Ubuntu 22.04 or 24.04 LTS 
 - x86_64 or ARM64 architecture 
 
 
@@ -54,11 +57,11 @@ git clone --branch dev https://github.com/openMF/mifos-gazelle.git
 # Enter the project directory
 cd mifos-gazelle
 
-# For ARM64 systems only
-sudo ./ttk-interim-fix.sh
+# One-time environment setup
+sudo ./setup-env.sh -u $USER
 
 # Deploy vNext only 
-sudo ./run.sh -u $USER -m deploy -d true -a vnext 
+./run.sh -m deploy -d true -a vnext
 ```
 
 ## Accessing vNext Services
@@ -108,7 +111,7 @@ ipconfig /flushdns
 
 ## Known Limitations of the vNext (Beta1 Release)
 1. Beta status: Mifos Gazelle currently deploys the vNext Beta1
-2. Ubuntu version: Tested only on Ubuntu 20.04 and 22.04 LTS
+2. Ubuntu version: Tested on Ubuntu 22.04 and 24.04 LTS
 3. Kubernetes: Currently supports k3s , this will be updated as Mifos Gazelle works across a wider variety of Kubernetes clusters e.g. EKS,AKS,GKE etc 
 4. Logging: Log format improvements planned for better CI/CD integration
 5. DNS Configuration: Domain name configuration feature pending implementation localhosts is used currently
@@ -127,6 +130,6 @@ ipconfig /flushdns
 - Ideal for development, testing, and educational purposes
 - Not suitable for production deployments
 
-## Support
-- Support for deployment issues through Mifos-Gazelle can be obtained through the Mifos Gazelle Slack channel https://mifos.slack.com/archives/C082PNLUCRK
-- Support for issues with vNext Beta 1 should be directed to the Mojaloop Development Community.
+## Community Help
+- Community help with deployment issues is available on the Mifos Gazelle Slack channel https://mifos.slack.com/archives/C082PNLUCRK
+- For vNext Beta 1 issues, reach out to the Mojaloop Development Community.

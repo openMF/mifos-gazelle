@@ -1,0 +1,225 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: fineract-server
+    tier: backend
+  name: fineract-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fineract-server
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: fineract-server
+        tier: backend
+    spec:
+      initContainers:
+        - name: fetch-reporting-plugin
+          image: alpine:3.20
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              apk add --no-cache curl python3 font-dejavu fontconfig \
+                || { echo "ERROR: apk add failed (curl/python3/fonts) — is the Alpine mirror reachable?"; exit 1; }
+              echo "Downloading MifosReportingPlugin-1.14.0..."
+              curl -fsSL -o /tmp/mrp.zip \
+                "https://sourceforge.net/projects/mifos/files/mifos-plugins/MifosReportingPlugin/MifosReportingPlugin-1.14.0.zip/download"
+              python3 /dev/stdin <<'PYEOF'
+              import zipfile, os
+              z=zipfile.ZipFile("/tmp/mrp.zip"); base="MifosReportingPlugin-1.14.0"
+              jn=rn=0
+              for n in z.namelist():
+                  if n.startswith(base+"/") and n.endswith(".jar") and "/" not in n[len(base)+1:]:
+                      open("/plugins/"+os.path.basename(n),"wb").write(z.read(n)); jn+=1
+                  p=base+"/Postgresql/"
+                  if n.startswith(p) and not n.endswith("/"):
+                      name=n[len(p):]
+                      if "/" in name: continue
+                      open("/reports/"+name,"wb").write(z.read(n))
+                      if name.endswith(".prpt"): rn+=1
+              print("Staged jars:",jn," reports:",rn, flush=True)
+              PYEOF
+              echo "Staging fonts + fontconfig closure..."
+              mkdir -p /fonts /etcfonts /nativelibs
+              cp -a /usr/share/fonts/. /fonts/ 2>/dev/null || true
+              cp -a /etc/fonts/. /etcfonts/ 2>/dev/null || true
+              cp -L /usr/lib/libfontconfig.so* /nativelibs/ 2>/dev/null || true
+              for l in $(ldd /usr/lib/libfontconfig.so.1 2>/dev/null | awk '{print $3}'); do
+                case "$l" in */ld-musl*|*/libc.*) : ;; *) cp -L "$l" /nativelibs/ 2>/dev/null || true ;; esac
+              done
+              echo "fonts:$(find /fonts -name '*.ttf' | wc -l) nativelibs:$(ls /nativelibs | wc -l)"
+          volumeMounts:
+            - mountPath: /plugins
+              name: fineract-plugins
+            - mountPath: /reports
+              name: fineract-reports
+            - mountPath: /fonts
+              name: fineract-fonts
+            - mountPath: /etcfonts
+              name: fineract-etcfonts
+            - mountPath: /nativelibs
+              name: fineract-nativelibs
+        # Enable the external-event types the Loan Assessment module consumes.
+        # Runs after the DB dump restore and before Fineract boots, so the app
+        # reads the enabled config at startup. Only the "default" tenant is set:
+        # the module calls Fineract back with a single, fixed tenant id.
+        - name: enable-loan-events
+          image: postgres:16-alpine
+          env:
+            - name: PGPASSWORD
+              value: "postgrespw"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              until pg_isready -h postgres.infra.svc.cluster.local -p 5432 -U postgres; do
+                echo "waiting for postgres..."; sleep 3
+              done
+              psql -h postgres.infra.svc.cluster.local -U postgres -d fineract_default -v ON_ERROR_STOP=1 -c \
+                "UPDATE m_external_event_configuration SET enabled = true WHERE type IN (
+                   'LoanCreatedBusinessEvent','LoanApplicationModifiedBusinessEvent',
+                   'LoanRejectedBusinessEvent','LoanWithdrawnByApplicantBusinessEvent',
+                   'DocumentCreatedBusinessEvent','DocumentDeletedBusinessEvent');"
+              echo "loan/document external events enabled on tenant 'default'"
+      containers:
+        - env:
+            - name: JAVA_TOOL_OPTIONS
+              # value: "-Xms384m -Xmx512m -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError"
+              value: >
+                    -Xss256k
+                    -Xms512m
+                    -Xmx1024m
+                    -XX:+UseSerialGC
+                    -XX:+HeapDumpOnOutOfMemoryError
+                    -Dnetworkaddress.cache.ttl=30
+                    -Dnetworkaddress.cache.negative.ttl=10
+            - name: FINERACT_DEFAULT_TENANTDB_DESCRIPTION
+              value: "Default Demo Tenant"
+            - name: FINERACT_DEFAULT_TENANTDB_HOSTNAME
+              value: "postgres.infra.svc.cluster.local"
+            - name: FINERACT_DEFAULT_TENANTDB_IDENTIFIER
+              value: "default"
+            - name: FINERACT_DEFAULT_TENANTDB_NAME
+              value: "fineract_default"
+            - name: FINERACT_DEFAULT_TENANTDB_PORT
+              value: "5432"
+            - name: FINERACT_DEFAULT_TENANTDB_TIMEZONE
+              value: Asia/Kolkata
+            - name: FINERACT_DEFAULT_TENANTDB_UID
+              value: "postgres"
+            - name: FINERACT_DEFAULT_TENANTDB_PWD
+              value: "postgrespw"
+            - name: FINERACT_DEFAULT_TENANTDB_MASTER_PASSWORD
+              value: "fineract"
+            - name: FINERACT_DEFAULT_TENANTDB_CONN_PARAMS
+              value: ""
+            - name: FINERACT_HIKARI_AUTO_COMMIT
+              value: "true"
+            - name: FINERACT_HIKARI_CONNECTION_TIMEOUT
+              value: "20000"
+            # Postgres JDBC driver (was org.mariadb.jdbc.Driver).
+            - name: FINERACT_HIKARI_DRIVER_SOURCE_CLASS_NAME
+              value: org.postgresql.Driver
+            - name: FINERACT_HIKARI_IDLE_TIMEOUT
+              value: "60000"
+            - name: FINERACT_HIKARI_JDBC_URL
+              value: jdbc:postgresql://postgres.infra.svc.cluster.local:5432/fineract_tenants
+            - name: FINERACT_HIKARI_MAXIMUM_POOL_SIZE
+              value: "10"
+            - name: FINERACT_HIKARI_MINIMUM_IDLE
+              value: "3"
+            - name: FINERACT_HIKARI_PASSWORD
+              value: "postgrespw"
+            - name: FINERACT_HIKARI_TEST_QUERY
+              value: SELECT 1
+            - name: FINERACT_HIKARI_USERNAME
+              value: "postgres"
+            - name: FINERACT_LOGGING_LEVEL
+              value: INFO
+            - name: FINERACT_NODE_ID
+              value: "1"
+            - name: FINERACT_SERVER_PORT
+              value: "8080"
+            - name: FINERACT_SERVER_SSL_ENABLED
+              value: "false"
+            - name: FINERACT_SECURITY_BASICAUTH_ENABLED
+              value: "true"
+            - name: FINERACT_LIQUIBASE_ENABLED
+              value: "false"
+            - name: FINERACT_PENTAHO_REPORTS_PATH
+              value: "/app/reports/pentaho"
+            - name: LD_LIBRARY_PATH
+              value: "/opt/nativelibs"
+            - name: FONTCONFIG_PATH
+              value: "/etc/fonts"
+            # External events -> Kafka, consumed by the Loan Assessment module.
+            - name: FINERACT_EXTERNAL_EVENTS_ENABLED
+              value: "true"
+            - name: FINERACT_EXTERNAL_EVENTS_KAFKA_ENABLED
+              value: "true"
+            - name: FINERACT_EXTERNAL_EVENTS_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka.infra.svc.cluster.local:9092"
+          #image: openmf/fineract:develop
+          #image: openmf/fineract:1.11
+          image: openmf/fineract:1.14.0
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /fineract-provider/actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 180
+            periodSeconds: 1
+            failureThreshold: 5
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /fineract-provider/actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 180
+          name: fineract-server
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          # resources:
+          #   requests:
+          #     memory: "256Mi"
+          #     cpu: "200m"
+          #   limits:
+          #     memory: "1600Mi"
+          #     cpu: "500m"
+          volumeMounts:
+            - mountPath: /data
+              name: fineract-server-claim0
+            - mountPath: /app/plugins
+              name: fineract-plugins
+            - mountPath: /app/reports/pentaho
+              name: fineract-reports
+            - mountPath: /usr/share/fonts
+              name: fineract-fonts
+            - mountPath: /etc/fonts
+              name: fineract-etcfonts
+            - mountPath: /opt/nativelibs
+              name: fineract-nativelibs
+      restartPolicy: Always
+      volumes:
+        - name: fineract-server-claim0
+          persistentVolumeClaim:
+            claimName: fineract-server-claim0
+        - name: fineract-plugins
+          emptyDir: {}
+        - name: fineract-reports
+          emptyDir: {}
+        - name: fineract-fonts
+          emptyDir: {}
+        - name: fineract-etcfonts
+          emptyDir: {}
+        - name: fineract-nativelibs
+          emptyDir: {}

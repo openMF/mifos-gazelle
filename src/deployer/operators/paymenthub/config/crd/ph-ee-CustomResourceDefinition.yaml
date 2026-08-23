@@ -1,0 +1,252 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: paymenthubdeployments.gazelle.mifos.io # Name of the CRD in the format <plural>.<group>
+spec:
+  group: gazelle.mifos.io # API group name for the CRD
+  names:
+    kind: PaymentHubDeployment # Kind of the custom resource
+    listKind: PaymentHubDeploymentList # Kind of the list of resources
+    plural: paymenthubdeployments # Plural name for the custom resource
+    singular: paymenthubdeployment # Singular name for the custom resource
+    shortNames:  # Optional short names for easier usage
+      - pheedep
+  scope: Namespaced # Scope of the CRD, i.e., namespaced or cluster-wide
+  versions:
+    - name: v1 # Version of the CRD
+      served: true # Indicates if this version is served by the API server
+      storage: true # Indicates if this version is used for storage
+      subresources:
+        status: {}  # Define 'status' as a subresource to track the state of the resource
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                labels:
+                  type: object
+                  additionalProperties:
+                    type: string # Labels for the Ingress resource              
+                enabled:
+                  type: boolean
+                  default: true # Indicates if the resource is enabled
+                volMount:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: false # Indicates if volume mounting is enabled
+                    name:
+                      type: string # Name of the volume mount
+                replicas:
+                  type: integer # Number of replicas for the deployment
+                  default: 1
+                image:
+                  type: string # Docker image used for the deployment
+                containerPort:
+                  type: integer # Port on which the container listens
+                environment:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string # Environment variable name
+                      value:
+                        type: string # Environment variable value
+                      valueFrom:
+                        type: object
+                        properties:
+                          secretKeyRef:
+                            type: object
+                            properties:
+                              name:
+                                type: string # Name of the secret
+                              key:
+                                type: string # Key within the secret
+                resources:
+                  type: object
+                  properties:
+                    limits:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string # CPU limit for the container
+                        memory:
+                          type: string # Memory limit for the container
+                    requests:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string # CPU request for the container
+                        memory:
+                          type: string # Memory request for the container
+                livenessProbe:
+                  type: object
+                  properties:
+                    path:
+                      type: string # Path for liveness probe
+                    port:
+                      type: integer # Port for liveness probe
+                    initialDelaySeconds:
+                      type: integer # Initial delay before liveness probe is started
+                    periodSeconds:
+                      type: integer # Frequency of liveness probe
+                    failureThreshold:
+                      type: integer # Number of failed probes before marking the container as unhealthy
+                    timeoutSeconds:
+                      type: integer # Timeout for each liveness probe
+                readinessProbe:
+                  type: object
+                  properties:
+                    path:
+                      type: string # Path for readiness probe
+                    port:
+                      type: integer # Port for readiness probe
+                    initialDelaySeconds:
+                      type: integer # Initial delay before readiness probe is started
+                    periodSeconds:
+                      type: integer # Frequency of readiness probe
+                    failureThreshold:
+                      type: integer # Number of failed probes before marking the container as not ready
+                    timeoutSeconds:
+                      type: integer # Timeout for each readiness probe
+                ingress:        # New Ingress Configuration Section 
+                  type: object
+                  properties:  
+                    className:
+                      type: string # Ingress class name
+                    labels:
+                      type: object
+                      additionalProperties:
+                        type: string # Labels for the Ingress resource
+                    annotations:
+                      type: object
+                      additionalProperties:
+                        type: string # Annotations for the Ingress resource
+                    tls:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          hosts:
+                            type: array
+                            items:
+                              type: string # Hosts for TLS configuration
+                          secretName:
+                            type: string # Secret name containing TLS certificate
+                    rules:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          host:
+                            type: string # Hostname for the Ingress rule
+                          paths:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                path:
+                                  type: string # Path for the Ingress rule
+                                pathType:
+                                  type: string # Type of the path matching (e.g., Prefix or Exact)
+                                backend:
+                                  type: object
+                                  properties:
+                                    service:
+                                      type: object
+                                      properties:
+                                        name:
+                                          type: string # Name of the service for the backend
+                                        port:
+                                          type: object
+                                          properties:
+                                            number:
+                                              type: integer # Port number for the service
+                services:  # New Services Configuration Section
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string # Name of the service
+                      labels:
+                        type: object
+                        additionalProperties:
+                          type: string # Labels for the Ingress resource
+                      ports:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string # Name of the port
+                            port:
+                              type: integer # Port number
+                            targetPort:
+                              type: integer # Target port on the container
+                            protocol:
+                              type: string
+                              enum:
+                                - TCP
+                                - UDP # Protocol used by the service
+                      selector:
+                        type: object
+                        additionalProperties:
+                          type: string # Selector for the service
+                      type:
+                        type: string
+                        enum:
+                          - ClusterIP
+                          - NodePort
+                          - LoadBalancer # Type of the service
+                      annotations:
+                        type: object
+                        additionalProperties:
+                          type: string # Annotations for the service
+                      sessionAffinity:
+                        type: string
+                        enum:
+                          - None
+                          - ClientIP # Session affinity for the service
+                domain:
+                  type: string
+                  default: "mifos.gazelle.test"
+                  description: "Domain suffix used to construct Ingress hostnames (e.g. channel.{domain})"
+                initContainerEnabled:
+                  type: boolean
+                  default: false
+                tlsKeystoreEnabled:
+                  type: boolean
+                  default: false
+                  description: "When true, adds a create-tls-keystore init container (eclipse-temurin:17) that generates /tls/keystore.p12 before the main container starts. Required by ph-ee-connector-ams-mifos."
+                waitForGatewayEnabled:
+                  type: boolean
+                  default: false
+                  description: "When true, adds a wait-for-gateway init container that polls paymenthub-infra-zeebe-gateway before the main container starts"
+                rbacEnabled:  # Toggle for RBACs
+                  type: boolean
+                  default: false # Indicates if RBAC resources should be created
+                secretEnabled:  # Toggle for Secrets
+                  type: boolean
+                  default: false # Indicates if Secret resources should be created
+                configMapEnabled:  # Toggle for ConfigMaps
+                  type: boolean
+                  default: false # Indicates if ConfigMap resources should be created
+                ingressEnabled:  # Toggle for Ingress
+                  type: boolean
+                  default: false # Indicates if Ingress resources should be created
+            status:
+              type: object
+              properties:
+                availableReplicas:
+                  type: integer # Number of available replicas
+                errorMessage:
+                  type: string # Error message related to the resource
+                lastAppliedImage:
+                  type: string # Last applied image for the resource
+                ready:
+                  type: boolean # Indicates if the resource is ready

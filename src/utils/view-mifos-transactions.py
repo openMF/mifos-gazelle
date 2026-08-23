@@ -130,15 +130,11 @@ def print_transaction(txn, indent=6):
 # Main
 # ----------------------------------------------------------------------
 def main():
-    script_path = Path(__file__).absolute()
-    base_dir = script_path.parent.parent.parent.parent
-    default_config = base_dir / "config" / "config.ini"
-
     parser = argparse.ArgumentParser(
         description="View Mifos transaction history for all clients"
     )
-    parser.add_argument('--config', '-c', type=Path, default=default_config,
-                        help=f'Path to config.ini (default: {default_config})')
+    parser.add_argument('--config', '-c', type=Path, default=Path("config/config.ini"),
+                        help='Path to config.ini (default: config/config.ini)')
     parser.add_argument('--tenant', '-t', type=str,
                         help='Show only specific tenant (e.g., bluebank, greenbank)')
     parser.add_argument('--client-id', type=int,

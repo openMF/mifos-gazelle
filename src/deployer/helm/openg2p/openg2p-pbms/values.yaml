@@ -1,0 +1,214 @@
+############################################################
+# OpenG2P PBMS (own helm release: pbms) — Payment & Beneficiary Management.
+# Requires openg2p-commons (Postgres @ openg2p-commons-postgresql, Keycloak).
+# Domain baseline: mifos.gazelle.test — patched to live GAZELLE_DOMAIN at deploy time.
+############################################################
+
+pbms:
+  global:
+    keycloakBaseUrl: "https://keycloak.mifos.gazelle.test"
+    keycloakIssuerUrl: "https://keycloak.mifos.gazelle.test/realms/master"
+    sysAdminEmail: admin@mifos.gazelle.test
+    # bg-task subcharts reach the social-registry DB via
+    # "{{ global.registryInstallationName }}-postgresql" (hostname + secret name).
+    # Upstream defaults this to 'registry', which only exists when pbms and
+    # social-registry share one install. In Gazelle they are separate releases,
+    # so the SR Postgres secret is "social-registry-postgresql" — without this
+    # override the bg-task init container dies: secret "registry-postgresql" not found.
+    registryInstallationName: 'social-registry'
+
+  hostname: "pbms.mifos.gazelle.test"
+
+  # PBMS uses a top-level istio toggle for its main gateway/virtualservice
+  istio:
+    enabled: false
+
+  ############################################################
+  # Odoo — the PBMS web UI.
+  ############################################################
+  odoo:
+    # ARM: repoint the pbms-core app image to a self-built multi-arch rebuild.
+    # Upstream openg2p/openg2p-pbms-core:3.0.0 is amd64-only (its CI runs a plain
+    # `docker build`, not buildx). This is a multi-arch (amd64+arm64) rebuild of
+    # the SAME source (github.com/OpenG2P/openg2p-pbms-docker @ tag 3.0.0),
+    # buildx-published to a personal registry. Revert to openg2p/openg2p-pbms-core
+    # once upstream ships a multi-arch tag.
+    image:
+      repository: gous0786/openg2p-pbms-core
+      tag: "3.0.0"
+    hostname: "pbms.mifos.gazelle.test"
+    # DEMO-ONLY fixed admin login (do not use on a shared/exposed cluster). Makes
+    # the odoo subchart write this into the 'pbms-odoo' secret instead of
+    # generating a random one. _openg2p_pbms_fix_admin_login (src/deployer/openg2p.sh)
+    # aligns Odoo's stored admin password to it post-deploy — the pbms-core image
+    # does not apply ODOO_PASSWORD to the existing admin row on its own. Only takes
+    # effect on a FRESH install (bitnami won't overwrite an existing secret on upgrade).
+    odooEmail: "admin@openg2p.org"
+    odooPassword: "adminopeng2p"
+
+    # --- g2p_payment_phee enablement (see src/utils/openg2p/setup-pbms-phee.sh) ---
+    # The payment addons (openg2p-registry, openg2p-program -> g2p_payment_phee) are
+    # downloaded as tarballs into the persistent PVC by that script; these keys point
+    # Odoo at them. We do NOT use EXTRA_ADDONS_URLS_TO_PULL: its startup path
+    # git-clones, and the pbms-core image ships no `git`, so a non-empty value
+    # crash-loops the pod. Kept set (harmless when the dirs are empty) so they
+    # survive helm upgrades once setup-pbms-phee.sh has fetched the repos.
+    extraEnvVars:
+      - name: EXTRA_ADDONS_URLS_TO_PULL
+        value: ""
+      - name: ODOO_ADDONS_DIR
+        value: "/bitnami/odoo/extraaddons/openg2p-registry,/bitnami/odoo/extraaddons/openg2p-program"
+
+    # The addon repos' Python deps install into /usr/local/lib (ephemeral), so they
+    # must be reinstalled on every pod start. mkdir runs first: ODOO_ADDONS_DIR puts
+    # these paths on Odoo's addons_path, and a missing path 500s every /web asset
+    # (blank, unstyled login page). No-op (`|| true`) when the repos aren't present yet.
+    lifecycleHooks:
+      postStart:
+        exec:
+          command:
+            - /bin/sh
+            - "-c"
+            - >-
+              mkdir -p /bitnami/odoo/extraaddons/openg2p-registry
+              /bitnami/odoo/extraaddons/openg2p-program;
+              (unset SSL_CERT_FILE REQUESTS_CA_BUNDLE;
+              pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org
+              -r /bitnami/odoo/extraaddons/openg2p-registry/requirements.txt
+              -r /bitnami/odoo/extraaddons/openg2p-program/requirements.txt
+              rstr) > /tmp/postStart-pip.log 2>&1 || true
+
+    # Odoo is the heaviest PBMS pod (Python asset build spikes memory on boot).
+    # Upstream reserves 2Gi/1cpu; request eased so it schedules alongside the
+    # other DPGs on a shared node, limit kept at 3Gi for the asset-build spike.
+    resources:
+      requests:
+        cpu: 250m
+        memory: 768Mi
+      limits:
+        cpu: "1.5"
+        memory: 3Gi
+
+    # odoo subchart's S3_URL env resolves .Values.minio.hostname in odoo scope
+    minio:
+      hostname: "minio-pbms.mifos.gazelle.test"
+
+    # The odoo subchart uses the bitnami-style ingress schema: a single 'hostname' +
+    # 'path'/'pathType' + 'tls'/'extraTls' — NOT a hosts[] array. With hosts[] the
+    # chart ignored our host and fell back to 'odoo.local' (404 from NGINX).
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      hostname: "pbms.mifos.gazelle.test"
+      path: /
+      pathType: Prefix
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+        nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+      tls: true
+      extraTls:
+        - hosts:
+            - "pbms.mifos.gazelle.test"
+          secretName: openg2p-tls
+
+    postgresql:
+      istio:
+        enabled: false
+      # Upstream's bitnami/postgresql:16.3.0-debian-12-r16 tag was deleted from
+      # Docker Hub (ImagePullBackOff: NotFound). Use bitnamilegacy/ — the same
+      # image Bitnami moved the deleted tags to, and (unlike openg2p's amd64-only
+      # mirror) it is published multi-arch (amd64+arm64), so PBMS Postgres runs
+      # on ARM. Tag is identical.
+      image:
+        registry: docker.io
+        repository: bitnamilegacy/postgresql
+        tag: 16.3.0-debian-12-r16
+      # Upstream reserves 2Gi/1cpu, limit 3Gi — a demo DB needs far less; mirror
+      # the commons Postgres sizing.
+      primary:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            memory: 1Gi
+
+  ############################################################
+  # MinIO — off: nothing points at it. The odoo subchart only wires S3 when its
+  # own S3 settings are supplied, and they are not, so the rendered pbms-odoo
+  # Deployment carries no S3_*/MINIO_* env at all (confirmed against the live
+  # pod before disabling: the bucket store was empty, only .minio.sys). Odoo's
+  # filestore lives on the pbms-odoo PVC either way. Costs 107Mi + an 8Gi
+  # local-path PVC to run unused.
+  #
+  # 'odoo.minio.hostname' below stays set — the odoo subchart resolves it when
+  # building S3_URL, so removing it would fall back to an upstream default.
+  ############################################################
+  minio:
+    enabled: false
+
+  ############################################################
+  # Redis — PBMS bg-task (celery) broker/backend. Repoint openg2p/redis (amd64
+  # only) to bitnamilegacy/redis at the same tag: same image, published
+  # multi-arch (amd64+arm64), so PBMS Redis runs on ARM.
+  ############################################################
+  redis:
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/redis
+      tag: 7.2.5-debian-12-r4
+
+  ############################################################
+  # Background task workers (api, celery-beat-producer, celery-worker) — ship
+  # with no resource limits upstream. celery-worker processes batches; the beat
+  # producer polls the beneficiary-list tables on a schedule (a fuller working
+  # set than a plain coordinator — it sits ~440Mi and spiked past a 512Mi cap,
+  # OOMKilled), so it gets the same 768Mi headroom as the worker. The api is the
+  # only genuinely light one.
+  ############################################################
+  # postgres-checker init container: upstream defaults it to
+  # jbergknoff/postgresql-client:latest — an amd64-only, unpinned image from a
+  # personal Docker Hub namespace. The container only ever runs `pg_isready` to
+  # wait for Postgres, so repoint it at the official, multi-arch, version-pinned
+  # postgres:16-alpine (ships pg_isready on PATH; runs fine as the pod's non-root
+  # user). One swap fixes the ARM gap and the supply-chain/pinning concerns.
+  # Applied identically to all three bg-task subcharts.
+  openg2p-pbms-bg-task-api:
+    postgresCheckerInit:
+      image:
+        registry: docker.io
+        repository: postgres
+        tag: "16.9-alpine"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+
+  openg2p-pbms-bg-task-celery-beat-producers:
+    postgresCheckerInit:
+      image:
+        registry: docker.io
+        repository: postgres
+        tag: "16.9-alpine"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        memory: 768Mi
+
+  openg2p-pbms-bg-task-celery-workers:
+    postgresCheckerInit:
+      image:
+        registry: docker.io
+        repository: postgres
+        tag: "16.9-alpine"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 768Mi

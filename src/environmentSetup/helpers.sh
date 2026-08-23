@@ -1,42 +1,79 @@
 #!/usr/bin/env bash
 # helper functions for OS and kubernetes environment setup
 
-function check_arch_ok {
-    local arch=$(uname -m)
+#------------------------------------------------------------------------------
+# run_brew <args>
+# Locates the Homebrew binary at its known macOS install paths (sudo strips
+# PATH so 'command -v brew' fails) and runs it as the invoking non-root user.
+#------------------------------------------------------------------------------
+run_brew() {
+    local brew_bin=""
+    for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        if [[ -x "$candidate" ]]; then brew_bin="$candidate"; break; fi
+    done
+    if [[ -z "$brew_bin" ]]; then
+        printf "** Error: Homebrew not found at /opt/homebrew/bin or /usr/local/bin.\n"
+        printf "   Install from https://brew.sh then re-run.\n"
+        exit 1
+    fi
+    sudo -u "${SUDO_USER:-$k8s_user}" "$brew_bin" "$@"
+}
+
+brew_available() {
+    [[ -x "/opt/homebrew/bin/brew" ]] || [[ -x "/usr/local/bin/brew" ]]
+}
+
+check_arch_ok() {
+    local arch
+    arch=$(uname -m)
     if [[ "$arch" != "x86_64" && "$arch" != "arm64" && "$arch" != "aarch64" ]]; then
         printf " **** Error Unknown CPU architecture : mifos-gazelle only works properly with x86_64, arm64, or aarch64 architectures today  *****\n"
         exit 1 
     fi
 }
 
-function check_resources_ok {
-    total_ram=$(free -g | awk '/^Mem:/{print $2}')
-    free_space=$(df -BG ~ | awk '{print $4}' | tail -n 1 | sed 's/G//')
-    if [[ "$total_ram" -lt "$MIN_RAM" ]]; then
-        printf " ** Error: mifos-gazelle currently requires $MIN_RAM GBs to run properly \n"
-        printf "    Please increase RAM available before trying to run mifos-gazelle \n"
+check_resources_ok() {
+    local total_ram free_space
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        total_ram=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+        free_space=$(df -k ~ | awk 'NR==2 {printf "%d", $4/1048576}')
+    else
+        total_ram=$(free -g | awk '/^Mem:/{print $2}')
+        free_space=$(df -BG ~ | awk '{print $4}' | tail -n 1 | sed 's/G//')
+    fi
+    local req_ram="${k8s_mem:-16}"
+    if [[ "$total_ram" -lt "$req_ram" ]]; then
+        printf " ** Error: mifos-gazelle requires %s GB RAM; found %s GB\n" "$req_ram" "$total_ram"
+        printf "    Please increase available RAM before running mifos-gazelle\n"
         exit 1
     fi
-    if [[ "$free_space" -lt "$MIN_FREE_SPACE" ]] ; then
-        printf " ** Warning: mifos-gazelle currently requires %sGBs free storage in %s home directory  \n" "$MIN_FREE_SPACE" "$k8s_user"
-        printf "    but only found %sGBs free storage \n" "$free_space"
-        printf "    mifos-gazelle installation will continue, but beware it might fail later due to insufficient storage \n"
+    if [[ "$free_space" -lt "${min_free_space:-30}" ]]; then
+        printf " ** Warning: mifos-gazelle requires %s GB free in %s's home directory\n" "${min_free_space:-30}" "$k8s_user"
+        printf "    but only found %s GB free — installation may fail due to insufficient storage\n" "$free_space"
     fi
 }
 
-function set_linux_os_distro {
+set_linux_os_distro() {
     LINUX_VERSION="Unknown"
     if [ -x "/usr/bin/lsb_release" ]; then
-        LINUX_OS=`lsb_release --d | perl -ne 'print if s/^.*Ubuntu.*(\d+).(\d+).*$/Ubuntu/' `
-        LINUX_VERSION=`/usr/bin/lsb_release --d | perl -ne 'print $& if m/(\d+)/' `
+        LINUX_OS=$(lsb_release --d | perl -ne 'print if s/^.*Ubuntu.*(\d+).(\d+).*$/Ubuntu/')
+        LINUX_VERSION=$(/usr/bin/lsb_release --d | perl -ne 'print $& if m/(\d+)/')
     else
         LINUX_OS="Untested"
     fi
     #printf "\r     Linux OS is [%s] " "$LINUX_OS"
 }
 
-function check_os_ok {
+check_os_ok() {
     printf "\r==> checking operating system is tested with mifos-gazelle\n"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        local mac_version
+        mac_version=$(sw_vers -productVersion 2>/dev/null)
+        printf "    macOS %s detected\n" "$mac_version"
+        log_step "Operating system check"
+        log_ok
+        return 0
+    fi
     set_linux_os_distro
     # Only Linux OS supported at this time
     if [[ ! $LINUX_OS == "Ubuntu" ]]; then
@@ -44,23 +81,24 @@ function check_os_ok {
         exit 1
     fi
     echo "    Linux OS is $LINUX_OS and version $LINUX_VERSION"
-    echo "    Supported Ubuntu versions are: ${ubuntu_ok_versions_list[*]}"
+    echo "    Tested Ubuntu versions are: ${ubuntu_ok_versions_list[*]}"
     if [[ ! " ${ubuntu_ok_versions_list[*]} " =~ " ${LINUX_VERSION} " ]]; then
         printf "** Error, Mifos Gazelle is only tested with Ubuntu this time   **\n"
         exit 1
     fi
-    printf "    Operating system and versions checks            [ok]\n"
+    log_step "Operating system check"
+    log_ok
 }
 
-function verify_user {
+verify_user() {
     if [ -z ${k8s_user+x} ]; then
         printf "** Error: The operating system user has not been specified with the -u flag \n"
         printf "          the user specified with the -u flag must exist and not be the root user \n"
         printf "** \n"
         exit 1
     fi
-    if [[ `id -u $k8s_user >/dev/null 2>&1; echo $?` == 0 ]]; then
-        if [[ `id -u $k8s_user` == 0 ]]; then
+    if [[ $(id -u "$k8s_user" >/dev/null 2>&1; echo $?) == 0 ]]; then
+        if [[ $(id -u "$k8s_user") == 0 ]]; then
             printf "** Error: The user specified by -u should be a non-root user ** \n"
             exit 1
         fi
@@ -70,11 +108,11 @@ function verify_user {
         printf "** \n"
         exit 1
     fi
-    k8s_user_home=`eval echo "~$k8s_user"`
+    k8s_user_home=$(eval echo "~$k8s_user")
 }
 
 # check which kubernetes related tools are installed 
-function checkTools {
+check_tools() {
     # Set the default tools to check (helm and kubectl)
     local tools=("helm" "kubectl")
 
@@ -94,7 +132,7 @@ function checkTools {
     return 0 # Return 0 (success) if all tools were found
 }
 
-function is_local_cluster_installed () {
+is_local_cluster_installed()  {
     if [[ -f /usr/local/bin/k3s ]]; then
         #echo "local Kubernetes Cluster (k3s) is installed."
         return 0 # Success
@@ -104,7 +142,7 @@ function is_local_cluster_installed () {
 }
 
 
-function configure_k3s_kernel_params() {
+configure_k3s_kernel_params() {
     echo "Checking current kernel parameters for K3s..."
     
     # Define target values

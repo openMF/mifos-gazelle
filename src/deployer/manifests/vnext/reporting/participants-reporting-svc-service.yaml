@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: participants-reporting-svc
+    mojaloop.layer: reporting 
+  name: participants-reporting-svc
+spec:
+  ports:
+    - name: "5002"
+      port: 5002
+      targetPort: 5002
+  selector:
+    mojaloop.service: participants-reporting-svc
+    mojaloop.layer: reporting 
+status:
+  loadBalancer: {}

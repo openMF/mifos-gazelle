@@ -59,19 +59,11 @@ Examples:
 EOF
 }
 
-# Expand ~ to the actual user's home directory (handles sudo)
+# Expand ~ to the actual user's home directory
 expand_tilde() {
     local path="$1"
     if [[ "$path" == "~"* ]]; then
-        # When running under sudo, use SUDO_USER's home, otherwise use HOME
-        local user_home
-        if [ -n "$SUDO_USER" ]; then
-            user_home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
-        else
-            user_home="$HOME"
-        fi
-        # Replace leading ~ with the home directory
-        path="${user_home}${path:1}"
+        path="${HOME}${path:1}"
     fi
     echo "$path"
 }

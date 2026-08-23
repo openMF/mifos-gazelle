@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+  creationTimestamp: null
+  labels:
+    mojaloop.service: platform-configuration-svc
+    mojaloop.layer: crosscut
+  name: platform-configuration-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      mojaloop.service: platform-configuration-svc
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+      creationTimestamp: null
+      labels:
+        mojaloop.service: platform-configuration-svc
+        mojaloop.layer: crosscut
+    spec:
+      containers:
+        - env:
+            - name: KAFKA_AUDITS_TOPIC
+              value: audits
+            - name: KAFKA_LOGS_TOPIC
+              value: logs
+            - name: KAFKA_URL
+              value: kafka.infra.svc.cluster.local:9092
+            - name: AUTH_Z_SVC_BASEURL
+              value: http://authorization-svc:3202
+            - name: AUTH_N_SVC_BASEURL
+              value: http://authentication-svc:3201
+          image: mojaloop/platform-configuration-bc-configuration-svc:0.5.2
+          livenessProbe:
+            tcpSocket:
+              port: 3100
+            failureThreshold: 10
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+          name: platform-configuration-svc
+          ports:
+            - containerPort: 3100
+          resources: {}
+          volumeMounts:
+            - mountPath: /app/data
+              name: platform-configuration-svc-data
+      restartPolicy: Always
+      volumes:
+        - name: platform-configuration-svc-data
+          persistentVolumeClaim:
+            claimName: platform-configuration-svc-data
+status: {}
