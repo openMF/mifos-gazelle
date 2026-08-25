@@ -35,7 +35,7 @@ sudo ./setup-env.sh -e local -u $USER
 | [Deployment Guide](docs/MIFOS-GAZELLE-README.md) | Install, configure, test end-to-end payments, FAQ |
 | [Bulk Payment Tools](docs/BULK.md) | Submit/verify G2P batch payments, GovStack mode |
 | [GovStack Architecture](docs/GOVSTACK.md) | G2P bulk disbursement design and troubleshooting |
-| [OpenG2P](docs/OPENG2P.md) | Deploy OpenG2P G2P payments (commons, PBMS, social-registry, SPAR, g2p-bridge), the step-by-step bulk disbursement demo, and building OpenG2P images |
+| [OpenG2P](docs/OpenG2P/OPENG2P.md) | Deploy OpenG2P G2P payments (commons, PBMS, social-registry, SPAR, g2p-bridge), the step-by-step bulk disbursement demo, and building OpenG2P images |
 | [OpenSPP](docs/OPENSPP.md) | Deploy OpenSPP2 (Odoo 19) social registry: quick start, configuration, first steps and the agri demo |
 | [Local Development](docs/LOCALDEV.md) | hostPath mounts for iterating on Payment Hub EE code |
 | [vNext Standalone](docs/VNEXT-README.md) | Deploy Mojaloop vNext on its own |
