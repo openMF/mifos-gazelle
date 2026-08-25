@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # openg2p.sh -- Mifos Gazelle deployer script for OpenG2P
-#
-# Each OpenG2P module is its own helm release so subchart-generated object names
-# never collide across modules. Deploy order: CRDs, then commons (the shared
-# Postgres + Keycloak foundation — deployed only when a module that uses it is
-# enabled; skipped for a self-contained PBMS-only run), then each enabled module
-# gated on its own pods being ready.
+# Each module is its own helm release so subchart object names never collide.
+# Order: CRDs, then commons (skipped for a self-contained PBMS-only run), then
+# each enabled module, gated on its own pods being ready.
 
 OPENG2P_HELM_DIR="${BASE_DIR}/src/deployer/helm/openg2p"
 OPENG2P_CRDS_DIR="${BASE_DIR}/src/deployer/manifests/openg2p"
@@ -15,17 +12,10 @@ OPENG2P_MODULES=(social-registry pbms spar g2p-bridge)
 
 #------------------------------------------------------------------------------
 # Function : _openg2p_check_arch
-# Description: Arch gate based on the CLUSTER NODES (where the pods actually run),
-#              NOT on the host running this script — a remote deploy can drive an
-#              amd64 cluster from an arm64 workstation, so `uname -m` here is
-#              misleading. Falls back to the host arch only if kubectl can't reach
-#              the cluster yet.
-#              On amd64 nodes every OpenG2P config works. On arm64 nodes only the
-#              PBMS-only demo is supported — it is fully multi-arch (pbms-core
-#              rebuild, bitnamilegacy postgres/redis, postgres:16-alpine checker,
-#              and commons skipped). social-registry/spar/g2p-bridge still need
-#              commons (Keycloak/keycloak-init/postgres-init), which ship amd64-only
-#              upstream, so those configs are refused on arm64.
+# Description: Arch gate read from the CLUSTER NODES, not the host — a remote
+#              deploy can drive an amd64 cluster from an arm64 workstation. On
+#              arm64 only the PBMS-only demo works; the commons-backed modules
+#              need images that ship amd64-only upstream.
 # Returns: 0 when the enabled config can run on the node arch; 1 otherwise.
 #------------------------------------------------------------------------------
 _openg2p_check_arch() {
@@ -54,7 +44,15 @@ _openg2p_check_arch() {
 deploy_openg2p() {
   log_section "Deploying OpenG2P"
 
-  # OpenG2P images are amd64-only — bail early on ARM rather than fail mid-deploy.
+  # With every module off there is nothing to install, so return before creating
+  # the namespace, TLS secret and CRDs — which otherwise left an empty openg2p
+  # namespace behind and printed a "Deployed" banner listing no modules.
+  if ! _openg2p_any_module_enabled; then
+    log_skipped "No OpenG2P module enabled in config.ini [openg2p] — skipping"
+    return 0
+  fi
+
+  # Bail early on ARM rather than fail mid-deploy.
   _openg2p_check_arch || return 1
 
   if is_app_running "$OPENG2P_NAMESPACE"; then
@@ -75,15 +73,14 @@ deploy_openg2p() {
     "social-registry.$GAZELLE_DOMAIN,pbms.$GAZELLE_DOMAIN,spar.$GAZELLE_DOMAIN,g2p-bridge.$GAZELLE_DOMAIN,keycloak.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN"
   log_ok
 
-  # OpenG2P charts emit Istio/logging/monitoring objects Gazelle has no controllers for.
-  # Install just their CRDs so the objects apply harmlessly; traffic routes via NGINX.
+  # The charts emit Istio/logging/monitoring objects Gazelle has no controllers for.
+  # Installing just the CRDs lets them apply harmlessly; traffic routes via NGINX.
   log_step "Installing OpenG2P prerequisite CRDs (Istio, logging, monitoring)"
   kubectl apply -f "$OPENG2P_CRDS_DIR/istio-networking-crds.yaml" > /dev/null 2>&1
   kubectl apply -f "$OPENG2P_CRDS_DIR/optional-operator-crds.yaml" > /dev/null 2>&1
   log_ok
 
-  # Tear down disabled module releases first: leftover crashing pods from a disabled
-  # module would otherwise block the namespace-wide readiness waits below.
+  # Leftover crashing pods from a disabled module would block the readiness waits.
   local module enabled
   for module in "${OPENG2P_MODULES[@]}"; do
     enabled=$(_openg2p_module_enabled "$module")
@@ -94,13 +91,9 @@ deploy_openg2p() {
     fi
   done
 
-  # Commons (Postgres + Keycloak) is the shared foundation for social-registry,
-  # spar and g2p-bridge — but PBMS is self-contained and consumes none of it.
-  # Deploy commons only when a module actually needs it; for a PBMS-only run skip
-  # it entirely (an empty commons release would just hang the readiness gate for
-  # startup_timeout before failing, since it can't tell "no pods yet" from "no
-  # pods ever"). When it IS needed it stays the hard dependency: an unhealthy
-  # commons is fatal, as the modules can only fail against a broken foundation.
+  # PBMS is self-contained, so a PBMS-only run skips commons entirely — an empty
+  # commons release would hang the readiness gate for startup_timeout, unable to
+  # tell "no pods yet" from "no pods ever". When needed it is a hard dependency.
   if _openg2p_commons_needed; then
     if ! _deploy_openg2p_release "openg2p-commons" "openg2p-commons"; then
       log_error "OpenG2P commons did not become ready — aborting OpenG2P deploy"
@@ -108,8 +101,7 @@ deploy_openg2p() {
     fi
   else
     log_skipped "OpenG2P commons not needed — no shared-DB/SSO module enabled (PBMS is self-contained); skipping"
-    # Tear down a commons left over from a previous full deploy so a PBMS-only run
-    # doesn't keep an unused Postgres/Keycloak (and its custom amd64 images) around.
+    # Drop a commons left over from a previous full deploy.
     if helm status "openg2p-commons" -n "$OPENG2P_NAMESPACE" > /dev/null 2>&1; then
       log_step "Removing unused OpenG2P commons release"
       _clean_openg2p_release "openg2p-commons"
@@ -117,8 +109,7 @@ deploy_openg2p() {
     fi
   fi
 
-  # Deploy each enabled module as its own release, gated per-release on its own pods.
-  # A failed module is recorded and the loop CONTINUES — reported at the end, never sticks.
+  # A failed module is recorded and the loop CONTINUES, reported at the end.
   local failed_modules=()
   for module in "${OPENG2P_MODULES[@]}"; do
     enabled=$(_openg2p_module_enabled "$module")
@@ -126,15 +117,13 @@ deploy_openg2p() {
       log_skipped "OpenG2P module '$module' is disabled — skipping"
       continue
     fi
-    # Create secrets the chart expects a monolithic install to have made (see function).
     _openg2p_preflight_secrets "$module"
 
-    # release name == module name (short, unique prefix → no cross-module collisions)
+    # release name == module name — a short, unique object-name prefix
     if ! _deploy_openg2p_release "openg2p-$module" "$module"; then
       failed_modules+=("$module")
       log_warn "OpenG2P module '$module' is not fully ready — continuing with remaining modules"
     else
-      # Module is up — run any post-deploy fixups it needs (idempotent).
       _openg2p_postdeploy "$module"
     fi
   done
@@ -165,9 +154,7 @@ _openg2p_print_urls() {
     printf "$fmt" "SPAR (API):"       "https://spar.$d/api/mapper"
   [[ "$(_openg2p_module_enabled g2p-bridge)" == "true" ]] && \
     printf "$fmt" "G2P Bridge (API):" "https://g2p-bridge.$d"
-  # Keycloak is the only shared commons UI (MinIO/Kafka-UI/OpenSearch have no
-  # consumer and stay disabled). It exists only when commons was deployed — i.e.
-  # a PBMS-only run has no commons and nothing to link here.
+  # Keycloak is the only shared commons UI, and exists only when commons deployed.
   if _openg2p_commons_needed; then
     printf "$fmt" "Keycloak:"           "https://keycloak.$d"
   fi
@@ -178,10 +165,10 @@ _openg2p_print_urls() {
 # Description: Idempotently deploys one helm release and gates on its pods becoming
 #              ready. Healthy releases are skipped; failed ones are torn down and
 #              reinstalled.
-#   $1 = chart dir name under helm/openg2p/ (e.g. openg2p-commons)
-#   $2 = helm release name                  (e.g. openg2p-commons, pbms)
-# Returns: 0 if deployed and pods ready (or already healthy); 1 if helm failed or
-#          pods did not become ready (caller decides whether that's fatal).
+# Parameters:
+#   $1 - chart dir name under helm/openg2p/ (e.g. openg2p-commons)
+#   $2 - helm release name (e.g. openg2p-commons, pbms)
+# Returns: 0 if deployed and pods ready; 1 if helm failed or pods never readied.
 #------------------------------------------------------------------------------
 _deploy_openg2p_release() {
   local chart_name="$1"
@@ -193,8 +180,8 @@ _deploy_openg2p_release() {
   status=$(helm status "$release_name" -n "$OPENG2P_NAMESPACE" -o json 2>/dev/null \
     | grep -o '"status":"[a-z-]*"' | head -1 | cut -d'"' -f4)
 
-  # A pending-*/failed release blocks the next upgrade. If its pods are actually healthy,
-  # promote the record to "deployed" rather than wiping it (which would re-init Postgres).
+  # A pending-*/failed release blocks the next upgrade. If the pods are healthy,
+  # promote the record rather than wiping it, which would re-init Postgres.
   if [[ "$status" == pending-* || "$status" == "failed" ]]; then
     if _openg2p_release_pods_healthy "$release_name"; then
       log_step "Release '$release_name' is '$status' but pods are healthy — promoting to deployed"
@@ -209,8 +196,7 @@ _deploy_openg2p_release() {
     log_ok
   fi
 
-  # Idempotent skip: re-running helm re-applies every object and re-fires hook jobs (slow).
-  # Skip a healthy deployed release outright; `helm uninstall` forces a real redeploy.
+  # Re-running helm re-applies every object and re-fires hook jobs, which is slow.
   if [[ "$status" == "deployed" ]] && _openg2p_release_pods_healthy "$release_name"; then
     log_skipped "$release_name already deployed and healthy — skipping (helm uninstall to force)"
     return 0
@@ -230,10 +216,9 @@ _deploy_openg2p_release() {
   ensure_helm_dependencies "$chart_work"
   log_ok
 
-  # No `--wait`: on large charts helm's rate-limited readiness poll stalls for minutes and
-  # can mark the release "failed" even when pods came up. We apply and return, then judge
-  # readiness from real pod state via _wait_for_openg2p_release_ready() below. --qps raises
-  # the client limit for the apply itself.
+  # No `--wait`: on large charts helm's rate-limited poll stalls for minutes and can
+  # mark a release "failed" even when the pods came up. Readiness is judged from real
+  # pod state below instead; --qps raises the client limit for the apply itself.
   log_step "Deploying $release_name"
   if ! helm upgrade --install \
     --qps "${OPENG2P_HELM_QPS:-50}" \
@@ -245,33 +230,46 @@ _deploy_openg2p_release() {
   fi
   log_ok
 
-  # Per-release readiness gate: "really deployed" means the pods are actually Ready,
-  # not merely that helm applied the manifests (we deploy without --wait). Returns
-  # non-zero on timeout or terminal pod failure so the caller can record/skip it
-  # instead of the whole deploy sticking on one module.
+  # Non-zero on timeout or terminal failure, so one module never sticks the deploy.
   _wait_for_openg2p_release_ready "$release_name" "${startup_timeout:-1200}"
 }
 
 #------------------------------------------------------------------------------
+# Function : _openg2p_random_secret
+# Description: Generates a throwaway value for the stub secrets. Nothing
+#              authenticates with them, but generating one keeps a guessable
+#              literal out of the repo and the cluster.
+# Outputs: a 32-character hex string on stdout.
+#------------------------------------------------------------------------------
+_openg2p_random_secret() {
+  if command -v openssl > /dev/null 2>&1; then
+    openssl rand -hex 16
+  else
+    # Portable fallback — macOS has no sha256sum and `base64 -w0` is GNU-only.
+    od -An -N16 -tx1 /dev/urandom | tr -d ' \n'
+  fi
+}
+
+#------------------------------------------------------------------------------
 # Function : _openg2p_preflight_secrets
-# Description: Idempotently stubs secrets a module's chart mounts unconditionally but
-#              that Gazelle's split-release layout never creates (upstream assumes one
-#              monolithic install). Without them init containers die with
-#              CreateContainerConfigError. Placeholder passwords — enough to boot; real
-#              cross-module DB access is a follow-up (see g2p-bridge values.yaml).
-#   $1 = module name
+# Description: Idempotently stubs secrets a module's chart mounts but that Gazelle's
+#              split-release layout never creates (upstream assumes one monolithic
+#              install); without them init containers die with
+#              CreateContainerConfigError. Passwords are generated throwaways —
+#              real cross-module DB access is a follow-up.
+# Parameters:
+#   $1 - module name
 #------------------------------------------------------------------------------
 _openg2p_preflight_secrets() {
   local module="$1"
   case "$module" in
     pbms)
-      # PBMS bg-task pods mount the social-registry postgres secret. When SR is disabled
-      # it is never created, so stub it. Guarded: if SR is enabled it deploys first (earlier
-      # in OPENG2P_MODULES) and creates the real secret, so this is skipped.
+      # PBMS bg-task pods mount the social-registry postgres secret, which is never
+      # created when SR is disabled. If SR is enabled it deploys first and wins.
       if ! kubectl get secret social-registry-postgresql -n "$OPENG2P_NAMESPACE" >/dev/null 2>&1; then
         log_step "Pre-creating pbms prerequisite secret 'social-registry-postgresql'"
         kubectl create secret generic social-registry-postgresql -n "$OPENG2P_NAMESPACE" \
-          --from-literal="postgres-password=placeholder" \
+          --from-literal="postgres-password=$(_openg2p_random_secret)" \
           --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
         log_ok
       fi
@@ -284,7 +282,7 @@ _openg2p_preflight_secrets() {
         if ! kubectl get secret "$name" -n "$OPENG2P_NAMESPACE" >/dev/null 2>&1; then
           log_step "Pre-creating g2p-bridge prerequisite secret '$name'"
           kubectl create secret generic "$name" -n "$OPENG2P_NAMESPACE" \
-            --from-literal="$key=placeholder" \
+            --from-literal="$key=$(_openg2p_random_secret)" \
             --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
           log_ok
         fi
@@ -295,20 +293,18 @@ _openg2p_preflight_secrets() {
 
 #------------------------------------------------------------------------------
 # Function : _openg2p_postdeploy
-# Description: Idempotent per-module fixups that must run AFTER the module's pods are
-#              ready (unlike _openg2p_preflight_secrets which runs before). Safe to run
-#              on every deploy/redeploy.
-#   $1 = module name
+# Description: Idempotent per-module fixups that must run AFTER the module's pods
+#              are ready, unlike _openg2p_preflight_secrets which runs before.
+# Parameters:
+#   $1 - module name
 #------------------------------------------------------------------------------
 _openg2p_postdeploy() {
   local module="$1"
   case "$module" in
     pbms)
-      # Required: the pbms-core image does not apply ODOO_PASSWORD to the admin row, so
-      # without this fixup a fresh deploy is locked out of the Odoo UI.
+      # Without this a fresh deploy is locked out of the Odoo UI.
       _openg2p_pbms_fix_admin_login
-      # Wire up the PBMS->PHEE connector (installs the payment addons). Needs pod
-      # network egress. Idempotent — re-running short-circuits already-applied steps.
+      # Wires the PBMS->PHEE connector. Needs pod network egress.
       _openg2p_pbms_setup_phee
       ;;
   esac
@@ -330,15 +326,14 @@ _openg2p_pbms_setup_phee() {
 
 #------------------------------------------------------------------------------
 # Function : _openg2p_pbms_fix_admin_login
-# Description: Resets the PBMS Odoo admin user's login/password (via Odoo's ORM, so the
-#              hash is valid) to match the 'pbms-odoo' secret — the image bootstrap does
-#              not, leaving a fresh install locked out. Idempotent.
-#              Creds: login "admin@openg2p.org", password from:
-#                kubectl get secret pbms-odoo -n openg2p \
-#                  -o jsonpath='{.data.odoo-password}' | base64 -d
+# Description: Resets the PBMS Odoo admin login/password via Odoo's ORM (so the hash
+#              is valid) to match the 'pbms-odoo' secret — the image bootstrap does
+#              not, leaving a fresh install locked out. Login comes from config.ini
+#              [openg2p] OPENG2P_PBMS_ADMIN_EMAIL. Idempotent.
 #------------------------------------------------------------------------------
 _openg2p_pbms_fix_admin_login() {
-  local pod pw db="pbmsdb" email="admin@openg2p.org"
+  local pod pw db="pbmsdb"
+  local email="${OPENG2P_PBMS_ADMIN_EMAIL:-admin@openg2p.org}"
   pod=$(kubectl get pods -n "$OPENG2P_NAMESPACE" --no-headers 2>/dev/null \
     | awk '/^pbms-odoo-/ && $3=="Running"{print $1; exit}')
   [[ -z "$pod" ]] && { log_with_verbose_check "$debug" "$DEBUG" "pbms odoo pod not found — skipping admin fixup"; return 0; }
@@ -347,17 +342,10 @@ _openg2p_pbms_fix_admin_login() {
   [[ -z "$pw" ]] && { log_warn "pbms-odoo secret has no odoo-password — skipping admin fixup"; return 0; }
 
   log_step "Aligning PBMS Odoo admin login/password (login: admin or $email)"
-  # Run inside the odoo pod via its shell so the password is hashed by Odoo itself.
-  # base id 2 = the built-in admin user. Set login=email AND password; commit.
-  #
-  # The login/password/db are passed as POSITIONAL ARGS to the pod's `bash -lc` (the
-  # trailing "$db" "$email" "$pw" become $0/$1/$2 inside), exported to the environment,
-  # and read from os.environ in the Python — they are NOT interpolated into the shell
-  # string or a Python '...' literal. `kubectl exec` has no --env flag, so args+export
-  # is the injection-safe path. The password comes from a k8s secret and can contain
-  # ', $, backticks, or newlines; interpolating it would break the Python literal
-  # (silent lockout) or shell-expand it. The Python heredoc is single-quoted ('PYEOF')
-  # so nothing expands inside it either.
+  # Run via the pod's odoo shell so the password is hashed by Odoo itself; base id 2
+  # is the built-in admin. Values are passed as POSITIONAL ARGS and read from
+  # os.environ, never interpolated — a secret password can contain ', $ or newlines,
+  # which would break the Python literal or shell-expand. kubectl exec has no --env.
   kubectl exec -i -n "$OPENG2P_NAMESPACE" "$pod" -- \
     bash -lc '
       export ODOO_DB="$1" ODOO_LOGIN="$2" ODOO_PW="$3"
@@ -394,16 +382,25 @@ _openg2p_module_enabled() {
 }
 
 #------------------------------------------------------------------------------
+# Function : _openg2p_any_module_enabled
+# Description: True when at least one module in OPENG2P_MODULES is enabled.
+# Returns: 0 if any module is enabled, 1 when they are all off.
+#------------------------------------------------------------------------------
+_openg2p_any_module_enabled() {
+  local m
+  for m in "${OPENG2P_MODULES[@]}"; do
+    [[ "$(_openg2p_module_enabled "$m")" == "true" ]] && return 0
+  done
+  return 1
+}
+
+#------------------------------------------------------------------------------
 # Function : _openg2p_commons_needed
-# Description: The commons release (Postgres + postgres-init + Keycloak) is the
-#   shared DB/SSO foundation for the modules that connect to it: social-registry,
-#   spar and g2p-bridge. PBMS is self-contained — it runs its own odoo Postgres
-#   and bg-task DBs and logs in via local Odoo auth — so a PBMS-only deploy needs
-#   no commons workload at all. Returns 0 (true) when any commons consumer is enabled.
-#
-#   Skipping commons for a PBMS-only run also keeps that path ARM-clean: the only
-#   custom amd64-only OpenG2P images (keycloak -g2p1, keycloak-init, postgres-init)
-#   live in commons, so not deploying it removes them.
+# Description: Commons (Postgres + Keycloak) is the shared DB/SSO foundation for
+#              social-registry, spar and g2p-bridge. PBMS is self-contained and
+#              needs none of it. Skipping it also keeps the PBMS path ARM-clean —
+#              the only amd64-only OpenG2P images live in commons.
+# Returns: 0 when any commons consumer is enabled, 1 otherwise.
 #------------------------------------------------------------------------------
 _openg2p_commons_needed() {
   local m
@@ -417,8 +414,9 @@ _openg2p_commons_needed() {
 # Function : _clean_openg2p_release
 # Description: Uninstalls one helm release and clears any orphaned objects it left
 #              (failed first-revision installs leave objects Helm never recorded).
-#              Deletes synchronously so a following reinstall never races stragglers.
-#   $1 = helm release name (also the object name prefix)
+#              Deletes synchronously so a reinstall never races stragglers.
+# Parameters:
+#   $1 - helm release name (also the object name prefix)
 #------------------------------------------------------------------------------
 _clean_openg2p_release() {
   local release_name="$1"
@@ -453,16 +451,15 @@ _clean_openg2p_release() {
 
 #------------------------------------------------------------------------------
 # Function : _openg2p_release_pods
-# Description: Echoes the pod lines belonging to a release (by "<release>-" name prefix),
-#              dropping leftover Failed pods whose owning Job has already succeeded — a
-#              first-attempt-failed-then-retried Job pod is not a deployment failure but
-#              would otherwise keep the readiness wait from ever settling.
-#   $1 = release name (pod name prefix)
+# Description: Echoes the pod lines belonging to a release, dropping leftover Failed
+#              pods whose owning Job already succeeded — a retried Job pod is not a
+#              deployment failure, but would stop the readiness wait ever settling.
+# Parameters:
+#   $1 - release name (pod name prefix)
 #------------------------------------------------------------------------------
 _openg2p_release_pods() {
   local release_name="$1"
-  # Names of Jobs with ≥1 success (jsonpath, not column-guessing — layout varies by
-  # kubectl version). Their failed retry pods are stale artifacts to drop below.
+  # Jobs with >=1 success; jsonpath not columns, whose layout varies by kubectl.
   local succeeded_jobs
   succeeded_jobs=$(kubectl get jobs -n "$OPENG2P_NAMESPACE" \
     -o jsonpath='{range .items[?(@.status.succeeded>=1)]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
@@ -485,13 +482,12 @@ _openg2p_release_pods() {
 
 #------------------------------------------------------------------------------
 # Function : _openg2p_release_pods_healthy
-# Description: Returns 0 if the release has ≥1 Running+Ready workload pod AND no
-#              not-ready pods (ignoring Completed/Succeeded jobs). Point-in-time check.
-#              The ≥1-Running requirement matters: a release whose only pod is a
-#              completed hook/init Job (workload pods not scheduled yet) must NOT be
-#              called healthy just because "nothing is failing" — there's no serving
-#              pod. Without it, the readiness gate could settle on a job-only release.
-#   $1 = release name (pod name prefix)
+# Description: Point-in-time check: 0 if the release has >=1 Running+Ready workload
+#              pod AND no not-ready pods. The >=1-Running part matters — a release
+#              whose only pod is a completed init Job must not count as healthy just
+#              because nothing is failing.
+# Parameters:
+#   $1 - release name (pod name prefix)
 #------------------------------------------------------------------------------
 _openg2p_release_pods_healthy() {
   local release_name="$1"
@@ -504,8 +500,7 @@ _openg2p_release_pods_healthy() {
     $3!="Running" {print; next}
     {split($2,a,"/"); if (a[1]!=a[2] || a[1]==0) print}')
   [[ -n "$bad" ]] && return 1
-  # Require at least one Running pod with all containers Ready — a set of only
-  # Completed/Succeeded job pods is not a healthy *workload*.
+  # Only Completed/Succeeded job pods is not a healthy *workload*.
   ready=$(echo "$pods" | awk '
     $3=="Running" {split($2,a,"/"); if (a[1]==a[2] && a[1]>0) print}')
   [[ -n "$ready" ]]
@@ -514,15 +509,15 @@ _openg2p_release_pods_healthy() {
 #------------------------------------------------------------------------------
 # Function : _openg2p_release_pods_terminal
 # Description: Echoes pods in a durably-terminal state that will not self-heal:
-#              CreateContainer*/InvalidImageName (wrong Secret/ConfigMap/image) and
-#              chronic CrashLoopBackOff (restarts >= threshold). Transient states
-#              (ImagePullBackOff from pull-QPS, a single early crash) are NOT terminal —
-#              they clear on their own. The caller only acts after a persistence window.
-#   $1 = release name (pod name prefix)
+#              CreateContainer*/InvalidImageName and chronic CrashLoopBackOff.
+#              Transient states (ImagePullBackOff, a single early crash) are not
+#              terminal — the caller only acts after a persistence window.
+# Parameters:
+#   $1 - release name (pod name prefix)
 #------------------------------------------------------------------------------
 _openg2p_release_pods_terminal() {
   local release_name="$1"
-  # restartCount at/above which a CrashLoopBackOff is considered chronic (not first-boot)
+  # restartCount at/above which a CrashLoopBackOff counts as chronic, not first-boot
   local crash_restart_threshold="${OPENG2P_CRASH_RESTART_THRESHOLD:-5}"
   _openg2p_release_pods "$release_name" | awk -v thr="$crash_restart_threshold" '
     $3=="Completed" || $3=="Succeeded" {next}
@@ -541,21 +536,20 @@ _openg2p_release_pods_terminal() {
 
 #------------------------------------------------------------------------------
 # Function : _wait_for_openg2p_release_ready
-# Description: Per-release readiness gate (polls only one release's pods by name prefix,
-#              so one broken module never blocks a healthy one). Returns 0 once the pods
-#              stay Ready for N consecutive polls; 1 on timeout or a durable failure that
-#              persists past the grace window. Caller warns and continues either way.
-#   $1 = release name (pod name prefix)
-#   $2 = timeout seconds (default: startup_timeout, else 600)
-# Env tunables: OPENG2P_TERMINAL_GRACE_SECS (180), OPENG2P_CRASH_RESTART_THRESHOLD (5).
+# Description: Per-release readiness gate, polling one release's pods by name prefix
+#              so one broken module never blocks a healthy one. Env tunables:
+#              OPENG2P_TERMINAL_GRACE_SECS (180), OPENG2P_CRASH_RESTART_THRESHOLD (5).
+# Parameters:
+#   $1 - release name (pod name prefix)
+#   $2 - timeout seconds (default: startup_timeout, else 600)
+# Returns: 0 once pods stay Ready for N polls; 1 on timeout or a durable failure.
 #------------------------------------------------------------------------------
 _wait_for_openg2p_release_ready() {
   local release_name="$1"
   local timeout="${2:-${startup_timeout:-600}}"
   local interval=10
   local required_stable=3      # consecutive all-ready polls before we trust it
-  # How long a durable-terminal condition must persist before we give up. Long on purpose:
-  # a missing Secret is often created seconds later by a sibling init Job.
+  # Long on purpose: a missing Secret is often created seconds later by an init Job.
   local terminal_grace_secs="${OPENG2P_TERMINAL_GRACE_SECS:-180}"
   local terminal_strikes_needed=$(( terminal_grace_secs / interval ))
   (( terminal_strikes_needed < 1 )) && terminal_strikes_needed=1
@@ -572,14 +566,14 @@ _wait_for_openg2p_release_ready() {
       return 1
     fi
 
-    # No pods yet? The release may still be creating them — keep waiting (within timeout).
+    # No pods yet — the release may still be creating them.
     if [[ -z "$(_openg2p_release_pods "$release_name")" ]]; then
       stable=0; terminal_strikes=0
       sleep "$interval"; elapsed=$((elapsed + interval)); continue
     fi
 
-    # Durable failure persisting for terminal_grace_secs → give up on this release. The
-    # strike counter resets the instant the condition clears, so transient backoffs don't trip it.
+    # The strike counter resets as soon as the condition clears, so transient
+    # backoffs never trip it.
     if [[ -n "$(_openg2p_release_pods_terminal "$release_name")" ]]; then
       terminal_strikes=$((terminal_strikes + 1))
       stable=0
@@ -612,15 +606,13 @@ _wait_for_openg2p_release_ready() {
 # Description: Rewrites a stuck pending-install/pending-upgrade helm release record to
 #              "deployed" (helm --wait was interrupted before it returned). Edits the
 #              release secret's embedded status JSON + the status label. No data loss.
-#   $1 = release name
+# Parameters:
+#   $1 - release name
 #------------------------------------------------------------------------------
 _promote_pending_release() {
   local release_name="$1"
-  # Newest release secret for this release (highest revision). Helm names these
-  # `sh.helm.release.v1.<name>.v<N>`; we must sort by the integer <N>, NOT by a
-  # dot-field index — field 5 is the (constant) release name and field 6 is `v<N>`
-  # whose leading `v` makes `sort -n` read it as 0 (so every revision ties). Split on
-  # the literal `.v` separator and sort on the trailing number.
+  # Newest secret, named `sh.helm.release.v1.<name>.v<N>`. Sort on the integer <N>,
+  # not a dot-field index: the leading `v` makes `sort -n` read every revision as 0.
   local secret
   secret=$(kubectl get secret -n "$OPENG2P_NAMESPACE" \
     -l "owner=helm,name=${release_name}" --no-headers 2>/dev/null \
