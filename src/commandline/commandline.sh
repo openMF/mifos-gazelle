@@ -311,7 +311,7 @@ validate_inputs() {
             apps="all"
         fi
         local ALL_VALID_APPS="infra vnext paymenthub mifosx mastercard-demo openg2p openspp setup-data all"
-        local CORE_APPS="infra vnext paymenthub mifosx openg2p"
+        local CORE_APPS="infra vnext paymenthub mifosx"
 
         local current_apps_array
         IFS=' ' read -r -a current_apps_array <<< "$apps"
