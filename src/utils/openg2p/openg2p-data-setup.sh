@@ -1,39 +1,18 @@
 #!/usr/bin/env bash
-#------------------------------------------------------------------------------
-# openg2p-data-setup.sh -- populate the PBMS (OpenG2P) built-in registry as a demo
-# environment: mirror the clients that exist in the deployed MifosX/Fineract into
-# the PBMS registry as individual registrants, and create a demo program with an
-# age-based eligibility filter (so a subset can be filtered out). Enrollment is a
-# manual task and is deliberately NOT performed here.
+# openg2p-data-setup.sh -- populates the PBMS registry as a demo environment by
+# mirroring the deployed MifosX/Fineract clients into it as registrants, then
+# creating a demo program they can be paid through. Driven via
+# `kubectl exec ... odoo shell` on the pbms-odoo pod. Safe to re-run.
 #
-# Runs against the live cluster, driven via `kubectl exec ... odoo shell` on the
-# running pbms-odoo pod — the same proven pattern as setup-pbms-phee.sh. Safe to
-# re-run: registrant creation is idempotent (matched on phone), and the program is
-# only created if absent. Failures log a WARN and continue (non-fatal), so this is
-# safe to call from the post-deploy chain.
-#
-# Why query live MifosX instead of regenerating? The demo clients in a Gazelle
-# cluster are created by generate-mifos-vnext-data.py, which is typically run with
-# non-deterministic MSISDNs/names — so re-running the generator produces DIFFERENT
-# people. To get "the same clients" we read the actual clients out of Fineract.
-#
-# Phone note: the PHEE->Mojaloop payment routes on res.partner.phone (the plain
-# char field), and the vNext oracle registered parties under the RAW MSISDN. So we
-# store the raw MSISDN in res.partner.phone and do NOT populate the E.164-validated
-# g2p.phone.number child (which would reject the synthetic AU-style 04xx numbers
-# and is not needed for routing).
-#
+# Clients are read live from Fineract rather than regenerated
 # Steps:
-#   1  Fetch clients (displayName + mobileNo) from Fineract per tenant.
-#   2  Create each as an individual res.partner registrant in PBMS (raw MSISDN in
-#      phone, deterministic birthdate seeded from the MSISDN for a stable age split).
-#   3  Create the "Demo Program" with an age-based eligibility_domain (no enrollment).
-#   4  Create + wire a PHEE payment manager on the program (so batches can be issued
-#      to Payment Hub EE). Enrollment/triggering the batch remains a manual task.
-#   5  Fund the program (g2p.program.fund) with a starting balance.
-#   6  Register the mirrored clients in the vNext ALS oracle so PHEE->Mojaloop
-#      party lookup resolves them (see sync_vnext_oracle).
-#------------------------------------------------------------------------------
+#   1  Fetch clients (displayName + mobileNo) from Fineract per tenant,
+#      keep the age-eligible ones, cap at MAX_BENEFICIARIES.
+#   2  Create each as an individual res.partner registrant in PBMS.
+#   3  Create the demo program with an age-based eligibility_domain.
+#   4  Create + wire a PHEE payment manager on the program.
+#   5  Fund the program (g2p.program.fund).
+#   6  Register the clients in the vNext ALS oracle so party lookup resolves them.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,107 +23,136 @@ CONFIG_FILE="${RUN_DIR}/config/config.ini"
 source "${RUN_DIR}/src/utils/logger.sh"
 
 ODOO_DB="pbmsdb"
-# Fineract clients we mirror into the registry as beneficiaries.
-# ONLY bluebank: it is the sole tenant onboarded as a Payee FSP / participant in the
-# vNext switch (docs/GOVSTACK.md "Tenant Architecture"). greenbank is the payer and
-# redbank is NOT registered as a vNext participant, so payments to redbank payees fail
-# at party lookup ("No destination participant found for fspId: redbank"). Mirroring
-# only bluebank clients keeps every registrant payable end-to-end.
-# (The greenbank payer client is excluded by its resolved MSISDN — see
-# PHEE_PAYER_TENANT / resolve_payer_msisdn — even if it ever appears here.)
+# ONLY bluebank: it is the sole tenant onboarded as a Payee FSP in the vNext switch
+# (docs/GOVSTACK.md). redbank is not a participant, so payments to its payees fail
+# party lookup; greenbank is the payer. This keeps every registrant payable.
 FINERACT_TENANTS=(bluebank)
-# mifos:password — same basic-auth the data-loading scripts use against Fineract.
-FINERACT_AUTH="Basic bWlmb3M6cGFzc3dvcmQ="
+# Fineract basic-auth from config.ini [mifosx] — the same keys mifosx.sh reads.
+# An exported env var of the same name wins, so run.sh overrides are inherited.
+FINERACT_USERNAME="${FINERACT_USERNAME:-$(crudini --get "$CONFIG_FILE" \
+  mifosx FINERACT_USERNAME 2>/dev/null || echo mifos)}"
+FINERACT_PASSWORD="${FINERACT_PASSWORD:-$(crudini --get "$CONFIG_FILE" \
+  mifosx FINERACT_PASSWORD 2>/dev/null || echo password)}"
+# tr -d, not `base64 -w0`: -w is GNU-only and this repo also runs on macOS.
+FINERACT_AUTH="Basic $(printf '%s:%s' \
+  "$FINERACT_USERNAME" "$FINERACT_PASSWORD" | base64 | tr -d '\n')"
 
-# The payer tenant (a Fineract tenant, NOT an MSISDN). greenbank is the demo payer.
-# Its client's MSISDN is looked up from Fineract at runtime (resolve_payer_msisdn),
-# not hardcoded — the demo dump's MSISDNs are regenerated periodically, so a fixed
-# number goes stale. That resolved MSISDN feeds both EXCLUDE_MSISDNS (below) and the
-# PHEE payment manager's payer_id (step 4).
-PHEE_PAYER_TENANT="greenbank"
+# The payer tenant (a Fineract tenant, NOT an MSISDN). Its client's MSISDN is
+# resolved at runtime rather than pinned, because the demo dump's MSISDNs are
+# regenerated periodically. It feeds EXCLUDE_MSISDNS and the manager's payer_id.
+PHEE_PAYER_TENANT="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PHEE_PAYER_TENANT 2>/dev/null || echo greenbank)"
 
-# Clients to exclude from the registry — payers/registering institutions, not
-# beneficiaries. Identified by MSISDN (digits only; unique and stable, unlike names).
-# Populated at runtime in main() with the resolved PHEE_PAYER_TENANT MSISDN.
+# Payers to exclude from the registry, by MSISDN (stable, unlike names).
+# Populated in main() with the resolved PHEE_PAYER_TENANT MSISDN.
 EXCLUDE_MSISDNS=()
 
-# Demo program config. The eligibility domain selects registrants whose age falls in
-# [ELIG_MIN_AGE, ELIG_MAX_AGE]; registrants outside the band are the "filtered out" set.
-# With the deterministic per-MSISDN ages of the seeded bluebank clients, 18-70 yields
-# 4 eligible (e.g. Gabriel 26, James 26, Caleb 64, Nathan 67) and filters out the
-# minor (Scarlett 14) and the eldest (Sophia 73) — a clean, small demo batch that
-# also keeps the concurrent PHEE->Mojaloop burst low.
-DEMO_PROGRAM_NAME="Demo Program"
+# Demo program config, from config.ini [openg2p]. The eligibility domain selects
+# registrants aged [ELIG_MIN_AGE, ELIG_MAX_AGE]; those outside are the "filtered
+# out" set. The band stays in-script because it is tuned to the deterministic
+# per-MSISDN ages of the seeded bluebank clients: 18-70 leaves 8 of the 12
+# eligible, filtering out two minors and two elders. MAX_BENEFICIARIES below then
+# trims those 8 down to the demo batch size.
+DEMO_PROGRAM_NAME="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_DEMO_PROGRAM_NAME 2>/dev/null || echo "Demo Program")"
 ELIG_MIN_AGE=18
 ELIG_MAX_AGE=70
-# Entitlement per beneficiary per cycle, and the program's funding pool (g2p.program.fund).
-ENTITLEMENT_AMOUNT_PER_CYCLE=50.0
-PROGRAM_FUND_AMOUNT=1000.0
+MAX_BENEFICIARIES=4
+# Validated in main(): both are interpolated below as bare Python numeric literals.
+ENTITLEMENT_AMOUNT_PER_CYCLE="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_ENTITLEMENT_AMOUNT_PER_CYCLE 2>/dev/null || echo 50.0)"
+PROGRAM_FUND_AMOUNT="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PROGRAM_FUND_AMOUNT 2>/dev/null || echo 1000.0)"
 
-# PHEE payment manager config for the demo program. The g2p_payment_phee connector
-# POSTs the batch CSV (multipart) to PAYMENT_ENDPOINT with headers Platform-TenantId
-# + Type:csv; it does NOT do the OAuth dance in this version, so auth/status/details
-# URLs + authorization/grant_type are required-but-unused placeholders.
-# In-cluster service DNS is used (the *.gazelle.test ingress host does not resolve
-# from inside the pbms pod). Payer = the PHEE_PAYER_TENANT (greenbank) client, whose
-# MSISDN (PHEE_PAYER_ID) is resolved from Fineract at runtime — see main().
-PHEE_PAYMENT_ENDPOINT="http://ph-ee-bulk-processor.paymenthub:80/batchtransactions"
+# PHEE payment manager config. The connector POSTs the batch CSV (multipart) with
+# Platform-TenantId + Type:csv headers and does NO OAuth handshake in this version,
+# so the auth/status/details URLs and authorization/grant_type are unused
+# placeholders. The tenant id IS the payer tenant, so it is derived here.
 PHEE_TENANT_ID="$PHEE_PAYER_TENANT"
-PHEE_PAYER_ID_TYPE="msisdn"
-PHEE_PAYER_ID=""            # resolved at runtime from PHEE_PAYER_TENANT (main)
-PHEE_PAYEE_ID_TYPE="phone"
+PHEE_PAYER_ID_TYPE="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PHEE_PAYER_ID_TYPE 2>/dev/null || echo msisdn)"
+PHEE_PAYEE_ID_TYPE="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PHEE_PAYEE_ID_TYPE 2>/dev/null || echo phone)"
+# Empty means "resolve from Fineract in main()"; a value pins it and skips that.
+PHEE_PAYER_ID="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PHEE_PAYER_ID 2>/dev/null)"
+# Connector credentials. Unused by this version, but the Odoo model requires them.
+PHEE_CLIENT_ID="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PHEE_CLIENT_ID 2>/dev/null || echo client)"
+PHEE_CLIENT_SECRET="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PHEE_CLIENT_SECRET 2>/dev/null)"
+PHEE_USERNAME="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PHEE_USERNAME 2>/dev/null || echo mifos)"
+PHEE_PASSWORD="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PHEE_PASSWORD 2>/dev/null || echo password)"
+PHEE_AUTHORIZATION="Basic $(printf '%s:%s' \
+  "$PHEE_CLIENT_ID" "$PHEE_CLIENT_SECRET" | base64 | tr -d '\n')"
 
 OPENG2P_NAMESPACE="$(crudini --get "$CONFIG_FILE" openg2p OPENG2P_NAMESPACE 2>/dev/null || echo openg2p)"
 NS="$OPENG2P_NAMESPACE"
 GAZELLE_DOMAIN="$(crudini --get "$CONFIG_FILE" general GAZELLE_DOMAIN 2>/dev/null || echo mifos.gazelle.test)"
 FINERACT_BASE="https://mifos.${GAZELLE_DOMAIN}/fineract-provider/api/v1"
 
-# Namespaces of the three apps this script depends on being deployed and running
-# alongside OpenG2P (checked upfront by preflight_dependencies):
-#   mifosx     — source of the clients we mirror into the registry (Fineract API)
-#   paymenthub — the PHEE bulk-processor the payment manager POSTs batches to
-#   vnext      — the switch whose ALS oracle we register payees in (step 6)
+# Dependency namespaces, checked upfront by preflight_dependencies.
 MIFOSX_NAMESPACE="$(crudini --get "$CONFIG_FILE" mifosx MIFOSX_NAMESPACE 2>/dev/null || echo mifosx)"
 PH_NAMESPACE="$(crudini --get "$CONFIG_FILE" paymenthub PH_NAMESPACE 2>/dev/null || echo paymenthub)"
 VNEXT_NAMESPACE="$(crudini --get "$CONFIG_FILE" vnext VNEXT_NAMESPACE 2>/dev/null || echo vnext)"
 
+# Endpoint the connector POSTs the batch CSV to. Defined after PH_NAMESPACE
+# because it is DERIVED from it — with the namespace hardcoded, renaming it left
+# this pointing at a dead service while the preflight still passed. In-cluster DNS
+# is used, as the ingress host does not resolve inside the pod.
+# OPENG2P_PHEE_PAYMENT_ENDPOINT overrides the whole URL.
+PHEE_PAYMENT_ENDPOINT="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PHEE_PAYMENT_ENDPOINT 2>/dev/null)"
+if [[ -z "$PHEE_PAYMENT_ENDPOINT" ]]; then
+  PHEE_BULK_SVC="ph-ee-bulk-processor.${PH_NAMESPACE}:80"
+  PHEE_PAYMENT_ENDPOINT="http://${PHEE_BULK_SVC}/batchtransactions"
+fi
+
+# Payment Hub's operations API, which the connector reads the outcome of a sent batch
+# back from (see setup-pbms-phee.sh, step_callback_config). Derived from PH_NAMESPACE
+# for the same reason as the payment endpoint. OPENG2P_PHEE_OPS_ENDPOINT overrides it.
+PHEE_OPS_ENDPOINT="$(crudini --get "$CONFIG_FILE" \
+  openg2p OPENG2P_PHEE_OPS_ENDPOINT 2>/dev/null)"
+if [[ -z "$PHEE_OPS_ENDPOINT" ]]; then
+  PHEE_OPS_ENDPOINT="http://ph-ee-operations-app.${PH_NAMESPACE}:80/api/v1/batch"
+fi
+
+# Base URL Payment Hub posts batch progress back to, as reachable from ITS namespace.
+# Set here as well as in setup-pbms-phee.sh because that script runs during the deploy,
+# before this one has created the payment manager: on a fresh database its config step
+# finds no manager to configure, and a manager created afterwards without this sends no
+# X-CallbackURL at all. Defined after OPENG2P_NAMESPACE, which it is derived from.
+PHEE_CB_BASE_URL="http://pbms-odoo.${OPENG2P_NAMESPACE}.svc.cluster.local"
+
 # --- vNext ALS oracle sync (see sync_vnext_oracle) --------------------------
-# At transfer time the vNext switch resolves "which FSP owns this MSISDN" from the
-# built-in ALS oracle backed by MongoDB (account-lookup.builtinOracleParties), read
-# by account-lookup-svc via its MongoOracleProviderRepo. To populate that store
-# through a supported API (no direct DB writes), we call the FSPIOP participant-
-# registration endpoint on fspiop-api-svc:
-#
-#   POST /participants/MSISDN/<msisdn>   body {"fspId","currency"}   FSPIOP-Source: <fsp>
-#
-# That publishes a ParticipantAssociationRequestReceivedEvt onto Kafka; the
-# account-lookup aggregate validates the FSP is a registered switch participant and
-# then persists the association to Mongo (MongoOracleProviderRepo.associateParticipant).
-# The endpoint returns 202 and is idempotent (a re-POST of an existing party is a
-# no-op, no duplicate). NOTE the FSP MUST be a registered, active participant in the
-# switch — bluebank is (see participants BC); redbank is NOT, so it would be rejected.
-# We only mirror bluebank clients (FINERACT_TENANTS), so every record's fspId=bluebank.
-#
-# fspiop-api-svc is a ClusterIP with no working external ingress for this path, so we
-# POST from inside the cluster via a short-lived curl pod (kubectl run), matching how
-# the rest of this script reaches in-cluster services. (VNEXT_NAMESPACE is defined
-# with the other dependency namespaces near the top.)
+# The switch resolves "which FSP owns this MSISDN" from a MongoDB-backed oracle.
+# We populate it through the supported FSPIOP API rather than writing to the DB:
+# POST /participants/MSISDN/<msisdn> publishes a Kafka association event that
+# account-lookup-svc persists. Idempotent, returns 202. The FSP must be a
+# registered switch participant, which is why only bluebank clients are mirrored.
+# fspiop-api-svc is a ClusterIP with no external ingress for this path, so the POST
+# goes from inside the cluster via a short-lived curl pod.
 FSPIOP_API_SVC="fspiop-api-svc.${VNEXT_NAMESPACE}:4000"
-# The Fineract tenant each mirrored client belongs to IS its vNext fspId. We only
-# mirror bluebank clients, so this is the fspId used for every oracle record.
+# The Fineract tenant a mirrored client belongs to IS its vNext fspId.
 VNEXT_PAYEE_FSPID="bluebank"
-# Mongo (read-only) coordinates — used ONLY to verify each association actually
-# persisted after the async event is processed (a POST 202 alone doesn't prove it).
+# Mongo (read-only), used ONLY to verify an association really persisted — a 202
+# alone does not prove it. Credentials are read at runtime from the infra chart by
+# resolve_mongo_credentials(), never copied here where they could drift.
 MONGO_NAMESPACE="$(crudini --get "$CONFIG_FILE" infra INFRA_NAMESPACE 2>/dev/null || echo infra)"
 MONGO_POD="mongodb-0"
 MONGO_CONTAINER="mongodb"
-MONGO_USER="root"
-MONGO_PASS="mongoDbPas42"
 MONGO_DB="account-lookup"
 MONGO_COLLECTION="builtinOracleParties"
+# The chart that declares the MongoDB credentials. deployer.sh installs it with
+# no values file and no --set overrides, so this file is the definitive source.
+INFRA_VALUES_FILE="${RUN_DIR}/src/deployer/helm/infra/values.yaml"
+# Read in main() — see resolve_mongo_credentials(). Empty means "cannot verify".
+MONGO_USER=""
+MONGO_PASS=""
 
-# Verbose flag for log_with_verbose_check. Callers run us in a fresh subshell and do
-# not export `debug`; under `set -u` an unbound "$debug" would abort. Default it.
+# Callers run us in a subshell without exporting `debug` — default it for set -u.
 debug="${debug:-false}"
 
 #------------------------------------------------------------------------------
@@ -160,7 +168,6 @@ _find_pbms_pod() {
 #------------------------------------------------------------------------------
 # Function : _odoo_shell
 # Description: Pipes a python heredoc (on stdin) into `odoo shell` in the pod.
-#              Mirrors setup-pbms-phee.sh's _odoo_shell.
 # Parameters:
 #   $1 - pod name
 #   $2 - sentinel string the heredoc must print for success
@@ -168,9 +175,8 @@ _find_pbms_pod() {
 #------------------------------------------------------------------------------
 _odoo_shell() {
   local pod="$1" sentinel="$2"
-  # Use `grep` (not `grep -q`): -q exits on first match, which SIGPIPEs the
-  # upstream kubectl exec and — under `set -o pipefail` — would surface as a
-  # false failure. Plain grep drains all output, so $? reflects match/no-match.
+  # Plain grep, not grep -q: -q exits on first match, SIGPIPEing the upstream
+  # kubectl exec, which under `set -o pipefail` reads as a false failure.
   kubectl exec -i -n "$NS" "$pod" -- \
     bash -lc "odoo shell -c /etc/odoo/odoo.conf -d '$ODOO_DB' --no-http 2>/dev/null" \
     | grep "$sentinel" >/dev/null
@@ -178,10 +184,9 @@ _odoo_shell() {
 
 #------------------------------------------------------------------------------
 # Function : _app_running
-# Description: Lightweight liveness check for a dependency app — true when its
-#              namespace exists and has at least one fully-Ready pod (all
-#              containers ready, e.g. 1/1). Kept self-contained (rather than
-#              sourcing the deployer's core.sh) since this is a standalone util.
+# Description: Liveness check for a dependency app — true when its namespace has
+#              at least one fully-Ready pod. Self-contained rather than sourcing
+#              core.sh, since this is a standalone util.
 # Parameters:
 #   $1 - namespace to check
 # Returns: 0 if the namespace has >=1 Ready pod, 1 otherwise.
@@ -196,15 +201,72 @@ _app_running() {
 }
 
 #------------------------------------------------------------------------------
+# Function : _require_number
+# Description: Aborts unless a config value is a plain non-negative number. The
+#              amounts are interpolated into the Python payloads as bare numeric
+#              literals, so a typo would otherwise surface as a SyntaxError inside
+#              `odoo shell`, after registrants had already been created.
+# Parameters:
+#   $1 - config key name, for the message
+#   $2 - value to check
+# Returns: nothing; exits 1 when the value is not numeric.
+#------------------------------------------------------------------------------
+_require_number() {
+  local name="$1" value="$2"
+  if [[ ! "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    log_error "config.ini [openg2p] $name must be a number, got '$value'"
+    exit 1
+  fi
+}
+
+#------------------------------------------------------------------------------
+# Function : _infra_mongo_setting
+# Description: Reads one key out of the mongodb.settings block of the infra
+#              chart's values.yaml. awk rather than a YAML library, because only
+#              the python3 stdlib is a declared dependency here.
+# Globals: reads INFRA_VALUES_FILE.
+# Parameters:
+#   $1 - key name inside mongodb.settings (e.g. rootPassword)
+# Outputs: the value on stdout, empty when the key or the file is absent.
+#------------------------------------------------------------------------------
+_infra_mongo_setting() {
+  [[ -f "$INFRA_VALUES_FILE" ]] || return 0
+  awk -v key="$1" '
+    /^mongodb:/                                  { in_mongo = 1; next }
+    in_mongo && /^[^ \t#]/                       { exit }
+    in_mongo && /^  settings:/                   { in_settings = 1; next }
+    in_mongo && in_settings && /^  [^ \t]/       { in_settings = 0 }
+    in_settings && $1 == key":" {
+      sub(/^[^:]*:[ \t]*/, "")   # drop "key:" and the following whitespace
+      sub(/[ \t]+$/, "")         # drop trailing whitespace
+      gsub(/^"|"$/, "")          # drop surrounding double quotes, if any
+      print
+      exit
+    }
+  ' "$INFRA_VALUES_FILE"
+}
+
+#------------------------------------------------------------------------------
+# Function : resolve_mongo_credentials
+# Description: Reads the MongoDB root credentials for the read-only oracle check.
+#              They come from the infra chart's values.yaml, the one place they
+#              are declared: deployer.sh installs that chart with no values file
+#              and no --set overrides, so the file is what the cluster runs.
+# Globals: sets MONGO_USER and MONGO_PASS; reads INFRA_VALUES_FILE.
+# Returns: 0 when both are found, 1 otherwise (verification then degrades to a
+#          warning — the registration POSTs still happen either way).
+#------------------------------------------------------------------------------
+resolve_mongo_credentials() {
+  MONGO_USER="$(_infra_mongo_setting rootUsername)"
+  MONGO_PASS="$(_infra_mongo_setting rootPassword)"
+  [[ -n "$MONGO_USER" && -n "$MONGO_PASS" ]]
+}
+
+#------------------------------------------------------------------------------
 # Function : preflight_dependencies
-# Description: Verifies the three apps this script reads from / writes to are
-#              deployed and running alongside OpenG2P before any work is done:
-#                mifosx     — the clients we mirror into the registry come from
-#                             Fineract; without it there is nothing to load
-#                paymenthub — the PHEE bulk-processor the payment manager targets
-#                vnext      — the switch whose ALS oracle we register payees in
-#              Fails fast with a clear, actionable message naming the missing
-#              app(s), instead of silently doing partial work.
+# Description: Verifies mifosx (source of the clients), paymenthub (the batch
+#              target) and vnext (the oracle) are running before any work is done,
+#              naming the missing app rather than doing partial work.
 # Returns: 0 if all three are running, 1 otherwise (caller should abort).
 #------------------------------------------------------------------------------
 preflight_dependencies() {
@@ -227,19 +289,34 @@ preflight_dependencies() {
 #------------------------------------------------------------------------------
 # Function : fetch_fineract_clients
 # Description: Step 1 — fetches clients from Fineract for each tenant in
-#              FINERACT_TENANTS.
-# Returns: one TSV line per client with a mobile number on stdout:
+#              FINERACT_TENANTS, keeps only those whose deterministic age falls in
+#              [ELIG_MIN_AGE, ELIG_MAX_AGE], and caps the result at
+#              MAX_BENEFICIARIES. Filtering before the cap matters: taking the
+#              first N clients outright would include ones the program's
+#              eligibility_domain later drops, yielding fewer paid beneficiaries.
+# Returns: at most MAX_BENEFICIARIES TSV lines on stdout:
 #          <tenant>\t<mobileNo>\t<displayName>
 #------------------------------------------------------------------------------
 fetch_fineract_clients() {
   local tenant
-  for tenant in "${FINERACT_TENANTS[@]}"; do
-    curl -s -k -H "Fineract-Platform-TenantId: ${tenant}" \
-         -H "Authorization: ${FINERACT_AUTH}" \
-         "${FINERACT_BASE}/clients?limit=1000" 2>/dev/null \
-      | TENANT="$tenant" python3 -c '
-import sys, os, json
+  {
+    for tenant in "${FINERACT_TENANTS[@]}"; do
+      curl -s -k -H "Fineract-Platform-TenantId: ${tenant}" \
+           -H "Authorization: ${FINERACT_AUTH}" \
+           "${FINERACT_BASE}/clients?limit=1000" 2>/dev/null \
+        | TENANT="$tenant" MIN_AGE="$ELIG_MIN_AGE" MAX_AGE="$ELIG_MAX_AGE" python3 -c '
+import sys, os, json, hashlib
 tenant = os.environ["TENANT"]
+min_age = int(os.environ["MIN_AGE"])
+max_age = int(os.environ["MAX_AGE"])
+
+def age_for(msisdn):
+    # MUST stay identical to birthdate_for() in create_registrants — same seed, same
+    # 10..80 range. Applied here so the cap below counts only clients the program
+    # eligibility_domain will actually accept, rather than ones it filters out.
+    seed = int(hashlib.sha256(msisdn.encode()).hexdigest(), 16)
+    return 10 + (seed % 71)
+
 try:
     data = json.load(sys.stdin)
 except Exception:
@@ -248,20 +325,22 @@ for c in data.get("pageItems", []):
     mobile = (c.get("mobileNo") or "").strip()
     name = (c.get("displayName") or "").strip()
     if mobile and name:
+        msisdn = "".join(ch for ch in mobile if ch.isdigit())
+        if not msisdn or not (min_age <= age_for(msisdn) <= max_age):
+            continue
         # strip any stray whitespace/newlines from name; TSV-safe
         name = " ".join(name.split())
         print("%s\t%s\t%s" % (tenant, mobile, name))
 '
-  done
+    done
+  } | awk -v max="$MAX_BENEFICIARIES" 'max <= 0 || NR <= max'
 }
 
 #------------------------------------------------------------------------------
 # Function : resolve_payer_msisdn
 # Description: Looks up the payer tenant's client MSISDN from Fineract, so the demo
-#              payer number is never hardcoded (the demo dump's MSISDNs are
-#              regenerated periodically — a fixed value goes stale). Returns the
-#              first client with a mobile number in PHEE_PAYER_TENANT (the demo
-#              seeds exactly one payer client there), digits only.
+#              payer number is never pinned. Returns the first client with a mobile
+#              number in PHEE_PAYER_TENANT, which seeds exactly one payer client.
 # Returns: the payer MSISDN (digits) on stdout, or empty if none found.
 #------------------------------------------------------------------------------
 resolve_payer_msisdn() {
@@ -293,11 +372,8 @@ for c in data.get("pageItems", []):
 create_registrants() {
   local pod="$1" clients_tsv="$2"
   log_step "Creating PBMS registrants from Fineract clients"
-  # The unquoted heredoc lets bash expand $clients_tsv (a python-literal string of
-  # the TSV) into the script before it is piped into odoo shell.
-  # Build a python set literal of excluded MSISDNs (digits only) for the heredoc.
-  # Guard the empty case: printf on an empty array would emit a bogus '"",' entry,
-  # putting an empty string in the python set — harmless but sloppy. Emit nothing.
+  # The unquoted heredoc lets bash expand $clients_tsv into the python payload.
+  # Guard the empty case: printf on an empty array emits a bogus '"",' entry.
   local exclude_py=""
   if [[ "${#EXCLUDE_MSISDNS[@]}" -gt 0 ]]; then
     exclude_py="$(printf '"%s",' "${EXCLUDE_MSISDNS[@]}")"
@@ -317,8 +393,7 @@ def digits(s):
     return "".join(ch for ch in s if ch.isdigit())
 
 def birthdate_for(msisdn):
-    # Deterministic age in [10, 80] seeded from the MSISDN, so the eligible/ineligible
-    # split is stable across re-runs and the same client always gets the same age.
+    # Deterministic age seeded from the MSISDN, so the split is stable across runs.
     seed = int(hashlib.sha256(msisdn.encode()).hexdigest(), 16)
     age = 10 + (seed % 71)  # 10..80 inclusive
     d = today - datetime.timedelta(days=age * 365 + (seed % 365))
@@ -372,12 +447,9 @@ PYEOF
 #------------------------------------------------------------------------------
 # Function : create_demo_program
 # Description: Step 3 — creates the demo program via OpenG2P's own create-program
-#              wizard, which sets up all the default managers in one transaction
-#              (eligibility with our age domain, cycle, entitlement, program, and
-#              a default payment manager) — the same path the "Create Program" UI
-#              button runs. Idempotent (created only if absent). Then enrolls the
-#              age-eligible subset as beneficiaries so the demo is payable without
-#              a manual enrollment click; out-of-band registrants stay filtered out.
+#              wizard, so every default manager is wired the way the UI does it,
+#              then enrolls the age-eligible subset as beneficiaries. Out-of-band
+#              registrants stay filtered out. Idempotent.
 # Parameters:
 #   $1 - pod name (running pbms-odoo pod)
 #------------------------------------------------------------------------------
@@ -400,8 +472,7 @@ Program = env["g2p.program"].sudo()
 prog = Program.search([("name", "=", name)], limit=1)
 if prog:
     print("PROGRAM_EXISTS", prog.id)
-    # Keep the entitlement amount in sync on re-run (e.g. after tuning the config
-    # above) rather than only applying it at first creation.
+    # Keep the entitlement in sync on re-run, not just at first creation.
     if prog.entitlement_managers:
         ent_mgr = prog.entitlement_managers[0].manager_ref_id
         if "amount_per_cycle" in ent_mgr._fields and ent_mgr.amount_per_cycle != ${ENTITLEMENT_AMOUNT_PER_CYCLE}:
@@ -409,9 +480,7 @@ if prog:
             env.cr.commit()
             print("ENTITLEMENT_AMOUNT_SYNCED", ${ENTITLEMENT_AMOUNT_PER_CYCLE})
 else:
-    # Use the create-program wizard so eligibility/cycle/entitlement/program/payment
-    # managers are all created and wired the way the UI does it. amount_per_cycle is
-    # the per-beneficiary entitlement; currency is USD (matches the demo savings ccy).
+    # currency is USD, matching the demo savings currency.
     currency = env.ref("base.USD")
     wiz = env["g2p.program.create.wizard"].sudo().create({
         "name": name,
@@ -429,11 +498,8 @@ else:
     prog = Program.search([("name", "=", name)], limit=1)
     print("PROGRAM_CREATED", prog.id)
 
-# The create-program wizard leaves the cycle manager's approver_group_id UNSET, so
-# approving a cycle raises "The cycle approver group is not specified!" — blocking the
-# cycle and therefore payments. Set it to the OpenG2P admin group (confirmed on the
-# live instance: res.groups "Administrator", XML id g2p_registry_base.group_g2p_admin).
-# Idempotent: only set when unset.
+# The wizard leaves approver_group_id UNSET, so approving a cycle raises "The cycle
+# approver group is not specified!" and blocks payments. Set it to the admin group.
 from odoo.addons.g2p_programs.models import constants as _g2p_const
 cyc_mgr = prog.get_manager(_g2p_const.MANAGER_CYCLE)
 if cyc_mgr and not cyc_mgr.approver_group_id:
@@ -452,11 +518,8 @@ for f in ["eligibility_managers", "cycle_managers", "entitlement_managers",
           "program_managers", "payment_managers"]:
     print("MANAGER %-24s count=%d" % (f, len(prog[f])))
 
-# Enroll ONLY the registrants inside the eligibility band as beneficiaries. This is
-# what makes the demo end-to-end payable: the age domain filters the registry set,
-# and the in-band subset become enrolled beneficiaries (the out-of-band ones — the
-# minor and the eldest — are visibly "filtered out"). Idempotent: memberships are
-# created only if absent, and enroll_eligible_registrants() only promotes in-band ones.
+# Enroll ONLY the in-band registrants, which is what makes the demo payable; the
+# out-of-band ones stay visibly filtered out. Idempotent.
 Partner = env["res.partner"].sudo()
 Mem = env["g2p.program_membership"].sudo()
 eligible = Partner.search([
@@ -489,14 +552,8 @@ PYEOF
 #------------------------------------------------------------------------------
 # Function : create_payment_manager
 # Description: Step 4 — creates a PHEE payment manager on the demo program and
-#              wires it in. Idempotent (created only if the program has no PHEE
-#              manager yet). The g2p_payment_phee connector only actually uses
-#              payment_endpoint_url (multipart CSV POST); the other required
-#              endpoints/auth fields are set to placeholders. batch_type_header=csv
-#              and payee_id_type=phone match what setup-pbms-phee.sh configures and
-#              the registrant phones. create_batch=True is required for "Send
-#              Payments" to do anything at all — see the comment at the create()
-#              call below.
+#              wires it in. The connector only uses payment_endpoint_url; the other
+#              required endpoint/auth fields are placeholders. Idempotent.
 # Parameters:
 #   $1 - pod name (running pbms-odoo pod)
 #------------------------------------------------------------------------------
@@ -504,6 +561,7 @@ create_payment_manager() {
   local pod="$1"
   log_step "Creating PHEE payment manager on '${DEMO_PROGRAM_NAME}' (payer ${PHEE_TENANT_ID})"
   _odoo_shell "$pod" PAYMENT_MGR_OK <<PYEOF
+import uuid
 prog = env["g2p.program"].sudo().search([("name", "=", "${DEMO_PROGRAM_NAME}")], limit=1)
 if not prog:
     print("NO_PROGRAM")
@@ -529,42 +587,56 @@ else:
             "name": "PHEE",
             "program_id": prog.id,
             "payment_endpoint_url": "${PHEE_PAYMENT_ENDPOINT}",
-            # required-but-unused-in-this-connector placeholders (no OAuth call is made):
+            # Read back by the reconciliation added in setup-pbms-phee.sh, so these are
+            # real endpoints and not placeholders any more: pointing them at the upload
+            # URL is what makes a batch stay unreconciled.
+            "status_endpoint_url": "${PHEE_OPS_ENDPOINT}",
+            "details_endpoint_url": "${PHEE_OPS_ENDPOINT}",
+            # required-but-unused-in-this-connector placeholder (no OAuth call is made):
             "auth_endpoint_url": "${PHEE_PAYMENT_ENDPOINT}",
-            "status_endpoint_url": "${PHEE_PAYMENT_ENDPOINT}",
-            "details_endpoint_url": "${PHEE_PAYMENT_ENDPOINT}",
-            "authorization": "Basic Y2xpZW50Og==",
+            "authorization": "${PHEE_AUTHORIZATION}",
             "grant_type": "password",
             "tenant_id": "${PHEE_TENANT_ID}",
-            "username": "mifos",
-            "password": "password",
-            # MOJALOOP (not "bank"): greenbank is configured as a Mojaloop payer
-            # (docs/GOVSTACK.md "Understanding Payment Modes and Tenants" — greenbank
-            # routes payment-transfer via PayerFundTransfer-{dfspid} through the vNext
-            # switch). "bank" isn't a recognized routing mode and every payment came
-            # back "Failed / 404 Payment mode not configured" — verified against a
-            # live batch.
+            "username": "${PHEE_USERNAME}",
+            "password": "${PHEE_PASSWORD}",
+            # MOJALOOP, not "bank": the payer routes through the vNext switch
+            # (docs/GOVSTACK.md). "bank" is not a recognized mode and returns
+            # "Failed / 404 Payment mode not configured" on every payment.
             "payment_mode": "MOJALOOP",
             "payer_id_type": "${PHEE_PAYER_ID_TYPE}",
             "payer_id": "${PHEE_PAYER_ID}",
             "payee_id_type": "${PHEE_PAYEE_ID_TYPE}",
-            # payee_id_type_to_send left unset (False): _get_dfsp_id_and_type() only
-            # falls back to its "PHONE" default for payee_id_type=phone when this is
-            # falsy. The model's OWN field default is "ACCOUNT_ID", which — if left
-            # in place — silently overrides the phone default and sends the wrong
-            # identifier type to Mojaloop even though payee_id_type=phone. Verified:
-            # leaving this set produced payee_identifier_type=ACCOUNT_ID with no
-            # matching account, clearing it produced the correct PHONE type.
+            # Left unset: _get_dfsp_id_and_type() only falls back to its PHONE
+            # default when this is falsy. The model's own default of ACCOUNT_ID
+            # otherwise silently overrides payee_id_type=phone and sends the wrong
+            # identifier type to Mojaloop.
             "payee_id_type_to_send": False,
             "batch_type_header": "csv",
-            # Without this, prepare_payment() creates g2p.payment records but never
-            # wraps them in a g2p.payment.batch, so cycle.payment_batch_ids stays
-            # empty and "Send Payments" silently loops over zero batches (no error,
-            # no HTTP call, no visible effect). Verified against a live cycle.
+            # Without this, prepare_payment() creates g2p.payment records but no
+            # g2p.payment.batch, so "Send Payments" silently loops over zero
+            # batches — no error, no HTTP call, no visible effect.
             "create_batch": True,
         })
         env.cr.commit()
         print("PHEE_MGR_CREATED", phee.id)
+    # Callback wiring, for a manager just created and for one an earlier run left
+    # unconfigured. The fields themselves are added by setup-pbms-phee.sh, hence the
+    # guard: without this the manager sends no X-CallbackURL and every batch waits on
+    # the reconcile scheduled action instead of being told when it progressed.
+    if "callback_base_url" in phee._fields:
+        cb = {}
+        if not phee.callback_base_url:
+            cb["callback_base_url"] = "${PHEE_CB_BASE_URL}"
+        if not phee.callback_token:
+            # Committed up front rather than generated on first send, which would write
+            # it inside the transaction that posts the batch.
+            cb["callback_token"] = uuid.uuid4().hex
+        if not phee.callback_enabled:
+            cb["callback_enabled"] = True
+        if cb:
+            phee.write(cb)
+            env.cr.commit()
+            print("PHEE_MGR_CALLBACK_SET", phee.id)
     ref = "g2p.program.payment.manager.phee,%d" % phee.id
     w = Wire.search([("program_id", "=", prog.id), ("manager_ref_id", "=", ref)], limit=1)
     if not w:
@@ -573,11 +645,9 @@ else:
         print("WIRE_CREATED", w.id)
     else:
         print("WIRE_EXISTS", w.id)
-    # The program's payment_managers is a Many2many constrained to exactly ONE entry,
-    # and it is what get_manager(MANAGER_PAYMENT) reads when issuing a batch. The wizard
-    # put a *default* payment manager there; REPLACE it with the PHEE wire so batches
-    # actually go to Payment Hub EE. Creating the wire above is not enough on its own —
-    # the M2M link must be set explicitly.
+    # payment_managers is an M2M constrained to ONE entry and is what
+    # get_manager(MANAGER_PAYMENT) reads. REPLACE the wizard's default with the PHEE
+    # wire — creating the wire above is not enough, the M2M must be set explicitly.
     prog.write({"payment_managers": [(6, 0, [w.id])]})
     env.cr.commit()
     prog.invalidate_recordset()
@@ -589,14 +659,10 @@ PYEOF
 
 #------------------------------------------------------------------------------
 # Function : create_program_fund
-# Description: Step 5 — funds the demo program (g2p.program.fund) so it has a
-#              funding pool to pay entitlements from. Idempotent: skips if a
-#              POSTED fund already exists for this program (cancelled/draft funds
-#              don't count — a posted fund can't be deleted per
-#              fund_management.py's _unlink_fund, so cancelling is the only way
-#              to retire one). The exact amount can be tuned by editing
-#              PROGRAM_FUND_AMOUNT and re-running after cancelling the old fund
-#              in the UI — this step does not resize existing funds.
+# Description: Step 5 — funds the demo program so it has a pool to pay
+#              entitlements from. Idempotent: skips if a POSTED fund exists.
+#              Does not resize existing funds — a posted fund cannot be deleted,
+#              only cancelled in the UI.
 # Parameters:
 #   $1 - pod name (running pbms-odoo pod)
 #------------------------------------------------------------------------------
@@ -631,11 +697,9 @@ PYEOF
 
 #------------------------------------------------------------------------------
 # Function : _fspiop_register_party
-# Description: POSTs one FSPIOP participant association from inside the cluster,
-#              via a short-lived curl pod, to register an MSISDN->fspId mapping
-#              in the vNext ALS oracle (used by sync_vnext_oracle). The delete of
-#              the one-shot pod is best-effort and synchronous so no orphaned
-#              pods are left behind if the caller exits early.
+# Description: POSTs one FSPIOP participant association from inside the cluster
+#              via a short-lived curl pod, registering an MSISDN->fspId mapping in
+#              the vNext ALS oracle. The one-shot pod delete is best-effort.
 # Parameters:
 #   $1 - msisdn (digits only)
 #   $2 - fspId to associate the msisdn with
@@ -663,9 +727,8 @@ _fspiop_register_party() {
 
 #------------------------------------------------------------------------------
 # Function : _oracle_has_party
-# Description: Read-only check that an MSISDN->fspId association actually
-#              persisted in the Mongo builtin oracle (verification only — all
-#              writes go through the FSPIOP API in _fspiop_register_party).
+# Description: Read-only check that an MSISDN->fspId association persisted in the
+#              Mongo oracle. All writes go through _fspiop_register_party.
 # Parameters:
 #   $1 - msisdn (digits only)
 #   $2 - fspId the association is expected to have
@@ -681,17 +744,10 @@ _oracle_has_party() {
 
 #------------------------------------------------------------------------------
 # Function : sync_vnext_oracle
-# Description: Step 6 — registers every mirrored client in the vNext ALS oracle
-#              so it resolves at transfer-time party lookup. Uses the supported
-#              FSPIOP participant-registration API on fspiop-api-svc (POST
-#              /participants/MSISDN/<msisdn>), which publishes a Kafka
-#              association event that account-lookup-svc persists into the
-#              Mongo builtin oracle (account-lookup.builtinOracleParties) — the
-#              store the switch actually reads. No direct DB writes. The POST is
-#              idempotent (re-POST of an existing party is a no-op). fspId = the
-#              client's Fineract tenant (bluebank). Payer MSISDNs are excluded
-#              (never payees). Non-fatal — a hiccup only means some payees won't
-#              route, it never aborts the PBMS setup.
+# Description: Step 6 — registers every mirrored client in the vNext ALS oracle so
+#              it resolves at transfer-time party lookup, via the FSPIOP
+#              participants API (see the block comment near the top). Payer MSISDNs
+#              are excluded. Non-fatal: a hiccup only means some payees won't route.
 # Parameters:
 #   $1 - client TSV from fetch_fineract_clients
 #------------------------------------------------------------------------------
@@ -709,9 +765,9 @@ sync_vnext_oracle() {
   local exclude_re
   exclude_re="$(IFS='|'; echo "${EXCLUDE_MSISDNS[*]}")"
 
-  local registered=0 verified=0 failed=0
-  # Read the TSV on FD 3, not stdin: the kubectl exec -i / kubectl calls in the loop
-  # body would otherwise consume the loop's stdin and truncate it to one iteration.
+  local registered=0 verified=0 failed=0 unverified=0
+  # TSV on FD 3, not stdin: the kubectl calls in the body would consume the loop's
+  # stdin and truncate it to one iteration.
   while IFS=$'\t' read -r -u 3 tenant mobile _name; do
     [[ -z "${mobile:-}" ]] && continue
     local msisdn fspid
@@ -728,8 +784,15 @@ sync_vnext_oracle() {
     registered=$((registered+1))
     log_with_verbose_check "$debug" "$DEBUG" "FSPIOP register ${msisdn} -> ${fspid} (HTTP ${code})"
 
-    # The association is processed asynchronously off Kafka — poll Mongo (read-only)
-    # until it shows up, so we report real persistence rather than just the 202.
+    # Without Mongo credentials the read-only check cannot run. The POST above
+    # still happened, so count it unverified rather than report a false failure.
+    if [[ -z "$MONGO_PASS" ]]; then
+      unverified=$((unverified+1))
+      continue
+    fi
+
+    # Processed asynchronously off Kafka, so poll until it shows up rather than
+    # reporting success on the 202 alone.
     local present=0 i
     for i in 1 2 3 4 5 6; do
       if [[ "$(_oracle_has_party "$msisdn" "$fspid")" != "0" ]]; then present=1; break; fi
@@ -746,6 +809,9 @@ sync_vnext_oracle() {
 
   if [[ "$registered" -eq 0 ]]; then
     log_warn "no MSISDNs to register in the oracle — skipping"
+  elif [[ "$unverified" -gt 0 ]]; then
+    log_warn "registered ${unverified}/${registered} payee(s) but could not" \
+      "verify them — see the MongoDB credential warning above"
   elif [[ "$failed" -eq 0 ]]; then
     log_ok
     log_with_verbose_check "$debug" "$DEBUG" \
@@ -766,9 +832,21 @@ main() {
   command -v curl    >/dev/null 2>&1 || { log_error "curl not found on PATH"; exit 1; }
   command -v python3 >/dev/null 2>&1 || { log_error "python3 not found on PATH"; exit 1; }
 
-  # Dependencies must be running alongside OpenG2P — abort early with a clear
-  # message if mifosx / paymenthub / vnext isn't up (see preflight_dependencies).
+  # Fail fast on a bad amount before any registrant exists (_require_number).
+  _require_number OPENG2P_ENTITLEMENT_AMOUNT_PER_CYCLE \
+    "$ENTITLEMENT_AMOUNT_PER_CYCLE"
+  _require_number OPENG2P_PROGRAM_FUND_AMOUNT "$PROGRAM_FUND_AMOUNT"
+
+  # Abort early with a clear message if mifosx / paymenthub / vnext isn't up.
   preflight_dependencies || exit 1
+
+  # Read-only MongoDB credentials for the oracle verification in step 6.
+  # Non-fatal: without them the FSPIOP registrations still happen, unconfirmed.
+  if ! resolve_mongo_credentials; then
+    log_warn "no mongodb.settings.rootUsername/rootPassword in" \
+      "$INFRA_VALUES_FILE"
+    log_warn "  vNext oracle associations will be registered but not verified."
+  fi
 
   local pod
   pod="$(_find_pbms_pod)"
@@ -779,17 +857,25 @@ main() {
   log_with_level "$INFO" "Using pod: $pod"
   log_with_level "$INFO" "Reading clients from Fineract at ${FINERACT_BASE}"
 
-  # Resolve the demo payer MSISDN from Fineract (never hardcoded — see
-  # resolve_payer_msisdn / PHEE_PAYER_TENANT). It drives BOTH the registry exclude
-  # list (the payer is not a beneficiary) and the PHEE payment manager's payer_id.
-  log_step "Resolving payer MSISDN from Fineract tenant '${PHEE_PAYER_TENANT}'"
-  PHEE_PAYER_ID="$(resolve_payer_msisdn)"
-  if [[ -z "$PHEE_PAYER_ID" ]]; then
-    log_warn "no client with a mobile number found in tenant '${PHEE_PAYER_TENANT}' — payer will not be excluded/wired (is MifosX seeded?)"
-  else
+  # Resolve the payer MSISDN unless config.ini pinned one. It drives both the
+  # registry exclude list and the payment manager's payer_id.
+  if [[ -n "$PHEE_PAYER_ID" ]]; then
+    log_with_level "$INFO" \
+      "Payer MSISDN pinned by config.ini [openg2p]: ${PHEE_PAYER_ID}"
     EXCLUDE_MSISDNS=("$PHEE_PAYER_ID")
-    log_ok
-    log_with_level "$INFO" "Payer: ${PHEE_PAYER_TENANT} MSISDN ${PHEE_PAYER_ID}"
+  else
+    log_step "Resolving payer MSISDN from tenant '${PHEE_PAYER_TENANT}'"
+    PHEE_PAYER_ID="$(resolve_payer_msisdn)"
+    if [[ -z "$PHEE_PAYER_ID" ]]; then
+      log_warn "no client with a mobile number found in tenant" \
+        "'${PHEE_PAYER_TENANT}' — payer will not be excluded/wired" \
+        "(is MifosX seeded?)"
+    else
+      EXCLUDE_MSISDNS=("$PHEE_PAYER_ID")
+      log_ok
+      log_with_level "$INFO" \
+        "Payer: ${PHEE_PAYER_TENANT} MSISDN ${PHEE_PAYER_ID}"
+    fi
   fi
 
   # Step 1 — fetch clients from Fineract.

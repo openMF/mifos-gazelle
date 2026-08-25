@@ -7,7 +7,8 @@ Deploy OpenG2P and run the government-payments demo.
 3. [Deployment](#3-deployment)
 4. [The demo](#4-the-demo)
 5. [Building OpenG2P images](#5-building-openg2p-images)
-6. [Troubleshooting](#6-troubleshooting)
+6. [Payment manager PHEE patches](#6-payment-manager-phee-patches)
+7. [Troubleshooting](#7-troubleshooting)
 
 
 ---
@@ -100,7 +101,7 @@ Leave the other three off unless you need them — enabling any of them pulls in
 
 ```bash
 ./run.sh -m deploy -a openg2p          # OpenG2P on its own
-./run.sh -m deploy -a all              # everything, including OpenG2P (MifosX , Vnext and PaymentHub EE)
+./run.sh -m deploy                     # everything, including OpenG2P (MifosX , Vnext and PaymentHub EE, make sure they are enabled in config.ini)
 ./run.sh -m deploy -a openg2p -d true  # with debug output
 
 ./run.sh -m cleanapps -a openg2p       # remove
@@ -131,20 +132,15 @@ These hosts use self-signed certificates — your browser warns on first visit, 
 
 The stock PBMS image ships with **no OpenG2P addons installed**. After PBMS starts, Gazelle runs
 `src/utils/openg2p/setup-pbms-phee.sh` automatically to download the `openg2p-registry` and
-`openg2p-program` addons and install the two modules PBMS needs. A failure only warns; re-run by
-hand with:
+`openg2p-program` addons, install the four modules PBMS needs, and patch the payment connector so it
+works against Payment Hub EE and reports back what happened. A failure only warns; re-run by hand
+with:
 
 ```bash
 ./src/utils/openg2p/setup-pbms-phee.sh
 ```
 
-The script also applies three idempotent fixes, because the upstream addon does not work as-is:
-
-| Fix | Why |
-|---|---|
-| Stub `payment_sepa_direct_debit` record | The install references an Enterprise-only Odoo module that doesn't exist in Community edition and crashes. An Odoo core packaging issue, not an OpenG2P bug. |
-| Cast `amount_issued` to integer | PBMS writes the CSV amount as a float; PHEE's `parseInt` throws and silently zeroes the batch total. |
-| Set `batch_type_header=csv`, `payee_id_type=phone` | Upstream's default makes PHEE return HTTP 500. |
+Everything it changes is catalogued in [Payment manager PHEE patches](#6-payment-manager-phee-patches).
 
 ---
 
@@ -223,8 +219,11 @@ payment through the Mojaloop switch to the beneficiary's bank.
 
 ![Send payments](openg2p-demo-images/step8-send-payment.png)
 
-> "Sent" means PBMS handed the batch over — not that money arrived. PBMS never polls for the
-> result. Step 10 is the real check.
+> "Sent" means PBMS handed the batch over, not that money arrived. Payment Hub then posts progress
+> back and PBMS reads the outcome of each payment from its operations API, so the cycle's **Payments**
+> list fills in as *Paid* or *Failed* and the batch ticks **Batch Has Completed** once every payment
+> has an outcome. See [Payment manager PHEE patches](#6-payment-manager-phee-patches) for how that works and what to
+> check when a batch stays incomplete. Step 10 remains the independent check, against the bank itself.
 
 ### 9. (Optional) Watch the transfers
 
@@ -487,7 +486,69 @@ docker buildx imagetools inspect openmf/openg2p-pbms-core:3.0.0-gazelle-2.0.0
 ```
 
 
-## 6. Troubleshooting
+## 6. Payment manager PHEE patches
+
+Upstream `g2p_payment_phee` does not work against Payment Hub as shipped, and it stops at "batch
+handed over". `src/utils/openg2p/setup-pbms-phee.sh` patches the addon in place inside the running
+pod, on the volume the addon tree was fetched onto, so upstream is never forked. Every patch is
+idempotent and warns rather than fails.
+
+**Making the install work.** `g2p_programs` references an Enterprise-only Odoo module that does not
+exist in Community, so a stub `payment_sepa_direct_debit` record is created first or the install
+crashes. The four modules PBMS needs are then installed, `g2p_theme` last so the payment path
+installs before the theme.
+
+**Making the upload acceptable.** `batch_type_header` is set to `csv` and `payee_id_type` to `phone`
+on the payment manager, because upstream's defaults make Payment Hub return HTTP 500. The CSV-row
+amount is also cast with `int()` — see the caveats, that one no longer earns its place.
+
+**Asking for progress.** Two one-line edits to `send_payments`, and the only changes to upstream
+logic: one merges an `X-CallbackURL` header into the upload, the other records Payment Hub's own
+batch id out of the 202 response and arms the reconcile action.
+
+**Reporting the outcome.** A reconciliation block is appended to `models/payment_manager.py` behind a
+marker comment, alongside a new `controllers/` package holding the callback route and a
+`data/ir_cron.xml` scheduled action. Without these, payments stay in state `sent` and the beneficiary
+reads as *Not Paid* however the transfers actually went.
+
+**How reconciliation decides.** The callback carries only an aggregate percentage, so it is a trigger
+rather than the truth. Each transfer is read from `/api/v1/batch/detail` and matched to a payment by
+the CSV `request_id` echoed back as `clientCorrelationId`, then marked paid or failed; anything not
+final is left alone. The batch completes once every payment has an outcome.
+
+**Why not the percentage.** It does not reliably reach 100 — Payment Hub stops chasing a batch once it
+passes `completionThreshold` or exhausts `maxStatusRetry` — and it can contradict the per-transfer
+data. One real batch reported a transfer still ongoing while the detail endpoint showed all four
+complete.
+
+**The fallback.** `Payment Hub EE: Reconcile Sent Payments` sweeps started-but-incomplete batches
+every 10 minutes. It ships inactive and is armed on the first send, and it exists because Payment Hub
+retries a dropped callback three times and then never redelivers.
+
+**Endpoints.** `OPENG2P_PHEE_PAYMENT_ENDPOINT` and `OPENG2P_PHEE_OPS_ENDPOINT` in `config.ini` point
+at `ph-ee-bulk-processor` and `ph-ee-operations-app` over in-cluster DNS, because reaching the ingress
+from inside the cluster would need the self-signed certificate trusted.
+
+**Staying idempotent.** Each patch greps for its own result before applying. The reconciliation block
+is cut from its marker to end-of-file and re-appended every run so that edits actually land, with the
+file restored if the result does not parse; new files are compared before being replaced, and a real
+change forces an Odoo restart, since controllers are imported at process start.
+
+**Caveats.** The `int()` cast is measurably unnecessary on `openmf/ph-ee-bulk-processor:dev-latest` —
+a decimal amount parses and totals identically to an integer one — and it truncates where Payment Hub
+rounds, so `int(round(...))` would be the safer form. This Odoo's `ir.cron` still carries
+`numbercall`, which counts down and disables the record at zero, so it is pinned to `-1` and repaired
+explicitly. And the payment manager is created by `openg2p-data-setup.sh` *after* this script runs, so
+the callback defaults are set in both places.
+
+> If a batch stays incomplete, check **Payment Hub Batch ID** on it. That is Payment Hub's own id, read
+> from the upload response, and what the operations API is queried with; the External Batch Reference is
+> the PBMS correlation id and is not interchangeable. A batch sent before this existed has none, and the
+> reconcile action recovers it by matching the uploaded filename in `/api/v1/batches`.
+
+---
+
+## 7. Troubleshooting
 
 ### Demo
 
