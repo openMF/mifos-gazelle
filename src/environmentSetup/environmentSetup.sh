@@ -155,7 +155,8 @@ add_hosts() {
             zeebeops.$DOMAIN zeebe-operate.$DOMAIN zeebe-gateway.$DOMAIN \
             notifications.$DOMAIN )
 
-        local MIFOSXHOSTS=( mifos.$DOMAIN workflow.$DOMAIN credit-bureau.$DOMAIN )
+        local MIFOSXHOSTS=( mifos.$DOMAIN workflow.$DOMAIN credit-bureau.$DOMAIN \
+            loan-module.$DOMAIN message-gateway.$DOMAIN )
         local OPENSPPHOSTS=( openspp.$DOMAIN )
         local OPENG2PHOSTS=( openg2p.$DOMAIN social-registry.$DOMAIN \
             pbms.$DOMAIN spar.$DOMAIN g2p-bridge.$DOMAIN \
