@@ -4,7 +4,7 @@
 
 [MifosX](https://mifos.org/) is the core banking Digital Public Good deployed by Mifos Gazelle alongside Payment Hub EE, Mojaloop vNext, OpenSPP and OpenG2P. It provides client and account management, savings, loans, accounting and reporting, and is the system of record that Payment Hub EE debits and credits when a payment settles.
 
-Gazelle deploys MifosX as its own app (`-a mifosx`) into the `mifosx` namespace, tracking the MifosX **25.12.25** release line — Apache Fineract 1.14.0, the Angular web app, and PostgreSQL 16.6. Beyond the core platform, Gazelle integrates three of MifosX's extension modules: Pentaho reporting, the Flowable workflow engine, and credit bureau integration.
+Gazelle deploys MifosX as its own app (`-a mifosx`) into the `mifosx` namespace, tracking the MifosX **25.12.25** release line — Apache Fineract 1.14.0, the Angular web app, and PostgreSQL 16.6. Beyond the core platform, Gazelle integrates five of MifosX's extension modules: Pentaho reporting, the Flowable workflow engine, credit bureau integration, SMS and messaging, and loan assessment.
 
 This document describes each component Gazelle deploys, how to use it, and where the deeper upstream documentation lives.
 
@@ -22,8 +22,8 @@ This document describes each component Gazelle deploys, how to use it, and where
   - [Reports Module (Pentaho)](#reports-module-pentaho)
   - [Workflow Engine (Flowable)](#workflow-engine-flowable)
   - [Credit Bureau Integration](#credit-bureau-integration)
-  - [SMS & Messaging Module — planned](#sms--messaging-module--planned)
-  - [Loan Assessment Module — planned](#loan-assessment-module--planned)
+  - [SMS & Messaging Module](#sms--messaging-module)
+  - [Loan Assessment Module](#loan-assessment-module)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
 - [Building the Module Images](#building-the-module-images)
@@ -41,7 +41,7 @@ MifosX is deployed from **vendored Kubernetes manifests**, which live under `src
 
 At deploy time, `deploy_mifosx_from_yaml()` in `src/deployer/mifosx.sh` recreates the namespace, copies the manifest directory into a scratch working directory (`/tmp/gazelle-deploy/mifosx`), substitutes the real domain into the web app's deployment and each ingress (`apply_domain_to_file`), restores the Fineract demo-data dump, and applies the whole directory with `apply_kube_manifests`. It then blocks in `wait_for_fineract_api_ready()` until every tenant listed in `FINERACT_TENANTS` answers on the Fineract API before reporting success.
 
-Because the entire directory is applied, **adding a module is mostly a matter of adding its manifests**. That is how the reporting, workflow and credit bureau modules were integrated, and it is why per-module setup logic (downloading a plugin, creating a database, waiting on a dependency) is expressed as initContainers in the manifests rather than as shell steps in the deployer. The one thing a new manifest cannot pick up on its own is domain substitution: that is applied per file, so a module adding an ingress also needs a line in `mifosx.sh`. See [Adding a New MifosX Module](#adding-a-new-mifosx-module).
+Because the entire directory is applied, **adding a module is mostly a matter of adding its manifests**. That is how all five extension modules were integrated, and it is why per-module setup logic (downloading a plugin, creating a database, waiting on a dependency) is expressed as initContainers in the manifests rather than as shell steps in the deployer. The one thing a new manifest cannot pick up on its own is domain substitution: that is applied per file, so a module adding an ingress also needs a line in `mifosx.sh`. See [Adding a New MifosX Module](#adding-a-new-mifosx-module).
 
 Image tags are pinned in the manifests; see [Version Pins](#version-pins).
 
@@ -67,11 +67,11 @@ The same architecture annotated to show which components Mifos Gazelle actually 
   Extension Modules
   ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
   │ Credit Bureau        │  │ SMS & Messaging      │  │ Templates            │
-  │ Integration    [LIVE]│  │ Module         [PLAN]│  │ Module         [ -- ]│
+  │ Integration    [LIVE]│  │ Module         [LIVE]│  │ Module         [ -- ]│
   └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
   ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
   │ Workflow Engine      │  │ Reports Module *     │  │ Loan Assessment      │
-  │                [LIVE]│  │                [LIVE]│  │ Module         [PLAN]│
+  │                [LIVE]│  │                [LIVE]│  │ Module         [LIVE]│
   └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
 
   Secure Interface Modules  Mobile Apps
@@ -87,21 +87,20 @@ The same architecture annotated to show which components Mifos Gazelle actually 
   └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
 
   Backend Solutions Used
-  ┌──────────────────────┐  ┌──────────────────────┐
-  │ Apache Fineract[LIVE]│  │ PostgreSQL     [LIVE]│
-  └──────────────────────┘  └──────────────────────┘
+  ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
+  │ Apache Fineract[LIVE]│  │ PostgreSQL     [LIVE]│  │ Apache Kafka   [LIVE]│
+  └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
 ```
 
 | Tag | Meaning |
 |---|---|
 | `[LIVE]` | Integrated — deployed by `./run.sh -m deploy -a mifosx` |
-| `[PLAN]` | Planned — researched, not yet deployed |
 | `[CORE]` | Available through the deployed Fineract, not separately configured or demoed by Gazelle |
 | `[ -- ]` | Not in Gazelle's current MifosX scope |
 
 \* The reporting plugin is deployed and its reports are registered, but running one fails until a fixed plugin release ships upstream — see [Reports Module](#reports-module-pentaho).
 
-MySQL and Kafka are not used by the MifosX Gazelle deployment.
+All five of the MifosX extension modules Gazelle set out to integrate are now deployed. MySQL is not used by the MifosX deployment; Kafka is, but only by the Loan Assessment module, which consumes Fineract's external events from it.
 
 Components deployed into the `mifosx` namespace:
 
@@ -112,6 +111,8 @@ Components deployed into the `mifosx` namespace:
 | Reports | *inside* `fineract-server` | plugin staged by initContainer | Pentaho formatted reporting |
 | Workflow Engine | `mifos-workflow` pod + ingress | `kanishksingh23/mifos-workflow:07082026` | Flowable BPMN process orchestration |
 | Credit Bureau | `credit-bureau` pod + ingress | `kanishksingh23/mifos-credit-bureau:21082026` | Credit bureau integration |
+| SMS & Messaging | `message-gateway` pod + ingress | `openmf/message-gateway:dev-51abedb` | SMS and email delivery |
+| Loan Assessment | `loan-module` pod + ingress | `kanishksingh23/mifos-x-reactive-loan-module:09082026` | Reactive loan risk assessment |
 
 PostgreSQL is shared with the rest of Gazelle and lives in the `infra` namespace, not in `mifosx`.
 
@@ -136,6 +137,8 @@ curl -k -u mifos:password \
   -H 'Fineract-Platform-TenantId: greenbank' \
   https://mifos.<GAZELLE_DOMAIN>/fineract-provider/api/v1/offices
 ```
+
+Two initContainers extend the stock Fineract image at startup, each on behalf of another component: `fetch-reporting-plugin` stages the Pentaho plugin (see [Reports Module](#reports-module-pentaho)), and `enable-loan-events` switches on the external events the Loan Assessment module consumes (see [Loan Assessment Module](#loan-assessment-module)). Both live in `fineract-server-deployment.yaml`.
 
 Upstream documentation: <https://docs.mifos.org/core-banking-and-embedded-finance/core-banking> · API reference: <https://fineract.apache.org/docs/current/>
 
@@ -252,13 +255,51 @@ For an end-to-end demo — register a bureau, fetch a demo client, and pull a mo
 
 Two things worth knowing. Health probes hit `GET /credit-bureaus` rather than `/actuator/health`, because Jersey is mapped at `/*` and shadows the actuator endpoints — `/actuator/*` returns 404. That endpoint needs no auth (only `/api/**` is authenticated) and touches the database, so it is a genuine readiness signal. And `MIFOS_SECURITY_ENCRYPTION_KEY` has no default: the application will not start without it.
 
-### SMS & Messaging Module — planned
+### SMS & Messaging Module
 
-[openMF/message-gateway](https://github.com/openMF/message-gateway) provides SMS and email delivery to MifosX through a REST push interface on port 9191. It is not yet in Gazelle because it is MySQL-only while Gazelle's MifosX stack is PostgreSQL-only. Adopting it needs the same database-agnostic treatment applied to the Workflow Engine.
+Delivers SMS and email on behalf of MifosX through a REST push interface, with pluggable provider bridges. Source: [openMF/message-gateway](https://github.com/openMF/message-gateway).
 
-### Loan Assessment Module — planned
+| | |
+|---|---|
+| URL | `http://message-gateway.<GAZELLE_DOMAIN>` |
+| Ports | `9191` (REST API) · `5009` (delivery-status callbacks) |
+| Health | `GET /actuator/health` |
+| Database | `messagegateway` on the shared PostgreSQL |
 
-[openMF/reactive-loan-module](https://github.com/openMF/reactive-loan-module) is a reactive (WebFlux + R2DBC) loan assessment service that consumes Fineract events over Kafka. It is PostgreSQL-native, so the database is not a blocker, but it is still depends on outstanding Fineract changes and on Fineract's external-events Kafka support being enabled.
+An `ensure-messagegateway-db` initContainer creates the database if it does not exist. The image is an upstream `openmf` build, so unlike the workflow engine and credit bureau this module needs no local build.
+
+**Using it.** Check the service is up:
+
+```bash
+curl http://message-gateway.<GAZELLE_DOMAIN>/actuator/health
+```
+
+No SMS or email provider credentials are configured in Gazelle, so the gateway accepts and records requests but cannot deliver to a real handset. Configuring a live provider is a deployment-time decision, not something Gazelle presumes.
+
+### Loan Assessment Module
+
+A reactive loan risk assessment service. It consumes Fineract's external events from Kafka, scores loan applications, and writes results to its own database. Built on Spring WebFlux with R2DBC rather than blocking JDBC. Source: [openMF/reactive-loan-module](https://github.com/openMF/reactive-loan-module).
+
+This module is the only one that needs Fineract itself reconfigured. Fineract publishes external events to Kafka (`FINERACT_EXTERNAL_EVENTS_ENABLED`, `FINERACT_EXTERNAL_EVENTS_KAFKA_ENABLED`), and an `enable-loan-events` initContainer on `fineract-server` switches on the six event types this module listens for — `LoanCreatedBusinessEvent`, `LoanApplicationModifiedBusinessEvent`, `LoanRejectedBusinessEvent`, `LoanWithdrawnByApplicantBusinessEvent`, `DocumentCreatedBusinessEvent` and `DocumentDeletedBusinessEvent` — **on the `default` tenant only**. Adding an event type or another tenant means editing that initContainer, not the loan module.
+
+| | |
+|---|---|
+| URL | `http://loan-module.<GAZELLE_DOMAIN>` |
+| Port | `8080` |
+| Health | `GET /actuator/health` |
+| Database | `loanrisk` on the shared PostgreSQL (R2DBC at runtime, JDBC for Liquibase migrations) |
+| Kafka | `kafka.infra.svc.cluster.local:9092` |
+| Fineract tenant | `default` |
+
+An `ensure-loanrisk-db` initContainer creates the database, and Liquibase applies the schema at startup.
+
+**Using it.**
+
+```bash
+curl http://loan-module.<GAZELLE_DOMAIN>/actuator/health
+```
+
+This is the one MifosX module that is event-driven rather than request-driven: it reacts to Fineract loan events published to Kafka, so exercising it means creating loan activity in Fineract rather than calling the module directly. It is also the only MifosX component that uses Kafka — every other module talks to Fineract over REST.
 
 ---
 
@@ -297,7 +338,7 @@ The deploy recreates the namespace, restores the demo-data dump, applies the man
 
 Open `https://mifos.<GAZELLE_DOMAIN>` — by default `https://mifos.mifos.gazelle.test` — and log in as `mifos` / `password`. Select tenant `greenbank`, `bluebank` or `default`.
 
-The workflow engine and credit bureau modules have their own ingresses — browse or `curl` them at `http://workflow.<GAZELLE_DOMAIN>` and `http://credit-bureau.<GAZELLE_DOMAIN>`, as shown in their sections above.
+Each extension module has its own ingress — browse or `curl` them at `http://workflow.<GAZELLE_DOMAIN>`, `http://credit-bureau.<GAZELLE_DOMAIN>`, `http://message-gateway.<GAZELLE_DOMAIN>` and `http://loan-module.<GAZELLE_DOMAIN>`, as shown in their sections above.
 
 ### /etc/hosts entries
 
@@ -305,20 +346,22 @@ The workflow engine and credit bureau modules have their own ingresses — brows
 
 ```
 # Linux/macOS
-<VM-IP> fineract.mifos.gazelle.test mifos.mifos.gazelle.test workflow.mifos.gazelle.test credit-bureau.mifos.gazelle.test
+<VM-IP> fineract.mifos.gazelle.test mifos.mifos.gazelle.test workflow.mifos.gazelle.test credit-bureau.mifos.gazelle.test loan-module.mifos.gazelle.test message-gateway.mifos.gazelle.test
 
 # Windows (one per line)
 <VM-IP> mifos.mifos.gazelle.test
 <VM-IP> fineract.mifos.gazelle.test
 <VM-IP> workflow.mifos.gazelle.test
 <VM-IP> credit-bureau.mifos.gazelle.test
+<VM-IP> loan-module.mifos.gazelle.test
+<VM-IP> message-gateway.mifos.gazelle.test
 ```
 
 ---
 
 ## Building the Module Images
 
-Most MifosX components run published images. The **Workflow Engine** and the **Credit Bureau** do not: neither project publishes a container image, so Gazelle's pins are built from source. The PostgreSQL support both modules need is merged upstream ([mifos-workflow#73](https://github.com/openMF/mifos-workflow/pull/73), [mifos-x-credit-bureau-plugin#141](https://github.com/openMF/mifos-x-credit-bureau-plugin/pull/141)), so a clone of the upstream repository builds a working image with no local patching.
+Most MifosX components run published images. Three do not — the **Workflow Engine**, the **Credit Bureau** and **Loan Assessment** — because none of those projects publishes a container image, so Gazelle's pins are built from source. The PostgreSQL support the workflow engine and credit bureau need is merged upstream ([mifos-workflow#73](https://github.com/openMF/mifos-workflow/pull/73), [mifos-x-credit-bureau-plugin#141](https://github.com/openMF/mifos-x-credit-bureau-plugin/pull/141)), so a clone of the upstream repository builds a working image with no local patching.
 
 `./run.sh -m deploy -a mifosx` checks that every image referenced by the manifests can be found in a registry and warns, naming any it cannot. The check is advisory and never blocks the deploy — a rate-limited or private registry is indistinguishable from a missing image — but it tells you to build before the pods fail to pull.
 
@@ -337,6 +380,13 @@ git clone https://github.com/openMF/mifos-x-credit-bureau-plugin.git
 src/utils/build-and-import-image.sh \
     -n <namespace>/mifos-credit-bureau -t <tag> \
     -c mifos-x-credit-bureau-plugin -f mifos-x-credit-bureau-plugin/Dockerfile \
+    --platform linux/amd64,linux/arm64 --push
+
+# Loan Assessment — multi-architecture, pushed to the registry
+git clone https://github.com/openMF/reactive-loan-module.git
+src/utils/build-and-import-image.sh \
+    -n <namespace>/mifos-x-reactive-loan-module -t <tag> \
+    -c reactive-loan-module -f reactive-loan-module/Dockerfile \
     --platform linux/amd64,linux/arm64 --push
 ```
 
@@ -383,8 +433,9 @@ All image tags are pinned — no `:latest`. The current pins live in the manifes
 ## Known Limitations
 
 - **Pentaho per-tenant routing needs a fixed plugin release.** The published plugin resolves its datasource in a way that can return another tenant's data. The fix is a two-line change, merged upstream into `openMF/mifos-reporting-plugin` ([PR #513](https://github.com/openMF/mifos-reporting-plugin/pull/513), `pentaho` branch), but **no fixed release has been published yet** and Gazelle installs the published artifact. Until a fixed release ships, treat multi-tenant report output as unreliable. Closing this needs either a new plugin release or a temporary class swap in the initContainer.
-- **Financial reports render empty on the seeded tenants.** Reports run, but totals come out zero because the seeded tenants have no posted general-ledger entries — Gazelle's demo data is payment-oriented (clients and savings accounts for transfers) rather than loan- and GL-heavy. This is a demo-data gap, not a reporting fault, and is a to-do for the data loading to remedy before release.
-- **The Workflow Engine and Credit Bureau images are temporary.** Neither project publishes a container image, so both are built from source and currently pushed to a personal DockerHub namespace. Both pins should move to `openMF` images once those are published — see [Building the Module Images](#building-the-module-images) for the build and publish commands.
+- **The Workflow Engine, Credit Bureau and Loan Assessment images are temporary.** None of those projects publishes a container image, so all three are built from source and currently pushed to a personal DockerHub namespace. All three pins should move to `openMF` images once those are published — see [Building the Module Images](#building-the-module-images) for the build and publish commands.
+- **The Loan Assessment module only sees the `default` tenant.** The `enable-loan-events` initContainer enables external events on that tenant alone, so loan activity on `greenbank`, `bluebank` or `redbank` produces no events for it to consume. Widening it means editing that initContainer in `fineract-server-deployment.yaml`, not the module.
+- **No SMS or email provider is configured.** The message gateway accepts and records requests, but with no provider credentials it cannot deliver to a real handset or mailbox. Wiring a live provider is a deployment-time decision.
 - **`redbank` is not selectable in the web app.** It is seeded and waited on at deploy time, but absent from the web app's tenant list, so it is reachable through the API only.
 
 ---
@@ -406,7 +457,7 @@ kubectl -n mifosx logs <fineract-pod> -c fetch-reporting-plugin
 kubectl -n mifosx exec <fineract-pod> -- ls /app/plugins | wc -l   # expect 71 jars
 ```
 
-**A Pentaho report renders but every total is zero** — expected on the seeded tenants, which have no posted GL entries. Not a fault.
+**A Pentaho report renders but every total is zero** — the tenant has no posted general-ledger entries. The seeded demo data creates a savings product with CASH accounting so deposits and withdrawals post to the GL, but a tenant restored from an older dump, or one whose accounts have no transactions, will still report zeros.
 
 **A report rejects its date parameter** — dates must be formatted `dd MMMM yyyy`, e.g. `01 January 2026`.
 
@@ -420,6 +471,12 @@ curl -X POST http://workflow.<GAZELLE_DOMAIN>/api/v1/auth/authenticate \
 **A workflow endpoint reports it is not authenticated** — run the authenticate call above first, then check `GET /api/v1/auth/status` returns `{"authenticated":true}`.
 
 **`/actuator/health` on the Credit Bureau returns 404** — expected, Jersey shadows `/actuator/*`. Use `GET /credit-bureaus` instead.
+
+**The Loan Assessment module logs nothing when a loan is created** — check the loan was created on the `default` tenant, and that the event type is one of the six enabled. Confirm Fineract emitted it:
+```bash
+kubectl -n mifosx logs deploy/fineract-server -c enable-loan-events
+kubectl -n mifosx logs deploy/loan-module | tail -30
+```
 
 **Fineract never becomes ready and the deploy times out** — check which tenant is failing to initialise:
 ```bash
@@ -435,3 +492,5 @@ Raise `startup_timeout` in `config/config.ini` on slow or resource-constrained h
 - [Release notes](RELEASE-NOTES.md)
 - MifosX core banking: <https://docs.mifos.org/core-banking-and-embedded-finance/core-banking>
 - Apache Fineract API: <https://fineract.apache.org/docs/current/>
+
+Questions about this deployment go to the `#mifos-gazelle` channel on [Mifos Slack](https://mifos.slack.com).
