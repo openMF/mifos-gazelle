@@ -252,7 +252,7 @@ camunda-platform:
         memory: 1200Mi
       limits:
         cpu: 960m
-        memory: 1920Mi
+        memory: 2560Mi
     affinity: {}
     # extraInitContainers: set in ph_values.yaml — downloads the kafka exporter JAR
     # from JFrog at deploy time; URL/version changes with each release.
