@@ -12,7 +12,14 @@ spec:
   volMount:
     enabled: false
   replicas: 1
-  image: docker.io/openmf/ph-ee-importer-es:v1.14.0
+  # Migrated to paymenthub-ee-importer-es (module of paymenthub-ee-data-pipeline,
+  # Java 21/Spring Boot 3.4). Tag downgrades from pinned v1.14.0 to a commit
+  # sha — no floating/semver tag exists yet for this repo (see the note in
+  # ph-ee-importer-rdbms.yaml). Still headless (no EXPOSE in the new
+  # Dockerfile either) — no containerPort/probes, unchanged. Kafka default
+  # "kafka:9092" and the explicit importer_elasticsearch_url override both
+  # confirmed to match this cluster's real Service names.
+  image: docker.io/openmf/paymenthub-ee-importer-es:dev-68edde5
   resources:
     limits:
       cpu: 500m

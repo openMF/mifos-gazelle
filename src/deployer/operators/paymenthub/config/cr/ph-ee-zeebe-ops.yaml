@@ -12,7 +12,14 @@ spec:
   volMount:
     enabled: false
   replicas: 1
-  image: docker.io/openmf/ph-ee-zeebe-ops:dev-latest
+  # Migrated to paymenthub-ee-zeebe-ops (module of paymenthub-ee-data-pipeline,
+  # Java 21/Spring Boot 3.4). No floating tag exists yet — see the note in
+  # ph-ee-importer-rdbms.yaml; pinned to the merge commit's tag.
+  # Port topology unchanged and confirmed via source + the new Dockerfile's
+  # own comment ("8080 actuator/management, 5000 Camel REST API"): main port
+  # 5000, actuator on a separate 8080 — matches existing containerPort/probes
+  # exactly, no other fields need to change.
+  image: docker.io/openmf/paymenthub-ee-zeebe-ops:dev-68edde5
   containerPort: 5000
   resources:
     limits:
