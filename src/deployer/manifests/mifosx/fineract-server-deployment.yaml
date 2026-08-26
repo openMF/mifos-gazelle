@@ -176,14 +176,17 @@ spec:
               path: /fineract-provider/actuator/health/liveness
               port: 8080
             initialDelaySeconds: 180
-            periodSeconds: 1
-            failureThreshold: 5
-            timeoutSeconds: 2
+            periodSeconds: 20
+            failureThreshold: 6
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /fineract-provider/actuator/health/readiness
               port: 8080
-            initialDelaySeconds: 180
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            failureThreshold: 6
+            timeoutSeconds: 5
           name: fineract-server
           ports:
             - containerPort: 8080
