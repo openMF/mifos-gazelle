@@ -16,7 +16,10 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-connector-ams-mifos:dev-latest
+  # Migrated to paymenthub-ee-connector-ams-mifosx (Java 21/Spring Boot 3.4).
+  # Main port unchanged (5000); the old 7070 "http" port no longer exists —
+  # confirmed via `docker inspect` (single EXPOSE 5000).
+  image: docker.io/openmf/paymenthub-ee-connector-ams-mifosx:dev-latest
   containerPort: 5000
   resources:
     limits:
@@ -57,7 +60,7 @@ spec:
           protocol: TCP
         - name: http
           port: 70
-          targetPort: 7070
+          targetPort: 5000
           protocol: TCP
       selector:
         app: ph-ee-connector-ams-mifos

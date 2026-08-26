@@ -10,7 +10,11 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-bulk-processor:dev-latest
+  # Migrated to paymenthub-ee-bulk-processor (Java 21/Spring Boot 3.4). Port
+  # topology unchanged: the app's real listen port is still 8443 (confirmed
+  # live — Docker `EXPOSE 5000` in the image was misleading/unused; Tomcat
+  # logs "initialized with port 8443" on boot).
+  image: docker.io/openmf/paymenthub-ee-bulk-processor:dev-latest
   containerPort: 8443
   resources:
     limits:

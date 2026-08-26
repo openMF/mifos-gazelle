@@ -13,7 +13,10 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-operations-app:dev-latest
+  # Migrated to paymenthub-ee-bff (Java 21/Spring Boot 3.4; renamed "bff",
+  # also absorbs ph-ee-operations-g2p-service). Port unchanged (5000, single
+  # exposed port confirmed via `docker inspect`).
+  image: docker.io/openmf/paymenthub-ee-bff:dev-latest
   containerPort: 5000
   resources:
     limits:
@@ -63,8 +66,14 @@ spec:
     periodSeconds: 30
     failureThreshold: 3
     timeoutSeconds: 5
+  # NOTE: old readiness path was /oauth/token_key (Spring Security OAuth2
+  # authorization-server endpoint) — that's Boot 2.x legacy and very unlikely
+  # to exist unchanged on the Boot 3.4 bff image. Best-guess replacement below
+  # matches the /actuator/health/{liveness,readiness} convention used by every
+  # other migrated CR; verify against real pod behavior during redeploy and
+  # fix forward if this is wrong.
   readinessProbe:
-    path: /oauth/token_key
+    path: /actuator/health/readiness
     port: 5000
     initialDelaySeconds: 45
     periodSeconds: 180

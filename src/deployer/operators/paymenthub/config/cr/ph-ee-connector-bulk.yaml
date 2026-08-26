@@ -9,7 +9,9 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-connector-bulk:dev-latest
+  # Migrated to paymenthub-ee-connector-bulk (Java 21/Spring Boot 3.4). Port
+  # unchanged (8080), confirmed via `docker inspect`.
+  image: docker.io/openmf/paymenthub-ee-connector-bulk:dev-latest
   containerPort: 8080
   resources:
     limits:

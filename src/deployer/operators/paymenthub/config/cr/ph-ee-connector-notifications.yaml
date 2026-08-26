@@ -9,7 +9,12 @@ spec:
   volMount:
     enabled: false
   replicas: 1
-  image: docker.io/openmf/ph-ee-notifications:v1.4.0-gazelle-1.1.0
+  # Migrated to paymenthub-ee-notifications (Java 21/Spring Boot 3.4) — also
+  # absorbs the old message-gateway image into the same process (port 9191 =
+  # gateway API, port 5000 = Camel notification routes; both confirmed via
+  # `docker inspect`). Tag downgrades from pinned v1.4.0-gazelle-1.1.0 to
+  # floating dev-latest — no semver tags exist yet on the new repo.
+  image: docker.io/openmf/paymenthub-ee-notifications:dev-latest
   containerPort: 5000
   resources:
     limits:
@@ -29,9 +34,9 @@ spec:
           port: 80
           targetPort: 5000
           protocol: TCP
-        - name: actuator
-          port: 8080
-          targetPort: 8080
+        - name: gateway
+          port: 9191
+          targetPort: 9191
           protocol: TCP
       selector:
         app: ph-ee-connector-notifications
@@ -46,10 +51,19 @@ spec:
       value: "message-gateway"
     - name: HOSTCONFIG_PORT
       value: "80"
-    - name: MESSAGEGATEWAYCONFIG_HOST
-      value: "message-gateway"
     - name: NOTIFICATION_LOCAL_HOST
       value: "connector-notifications"
+    # New image requires a datasource at startup (Flyway) that the old image
+    # never needed — confirmed live via CrashLoopBackOff on a hardcoded
+    # default host "operations-mysql" (doesn't exist; real Service is
+    # "operationsmysql"). Schema "messagegateway" already exists in that
+    # instance with these credentials.
+    - name: SPRING_DATASOURCE_URL
+      value: "jdbc:mysql://operationsmysql:3306/messagegateway"
+    - name: MYSQL_USERNAME
+      value: "mifos"
+    - name: MYSQL_PASSWORD
+      value: "password"
     - name: NOTIFICATION_SUCCESS_ENABLED
       value: "false"
     - name: NOTIFICATION_FAILURE_ENABLED

@@ -14,7 +14,12 @@ spec:
   volMount:
     enabled: false
   replicas: 1
-  image: docker.io/openmf/ph-ee-identity-account-mapper:mifos-v2.0.0
+  # Migrated to paymenthub-ee-account-mapper (Java 21/Spring Boot 3.4; also
+  # absorbs ph-ee-id-account-validator-impl as a "validator" module). Tag
+  # downgrades from pinned mifos-v2.0.0 to floating dev-latest — no semver
+  # tags exist yet on the new repo. Port unchanged (8080, confirmed via
+  # `docker inspect`).
+  image: docker.io/openmf/paymenthub-ee-account-mapper:dev-latest
   containerPort: 8080
   resources:
     limits:

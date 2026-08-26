@@ -14,12 +14,16 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-connector-mojaloop-java:dev-latest
+  # Migrated to paymenthub-ee-connector-mojaloop (Java 21/Spring Boot 3.4).
+  # Port topology unchanged: 5000 is the Camel/Undertow REST port, actuator
+  # still lives on a separate Tomcat port 8080 — confirmed live (Docker
+  # `EXPOSE 5000` in the image was incomplete; both ports are actually bound).
+  image: docker.io/openmf/paymenthub-ee-connector-mojaloop:dev-latest
   containerPort: 5000
   resources:
     limits:
       cpu: 500m
-      memory: 384M
+      memory: 512M
     requests:
       cpu: 100m
       memory: 256M
@@ -63,20 +67,40 @@ spec:
       value: "50"
     - name: ZEEBE_CLIENT_POLL-INTERVAL
       value: "10"
+    # Same fix as SWITCH_als-host below: this was empty, causing "Endpoint
+    # should include scheme:path" on /quotes once the workflow got past
+    # party-lookup — confirmed live. Points at the same FSPIOP switch gateway.
     - name: SWITCH_quotes-host
-      value: ""
+      value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
     - name: SWITCH_quote-service
       value: ""
+    # NOTE: was "vnextadmin.mifos.gazelle.test/_interop" (no scheme, and pods
+    # can't resolve *.gazelle.test hostnames at all — no CoreDNS custom
+    # config, no hostAliases — a pre-existing cluster DNS limitation).
+    # This connector calls GET /parties/MSISDN/{id} — the FSPIOP switch
+    # gateway's party-lookup endpoint, not the raw oracle. The oracle Service
+    # (account-lookup-http-oracle-svc:3031) only implements /participants/...
+    # (confirmed live: /parties/... 404s there even for a registered MSISDN;
+    # /participants/... on the same service returns {"fspId":"bluebank"}).
+    # The real target is the switch's own gateway, vnext's
+    # fspiop-api-svc:4000 (externally fronted by a *separate* ingress on
+    # fspiop.mifos.gazelle.test, not vnextadmin...) — confirmed live: it
+    # accepts /parties/MSISDN/{id} and validates real FSPIOP headers
+    # (Date, fspiop-source, Accept/Content-Type), which this connector's own
+    # code already sets. Calling the in-cluster Service directly avoids the
+    # external DNS dependency entirely.
     - name: SWITCH_als-host
-      value: "vnextadmin.mifos.gazelle.test/_interop"
+      value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
     - name: SWITCH_account-lookup-service
       value: ""
+    # Same fix, pre-emptive: same empty-host pattern would hit the same
+    # missing-scheme error at the transfers/transactions steps next.
     - name: SWITCH_transfers-host
-      value: ""
+      value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
     - name: SWITCH_transfers-service
       value: ""
     - name: SWITCH_transactions-host
-      value: ""
+      value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
     - name: SWITCH_transaction-request-service
       value: ""
     - name: SWITCH_oracle-host
