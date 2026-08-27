@@ -291,6 +291,12 @@ curl http://message-gateway.<GAZELLE_DOMAIN>/actuator/health
 
 No SMS or email provider credentials are configured in Gazelle, so the gateway accepts and records requests but cannot deliver to a real handset. Configuring a live provider is a deployment-time decision, not something Gazelle presumes.
 
+**Send a message end-to-end with one command.** `src/utils/demo-message-gateway.sh` registers a demo tenant, wires up the built-in Dummy provider, sends a message and polls until the gateway marks it `DELIVERED` — a simulated delivery that exercises the whole Fineract → gateway → provider → status pipeline without a real provider:
+
+```bash
+./src/utils/demo-message-gateway.sh
+```
+
 ### Loan Assessment Module
 
 A reactive loan risk assessment service. It consumes Fineract's external events from Kafka, scores loan applications, and writes results to its own database. Built on Spring WebFlux with R2DBC rather than blocking JDBC. Source: [openMF/reactive-loan-module](https://github.com/openMF/reactive-loan-module).
