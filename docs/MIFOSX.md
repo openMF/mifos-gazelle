@@ -322,6 +322,12 @@ curl http://loan-module.<GAZELLE_DOMAIN>/actuator/health
 
 This is the one MifosX module that is event-driven rather than request-driven: it reacts to Fineract loan events published to Kafka, so exercising it means creating loan activity in Fineract rather than calling the module directly. It is also the only MifosX component that uses Kafka — every other module talks to Fineract over REST.
 
+**Exercise the module end-to-end with one command.** `src/utils/demo-loan-module.sh` does exactly that: it creates a loan product, client and loan in Fineract, then waits for the module to consume the event and record its risk-assessment row (which lands `PENDING`, since the scoring providers are stubbed upstream):
+
+```bash
+./src/utils/demo-loan-module.sh
+```
+
 ---
 
 ## Prerequisites
