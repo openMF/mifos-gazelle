@@ -230,6 +230,21 @@ curl -X POST http://workflow.<GAZELLE_DOMAIN>/api/v1/workflow/client-onboarding/
   -H 'Content-Type: application/json' -d '{ ... }'
 ```
 
+**Onboard a client end-to-end with one command.** `src/utils/demo-workflow.sh` runs a full client-onboarding process — it authenticates, ensures a loan officer exists, creates a client, approves the verification task (which assigns the officer and activates the client), and confirms the client is **Active** in Fineract:
+
+```bash
+./src/utils/demo-workflow.sh                 # onboards a demo client into greenbank
+./src/utils/demo-workflow.sh -t bluebank     # or another tenant
+```
+
+To complete an onboarding by hand, approve the pending verification task — this assigns staff and activates the client:
+
+```bash
+curl -X POST http://workflow.<GAZELLE_DOMAIN>/api/v1/workflow/client-onboarding/tasks/<taskId>/complete \
+  -H 'Content-Type: application/json' \
+  -d '{"approved":true,"clientId":<id>,"staffId":<id>}'
+```
+
 The module runs on PostgreSQL, in line with the move of MifosX to standardise on PostgreSQL.
 
 ### Credit Bureau Integration

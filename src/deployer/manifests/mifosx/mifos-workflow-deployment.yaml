@@ -48,7 +48,7 @@ spec:
               echo "Fineract is ready."
       containers:
         - name: mifos-workflow
-          image: kanishksingh23/mifos-workflow:07082026
+          image: kanishksingh23/mifos-workflow:21082026
           imagePullPolicy: IfNotPresent
           env:
             - name: JAVA_TOOL_OPTIONS
