@@ -10,6 +10,8 @@ set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[0;33m'; RESET='\033[0m'
 
+fail() { echo -e "${RED}ERROR: $*${RESET}" >&2; exit 1; }
+
 NAMESPACE="mifosx"
 CB_SERVICE="credit-bureau"
 CB_PORT=8081
@@ -41,6 +43,13 @@ done
 for tool in kubectl jq curl; do
   command -v "$tool" >/dev/null 2>&1 || { echo -e "${RED}Error: '$tool' is required.${RESET}"; exit 1; }
 done
+
+# Preflight: MifosX and the Credit Bureau module must be deployed, otherwise the
+# port-forward below fails silently and the demo just hangs.
+kubectl get namespace "$NAMESPACE" >/dev/null 2>&1 \
+  || fail "namespace '$NAMESPACE' not found — is MifosX deployed? Run: ./run.sh -m deploy -a mifosx"
+kubectl get svc "$CB_SERVICE" -n "$NAMESPACE" >/dev/null 2>&1 \
+  || fail "service '$CB_SERVICE' not found in '$NAMESPACE' — is the Credit Bureau module deployed? Run: ./run.sh -m deploy -a mifosx"
 
 # --- Start port-forward to the ClusterIP service --------------------------------
 echo -e "${BLUE}Connecting to $CB_SERVICE in namespace $NAMESPACE ...${RESET}"
