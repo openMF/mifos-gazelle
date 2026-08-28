@@ -11,6 +11,7 @@ set -euo pipefail
 # any /etc/hosts / domain setup.
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[0;33m'; RESET='\033[0m'
+fail() { echo -e "${RED}ERROR: $*${RESET}" >&2; exit 1; }
 
 NAMESPACE="mifosx"
 WF_SERVICE="mifos-workflow";   WF_PORT=8081;  WF_LOCAL=18081
@@ -44,6 +45,15 @@ done
 for tool in kubectl jq curl; do
   command -v "$tool" >/dev/null 2>&1 || { echo -e "${RED}Error: '$tool' is required.${RESET}"; exit 1; }
 done
+
+# --- Preflight: MifosX + the Workflow Engine must be deployed, otherwise the
+# port-forwards below fail silently and the demo just hangs. ------------------
+kubectl get namespace "$NAMESPACE" >/dev/null 2>&1 \
+  || fail "namespace '$NAMESPACE' not found — is MifosX deployed? Run: ./run.sh -m deploy -a mifosx"
+kubectl get svc "$WF_SERVICE" -n "$NAMESPACE" >/dev/null 2>&1 \
+  || fail "service '$WF_SERVICE' not found in '$NAMESPACE' — is the Workflow Engine module deployed? Run: ./run.sh -m deploy -a mifosx"
+kubectl get svc "$FIN_SERVICE" -n "$NAMESPACE" >/dev/null 2>&1 \
+  || fail "service '$FIN_SERVICE' not found in '$NAMESPACE' — is Fineract deployed? Run: ./run.sh -m deploy -a mifosx"
 
 # --- port-forward the workflow engine + Fineract -------------------------------
 echo -e "${BLUE}Connecting to $WF_SERVICE and $FIN_SERVICE in namespace $NAMESPACE ...${RESET}"
