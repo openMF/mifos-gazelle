@@ -21,6 +21,10 @@ spec:
   rbacEnabled: false
   secretEnabled: true
   configMapEnabled: false
+  secretData:
+    api-key: "<api-key>"
+    project-id: "<project-id>"
+    database-password: password
   ingressEnabled: false
   initContainerEnabled: true
   services:

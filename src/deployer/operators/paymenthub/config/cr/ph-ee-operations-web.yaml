@@ -9,6 +9,42 @@ spec:
   volMount:
     enabled: true
     name: ph-ee-operations-web-configmap
+    mounts:
+      - subPath: configuration.properties
+        mountPath: /usr/share/nginx/html/assets/configuration.properties
+      - subPath: default.conf
+        mountPath: /etc/nginx/conf.d/default.conf
+  # The operations-web image's default nginx config uses `aio on`, which calls
+  # io_setup() — a Linux AIO syscall not available on Colima/macOS kernels.
+  # This overrides default.conf with a config that omits aio.
+  configMapData:
+    default.conf: |
+      server {
+          listen       80;
+          server_name  localhost;
+          root   /usr/share/nginx/html;
+          index  index.html index.htm;
+
+          sendfile off;
+
+          location / {
+              try_files $uri $uri/ /index.html;
+          }
+
+          location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+              expires 1y;
+              add_header Cache-Control "public, immutable";
+          }
+
+          location ~* (index\.html|env\.js)$ {
+              add_header Cache-Control "no-store, no-cache, must-revalidate";
+          }
+
+          error_page   500 502 503 504  /50x.html;
+          location = /50x.html {
+              root   /usr/share/nginx/html;
+          }
+      }
   replicas: 1
   image: docker.io/openmf/ph-ee-operations-web:dev
   containerPort: 80

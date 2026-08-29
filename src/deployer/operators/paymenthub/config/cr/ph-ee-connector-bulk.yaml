@@ -23,6 +23,12 @@ spec:
   rbacEnabled: false
   secretEnabled: true
   configMapEnabled: false
+  # aws-region/aws-access-key/aws-secret-key back the CLOUD_AWS_* env vars below,
+  # pointed at the local minio instance rather than real AWS.
+  secretData:
+    aws-access-key: root
+    aws-secret-key: password
+    aws-region: ap-south-1
   ingressEnabled: true
   ingress:
     className: nginx

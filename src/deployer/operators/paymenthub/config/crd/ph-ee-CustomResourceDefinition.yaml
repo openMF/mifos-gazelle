@@ -40,6 +40,16 @@ spec:
                       default: false # Indicates if volume mounting is enabled
                     name:
                       type: string # Name of the volume mount
+                    mounts:
+                      type: array # Optional explicit subPath mounts from the named volume;
+                                  # when omitted, the operator falls back to a single generic /config mount
+                      items:
+                        type: object
+                        properties:
+                          subPath:
+                            type: string # Key within the ConfigMap to mount
+                          mountPath:
+                            type: string # Path inside the container to mount it at
                 replicas:
                   type: integer # Number of replicas for the deployment
                   default: 1
@@ -239,6 +249,15 @@ spec:
                 ingressEnabled:  # Toggle for Ingress
                   type: boolean
                   default: false # Indicates if Ingress resources should be created
+                configMapData:
+                  type: object
+                  additionalProperties:
+                    type: string # Extra literal key/value pairs merged into the generated ConfigMap's data
+                secretData:
+                  type: object
+                  additionalProperties:
+                    type: string # Literal (plaintext) key/value pairs for the generated Secret's stringData;
+                                 # falls back to a single database-password key when omitted
             status:
               type: object
               properties:

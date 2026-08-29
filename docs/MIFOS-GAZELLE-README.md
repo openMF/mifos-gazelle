@@ -224,7 +224,7 @@ To view the resulting transaction history across all tenants:
 Payment Hub EE uses a two-layer deployment managed entirely by Gazelle:
 
 1. **Infrastructure (Helm)** — Zeebe, MySQL, Redis, MinIO, and Kafka are deployed via the `paymenthub-infra` Helm chart into the `paymenthub` namespace.
-2. **App components (Kubernetes operator)** — all PHEE application components (connector-channel, bulk-processor, operations-app, connector-mojaloop, identity-account-mapper, etc.) are managed by a Kubernetes operator from [openMF/mifos-operators](https://github.com/openMF/mifos-operators). The operator watches `PaymentHubDeployment` custom resources (CRD: `paymenthubdeployments.gazelle.mifos.io`) and reconciles the Deployments, Services, and Ingresses for each component.
+2. **App components (Kubernetes operator)** — all PHEE application components (connector-channel, bulk-processor, operations-app, connector-mojaloop, identity-account-mapper, etc.) are managed by a Kubernetes operator from [openMF/ph-ee-k8s-operators](https://github.com/openMF/ph-ee-k8s-operators). The operator watches `PaymentHubDeployment` custom resources (CRD: `paymenthubdeployments.gazelle.mifos.io`) and reconciles the Deployments, Services, and Ingresses for each component.
 
 CR definitions live in `src/deployer/operators/paymenthub/config/cr/` — one file per component. To re-apply modified CRs to a running cluster without a full redeploy:
 

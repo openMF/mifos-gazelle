@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-localdev.py - Patches Helm chart Deployment.yaml files for local development
-Modifies deployments to use hostPath volumes and custom images for rapid iteration
+localdev.py - Patches live Kubernetes Deployments for local development
+Modifies Deployments to use hostPath volumes and custom images for rapid iteration
 Also handles checking out GitHub repositories for components
 """
 
@@ -54,164 +54,6 @@ class LocalDevPatcher:
     def get_components(self) -> list:
         """Get list of components to patch from config file"""
         return [section for section in self.config.sections() if section != 'general']
-    
-    def _is_operator_running_locally(self) -> bool:
-        """Check if the PHEE operator is running as a local process."""
-        try:
-            result = subprocess.run(
-                ['pgrep', '-f', 'com.paymenthub.OperatorMain'],
-                capture_output=True, text=True
-            )
-            return result.returncode == 0
-        except Exception:
-            return False
-
-    def run_operator(self) -> None:
-        """Run the PaymentHub operator locally against the cluster via ./gradlew run."""
-        if 'paymenthub-operator' not in self.config:
-            print("❌ [paymenthub-operator] section not found in localdev.ini")
-            return
-
-        comp_config = self.config['paymenthub-operator']
-        operator_dir_str = comp_config.get('operator_dir', '')
-        if not operator_dir_str:
-            print("❌ 'operator_dir' not set in [paymenthub-operator]")
-            return
-
-        operator_dir = Path(self._expand_vars(operator_dir_str))
-
-        if not operator_dir.exists():
-            print(f"❌ Operator directory not found: {operator_dir}")
-            print("  Run first:  ./localdev.py --checkout --component paymenthub-operator")
-            return
-
-        if not (operator_dir / 'gradlew').exists():
-            print(f"❌ gradlew not found in {operator_dir} — is the repo fully checked out?")
-            return
-
-        kubeconfig = os.environ.get('KUBECONFIG', str(Path.home() / '.kube' / 'config'))
-
-        print(f"\n{'═' * 60}")
-        print(f"  Running PaymentHub Operator locally")
-        print(f"{'═' * 60}")
-        print(f"  Directory : {operator_dir}")
-        print(f"  KUBECONFIG: {kubeconfig}")
-        print()
-        print("  ⚠️  Scale down the in-cluster operator first to avoid dual reconcilers:")
-        print("     kubectl scale deployment paymenthub-operator -n paymenthub --replicas=0")
-        print()
-
-        # Apply CRD if not already installed
-        crd_file = operator_dir / 'deploy' / 'crds' / 'ph-ee-CustomResourceDefinition.yaml'
-        if crd_file.exists():
-            result = subprocess.run(
-                ['kubectl', 'get', 'crd', 'paymenthubdeployments.gazelle.mifos.io'],
-                capture_output=True, text=True
-            )
-            if result.returncode != 0:
-                print("  Applying CRD (paymenthubdeployments.gazelle.mifos.io)...")
-                subprocess.run(['kubectl', 'apply', '-f', str(crd_file)], check=True)
-                subprocess.run(
-                    ['kubectl', 'wait', '--for=condition=Established',
-                     'crd/paymenthubdeployments.gazelle.mifos.io', '--timeout=30s'],
-                    check=True
-                )
-                print("  CRD ready.")
-        else:
-            print(f"  ⚠️  CRD file not found at {crd_file} — skipping auto-apply")
-
-        print("  Press Ctrl+C to stop\n")
-
-        try:
-            subprocess.run(
-                ['./gradlew', 'run'],
-                cwd=operator_dir,
-                env={**os.environ, 'KUBECONFIG': kubeconfig}
-            )
-        except KeyboardInterrupt:
-            print("\n\nOperator stopped.")
-        except FileNotFoundError:
-            print("❌ ./gradlew not found — check operator_dir in localdev.ini")
-
-    def _git_skip_worktree(self, file_path: Path, enable: bool = True) -> bool:
-        """
-        Mark a file to be ignored by git (skip-worktree)
-        This prevents accidentally committing local dev changes
-        """
-        try:
-            # Check if we're in a git repo
-            result = subprocess.run(
-                ['git', 'rev-parse', '--git-dir'],
-                cwd=file_path.parent,
-                capture_output=True,
-                text=True
-            )
-            if result.returncode != 0:
-                return False
-            
-            # Apply skip-worktree
-            action = '--skip-worktree' if enable else '--no-skip-worktree'
-            result = subprocess.run(
-                ['git', 'update-index', action, str(file_path.name)],
-                cwd=file_path.parent,
-                capture_output=True,
-                text=True
-            )
-            
-            if result.returncode == 0:
-                status = "protected from git" if enable else "unprotected"
-                print(f"  🔒 File {status}: {file_path.name}")
-                return True
-            else:
-                print(f"  ⚠️  Warning: Could not set git skip-worktree: {result.stderr.strip()}")
-                return False
-                
-        except FileNotFoundError:
-            print(f"  ⚠️  Git not found - skipping git protection")
-            return False
-        except Exception as e:
-            print(f"  ⚠️  Git protection error: {e}")
-            return False
-    
-    def check_git_status(self, component: Optional[str] = None) -> None:
-        """Check which deployment files are marked with skip-worktree"""
-        components = [component] if component else self.get_components()
-        
-        print(f"\n{'=' * 60}")
-        print(f"Git Skip-Worktree Status")
-        print(f"{'=' * 60}\n")
-        
-        for comp in components:
-            if comp not in self.config:
-                continue
-                
-            comp_config = self.config[comp]
-            if 'directory' not in comp_config:
-                continue
-            directory = Path(self._expand_vars(comp_config['directory']))
-            deployment_file = directory / "templates" / "deployment.yaml"
-
-            if not deployment_file.exists():
-                continue
-            
-            try:
-                result = subprocess.run(
-                    ['git', 'ls-files', '-v', str(deployment_file.name)],
-                    cwd=deployment_file.parent,
-                    capture_output=True,
-                    text=True
-                )
-                
-                if result.returncode == 0 and result.stdout:
-                    # 'S' prefix means skip-worktree is set
-                    status = "🔒 Protected" if result.stdout.startswith('S') else "⚠️  Unprotected"
-                    print(f"{status}: {comp}")
-                    print(f"  File: {deployment_file}")
-                    
-            except Exception as e:
-                print(f"❌ Error checking {comp}: {e}")
-        
-        print(f"\n{'=' * 60}\n")
     
     def _run_git_command(self, cmd: list, cwd: Path) -> Tuple[bool, str]:
         """Run a git command and return success status and output"""
@@ -443,7 +285,6 @@ class LocalDevPatcher:
 
         patchable_rows = []
         checkout_rows  = []
-        operator_rows  = []
 
         for component in components:
             if component not in self.config:
@@ -467,31 +308,6 @@ class LocalDevPatcher:
 
             # ── Cluster column ────────────────────────────────────────────────
             is_patched = False
-            app_type = comp_config.get('app_type', '')
-
-            if app_type == 'operator':
-                deploy_name = comp_config.get('k8s_deploy_name', '')
-                is_patched = False
-                if deploy_name:
-                    backup_file = backup_dir / f"{component}-deployment.json"
-                    if backup_file.exists():
-                        cluster_col = "🔧 LOCAL  (hostpath JAR)"
-                        is_patched = True
-                    elif deploy_name in k8s_images:
-                        full_image, tag = k8s_images[deploy_name]
-                        # eclipse-temurin base image means it's running a local JAR via hostPath
-                        if 'eclipse-temurin' in full_image or 'temurin' in full_image:
-                            cluster_col = f"🔧 in-cluster (hostpath JAR)"
-                            is_patched = True
-                        else:
-                            cluster_col = f"image  {tag}"
-                    else:
-                        cluster_col = "not in cluster"
-                else:
-                    running = self._is_operator_running_locally()
-                    cluster_col = "🟢 running locally" if running else "not running"
-                operator_rows.append({'name': component, 'co': co_col, 'cluster': cluster_col, 'is_patched': is_patched})
-                continue
 
             deploy_name = comp_config.get('k8s_deploy_name', '')
             if deploy_name:
@@ -535,7 +351,7 @@ class LocalDevPatcher:
             else:
                 checkout_rows.append({'name': component, 'co': co_col})
 
-        all_named = patchable_rows + checkout_rows + operator_rows
+        all_named = patchable_rows + checkout_rows
         W      = 72
         name_w = max((len(r['name']) for r in all_named), default=12) + 2
         co_w   = 22
@@ -564,14 +380,6 @@ class LocalDevPatcher:
         divider()
         for r in checkout_rows:
             print(f"  {self._visual_ljust(r['name'], name_w)}  {r['co']}")
-
-        # Operator
-        if operator_rows:
-            divider('operator')
-            print(f"  {'COMPONENT':<{name_w}}  {'REPO':<{co_w}}  STATUS")
-            divider()
-            for r in operator_rows:
-                print(f"  {self._visual_ljust(r['name'], name_w)}  {self._visual_ljust(r['co'], co_w)}  {r['cluster']}")
 
         print(f"\n{'═' * W}\n")
 
@@ -644,84 +452,13 @@ class LocalDevPatcher:
 
         comp_config = self.config[component]
 
-        # The operator itself — run it locally, don't patch anything
-        if comp_config.get('app_type', '') == 'operator':
-            print(f"\n⏭️  Skipping {component} - this IS the operator (nothing to patch)")
-            print(f"  ℹ️  Run it locally with: ./localdev.py --run")
-            return True
+        # All patchable components (including the operator itself) are
+        # k8s-direct: patch the live Deployment via kubectl.
+        if comp_config.get('k8s_deploy_name'):
+            return self._patch_k8s_deployment(component, dry_run)
 
-        # Operator-managed components with k8s_deploy_name → patch running Deployment directly
-        if 'directory' not in comp_config:
-            if comp_config.get('k8s_deploy_name'):
-                return self._patch_k8s_deployment(component, dry_run)
-            print(f"\n⏭️  Skipping {component} - managed by PHEE operator (no Helm chart)")
-            print(f"  ℹ️  Add k8s_deploy_name/hostpath/jarpath to localdev.ini to enable direct-patch mode")
-            print(f"  ℹ️  Or run the operator locally: ./localdev.py --run")
-            return True
-
-        # Get component configuration
-        directory = Path(self._expand_vars(comp_config['directory']))
-        app_type = comp_config.get('app_type', 'springboot')  # Default to springboot for backward compatibility
-        image = comp_config.get('image', '')  # Optional for webapp type
-        jarpath = comp_config.get('jarpath', '')  # Optional for webapp type
-        hostpath = self._expand_vars(comp_config['hostpath'])
-
-        # For webapp type, we'll patch the template directly (no JAR path needed)
-        # Skip only if we don't have the required hostpath
-        if app_type == 'webapp' and not hostpath:
-            print(f"❌ Webapp component '{component}' requires 'hostpath' in config")
-            return False
-
-        deployment_file = directory / "templates" / "deployment.yaml"
-        backup_file = deployment_file.parent / f"_deployment.yaml.backup"
-        
-        if not deployment_file.exists():
-            print(f"❌ Deployment file not found: {deployment_file}")
-            return False
-        
-        # Check if backup already exists - if so, skip patching
-        if backup_file.exists():
-            print(f"\n⏭️  Skipping {component}...")
-            print(f"  ℹ️  Backup already exists: {backup_file.name}")
-            print(f"  ℹ️  Component appears to be already patched")
-            print(f"  💡 Use --restore first if you want to re-patch")
-            return True
-        
-        print(f"\n{'[DRY RUN] ' if dry_run else ''}Processing {component}...")
-        print(f"  📁 File: {deployment_file}")
-        print(f"  📦 App Type: {app_type}")
-        if app_type == 'springboot':
-            print(f"  🖼️  Image: {image}")
-            print(f"  📦 JAR: {jarpath}")
-        print(f"  🔗 Host Path: {hostpath}")
-        
-        # Read the deployment file
-        with open(deployment_file, 'r') as f:
-            content = f.read()
-        
-        # Backup original if not in dry-run mode
-        if not dry_run:
-            if not backup_file.exists():
-                with open(backup_file, 'w') as f:
-                    f.write(content)
-                print(f"  💾 Backup created: {backup_file.name}")
-            else:
-                # This shouldn't happen due to earlier check, but just in case
-                print(f"  ℹ️  Using existing backup: {backup_file.name}")
-        
-        # Apply patches
-        modified_content = self._apply_patches(content, image, jarpath, hostpath, component, app_type)
-        
-        if dry_run:
-            print(f"  ℹ️  Would modify deployment (dry run)")
-        else:
-            with open(deployment_file, 'w') as f:
-                f.write(modified_content)
-            print(f"  ✅ Deployment patched successfully")
-            
-            # Protect file from accidental git commits
-            self._git_skip_worktree(deployment_file, enable=True)
-        
+        print(f"\n⏭️  Skipping {component} - checkout-only component, no deployment to patch")
+        print(f"  ℹ️  Add k8s_deploy_name/hostpath/jarpath to localdev.ini to enable direct-patch mode")
         return True
 
     def _patch_k8s_deployment(self, component: str, dry_run: bool = False) -> bool:
@@ -888,213 +625,6 @@ class LocalDevPatcher:
         )
         return True
 
-    def _apply_patches(self, content: str, image: str, jarpath: str, hostpath: str, component: str, app_type: str = 'springboot') -> str:
-        """Apply the necessary patches to the deployment YAML content"""
-        
-        lines = content.split('\n')
-        result_lines = []
-        i = 0
-        
-        in_init_containers = False
-        in_main_containers = False
-        in_main_container_def = False
-        image_patched = False
-        volumemounts_patched = False
-        command_patched = False
-        volumes_patched = False
-        
-        # Debug mode
-        debug = os.environ.get('DEBUG_PATCH', 'false').lower() == 'true'
-        
-        while i < len(lines):
-            line = lines[i]
-            
-            if debug and ('containers:' in line or 'initContainers:' in line or 'volumes:' in line or 
-                         ('- name:' in line and (in_main_containers or in_init_containers)) or
-                         ('image:' in line and 'Values' in line) or
-                         'volumeMounts:' in line):
-                print(f"  [DEBUG] Line {i}: {line.strip()[:60]}")
-                print(f"    in_init={in_init_containers}, in_main={in_main_containers}, in_def={in_main_container_def}")
-            
-            # Detect initContainers section
-            if 'initContainers:' in line and line.strip().startswith('initContainers:'):
-                in_init_containers = True
-                in_main_containers = False
-                in_main_container_def = False
-                if debug:
-                    print(f"    -> Entering initContainers")
-                result_lines.append(line)
-                i += 1
-                continue
-            
-            # When we see 'containers:' we're leaving initContainers and entering main containers
-            if line.strip().startswith('containers:'):
-                in_init_containers = False
-                in_main_containers = True
-                in_main_container_def = False
-                if debug:
-                    print(f"    -> Entering main containers")
-                result_lines.append(line)
-                i += 1
-                continue
-            
-            if in_main_containers and line.strip().startswith('- name:') and not in_main_container_def:
-                in_main_container_def = True
-                if debug:
-                    print(f"    -> Found main container definition")
-                result_lines.append(line)
-                i += 1
-                continue
-            
-            if line.strip().startswith('volumes:') and in_main_containers:
-                # Process volumes section when transitioning from containers
-                if debug:
-                    print(f"    -> Entering volumes section (from containers)")
-                in_main_containers = False
-                in_main_container_def = False
-                
-                if not volumes_patched:
-                    result_lines.append(line)
-                    i += 1
-                    indent = len(line) - len(line.lstrip())
-                    
-                    # Copy existing volumes
-                    while i < len(lines) and lines[i].strip().startswith('- name:'):
-                        result_lines.append(lines[i])
-                        i += 1
-                        # Copy volume definition lines
-                        while i < len(lines) and not lines[i].strip().startswith('- name:') and not lines[i].strip().startswith('{{-') and lines[i].strip():
-                            result_lines.append(lines[i])
-                            i += 1
-                    
-                    # Add our volume
-                    result_lines.append(' ' * (indent + 2) + '- name: local-code')
-                    result_lines.append(' ' * (indent + 4) + 'hostPath:  # add this for local dev test')
-                    result_lines.append(' ' * (indent + 6) + f'path: {hostpath} # local project path')
-                    result_lines.append(' ' * (indent + 6) + "type: Directory # Ensure it's a directory")
-                    volumes_patched = True
-                    if debug:
-                        print(f"    -> Added hostPath volume")
-                    continue
-                else:
-                    result_lines.append(line)
-                    i += 1
-                    continue
-            
-            # Also handle volumes: at spec level (after initContainers or containers)
-            if line.strip().startswith('volumes:') and not volumes_patched:
-                # volumes can appear after either containers or initContainers
-                if debug:
-                    print(f"    -> Entering volumes section (at spec level, after init or containers)")
-                
-                # Clear all section flags - we're at spec level now
-                in_main_containers = False
-                in_main_container_def = False
-                in_init_containers = False
-                
-                result_lines.append(line)
-                i += 1
-                indent = len(line) - len(line.lstrip())
-                
-                # Copy existing volumes
-                while i < len(lines) and lines[i].strip().startswith('- name:'):
-                    result_lines.append(lines[i])
-                    i += 1
-                    # Copy volume definition lines
-                    while i < len(lines) and not lines[i].strip().startswith('- name:') and not lines[i].strip().startswith('{{-') and lines[i].strip():
-                        result_lines.append(lines[i])
-                        i += 1
-                
-                # Add our volume
-                result_lines.append(' ' * (indent + 2) + '- name: local-code')
-                result_lines.append(' ' * (indent + 4) + 'hostPath:  # add this for local dev test')
-                result_lines.append(' ' * (indent + 6) + f'path: {hostpath} # local project path')
-                result_lines.append(' ' * (indent + 6) + "type: Directory # Ensure it's a directory")
-                volumes_patched = True
-                if debug:
-                    print(f"    -> Added hostPath volume (spec level)")
-                continue
-            
-            # Skip further processing if we're in initContainers
-            if in_init_containers:
-                result_lines.append(line)
-                i += 1
-                continue
-            
-            # Process main container image line
-            if in_main_container_def and not image_patched and 'image:' in line and '{{' in line and 'Values.image' in line:
-                indent = len(line) - len(line.lstrip())
-                if app_type == 'springboot' and image:
-                    result_lines.append(' ' * indent + f'image: "{image}"  # this is the JDK to use')
-                    result_lines.append(' ' * indent + f'#{line.strip()}  # commented out to allow hostpath local dev/test')
-                    if debug:
-                        print(f"    -> Patched image to {image}")
-                elif app_type == 'webapp':
-                    # For webapp, keep original image (nginx) - no need to override
-                    result_lines.append(line)
-                    if debug:
-                        print(f"    -> Keeping original image for webapp")
-                else:
-                    result_lines.append(line)
-                image_patched = True
-                i += 1
-                continue
-            
-            # Process volumeMounts - add command BEFORE volumeMounts
-            if in_main_container_def and 'volumeMounts:' in line and not volumemounts_patched:
-                indent = len(line) - len(line.lstrip())
-
-                # Add command BEFORE volumeMounts to maintain valid YAML structure
-                # Only add command for springboot apps
-                if app_type == 'springboot' and jarpath:
-                    result_lines.append(' ' * indent + f'command: ["java", "-jar", "{jarpath}"] # replace with your jar file name')
-                    command_patched = True
-                    if debug:
-                        print(f"    -> Added command for springboot app")
-                elif app_type == 'webapp':
-                    # For webapp, skip command - nginx will serve static files
-                    if debug:
-                        print(f"    -> Skipping command for webapp (nginx will serve static files)")
-
-                result_lines.append(line)
-                i += 1
-
-                # Copy existing volumeMounts
-                while i < len(lines) and (lines[i].strip().startswith('- name:') or lines[i].strip().startswith('mountPath:') or lines[i].strip().startswith('readOnly:') or lines[i].strip().startswith('subPath:')):
-                    result_lines.append(lines[i])
-                    i += 1
-
-                # Add our volumeMount based on app type
-                if app_type == 'springboot':
-                    result_lines.append(' ' * (indent + 2) + '- name: local-code')
-                    result_lines.append(' ' * (indent + 4) + 'mountPath: /app # Mount your local code into /app in the container')
-                    if debug:
-                        print(f"    -> Added volumeMount for springboot")
-                elif app_type == 'webapp':
-                    result_lines.append(' ' * (indent + 2) + '- name: local-code')
-                    result_lines.append(' ' * (indent + 4) + 'mountPath: /usr/share/nginx/html # Mount your built webapp files')
-                    if debug:
-                        print(f"    -> Added volumeMount for webapp")
-
-                volumemounts_patched = True
-                continue
-            
-            # Default: just add the line
-            result_lines.append(line)
-            i += 1
-        
-        result = '\n'.join(result_lines)
-        
-        # Debug output
-        if not image_patched:
-            print(f"  ⚠️  Warning: Image was not patched")
-        if not volumemounts_patched:
-            print(f"  ⚠️  Warning: volumeMounts was not patched")
-        if not volumes_patched:
-            print(f"  ⚠️  Warning: volumes was not patched")
-        
-        return result
-    
     def restore_deployment(self, component: str) -> bool:
         """Restore a deployment from its backup"""
         if component not in self.config:
@@ -1103,40 +633,12 @@ class LocalDevPatcher:
         
         comp_config = self.config[component]
 
-        if comp_config.get('app_type', '') == 'operator':
-            print(f"\n⏭️  Skipping {component} - this IS the operator (nothing to restore)")
-            return True
+        if comp_config.get('k8s_deploy_name'):
+            return self._restore_k8s_deployment(component)
 
-        if 'directory' not in comp_config:
-            if comp_config.get('k8s_deploy_name'):
-                return self._restore_k8s_deployment(component)
-            print(f"\n⏭️  Skipping {component} - managed by PHEE operator (no Helm chart to restore)")
-            return True
-
-        directory = Path(self._expand_vars(comp_config['directory']))
-        deployment_file = directory / "templates" / "deployment.yaml"
-        backup_file = deployment_file.parent / f"_deployment.yaml.backup"
-
-        if not backup_file.exists():
-            print(f"❌ No backup found for {component}")
-            return False
-        
-        with open(backup_file, 'r') as f:
-            content = f.read()
-        
-        with open(deployment_file, 'w') as f:
-            f.write(content)
-        
-        # Remove git protection when restoring
-        self._git_skip_worktree(deployment_file, enable=False)
-        
-        # Delete the backup file so component can be patched again
-        backup_file.unlink()
-        
-        print(f"✅ Restored {component} from backup")
-        print(f"  🗑️  Removed backup file")
+        print(f"\n⏭️  Skipping {component} - checkout-only component, nothing to restore")
         return True
-    
+
     def patch_all(self, dry_run: bool = False):
         """Patch all components listed in the config"""
         components = self.get_components()
@@ -1175,43 +677,40 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description='Patch Helm deployment files for local development',
+        description='Patch live Kubernetes Deployments for local development',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Show status of all components
   ./localdev.py --status
 
-  # Run the PHEE operator locally against Colima (no Docker image needed)
-  ./localdev.py --run
-  
   # Complete setup: checkout repos + patch deployments
   ./localdev.py --setup
-  
+
+  # Setup the operator itself (same k8s-direct mechanism as any other component)
+  ./localdev.py --setup --component paymenthub-operator
+
   # Just checkout component repositories
   ./localdev.py --checkout
-  
+
   # Update existing repos (pull latest)
   ./localdev.py --update
-  
+
   # Dry run - see what would be changed
   ./localdev.py --dry-run
-  
-  # Patch all components (auto-protects from git commits)
+
+  # Patch all components
   ./localdev.py
-  
+
   # Setup specific component (checkout + patch)
   ./localdev.py --setup --component bulk-processor
-  
+
   # Checkout specific component
   ./localdev.py --checkout --component bulk-processor
-  
-  # Check which files are protected from git commits
-  ./localdev.py --check-git-status
-  
-  # Restore all from backups (removes git protection)
+
+  # Restore all from backups
   ./localdev.py --restore
-  
+
   # Restore specific component
   ./localdev.py --restore --component bulk-processor
         """
@@ -1237,11 +736,6 @@ Examples:
         help='Restore deployments from backups'
     )
     parser.add_argument(
-        '--check-git-status',
-        action='store_true',
-        help='Check git skip-worktree status of deployment files'
-    )
-    parser.add_argument(
         '--checkout',
         action='store_true',
         help='Checkout component repositories (components with checkout_enabled=true)'
@@ -1262,11 +756,6 @@ Examples:
         help='Show status of all components (repos and deployments)'
     )
     parser.add_argument(
-        '--run',
-        action='store_true',
-        help='Run the PHEE operator locally via ./gradlew run (scales down in-cluster operator first reminder)'
-    )
-    parser.add_argument(
         '--clean-backups',
         action='store_true',
         help='Remove stale localdev backup files whose deployments have been replaced by a full redeploy'
@@ -1277,14 +766,10 @@ Examples:
     try:
         patcher = LocalDevPatcher(args.config)
 
-        if args.run:
-            patcher.run_operator()
-        elif args.clean_backups:
+        if args.clean_backups:
             patcher.clean_backups()
         elif args.status:
             patcher.status_all()
-        elif args.check_git_status:
-            patcher.check_git_status(args.component)
         elif args.checkout:
             if args.component:
                 patcher.checkout_component(args.component, update=False)
