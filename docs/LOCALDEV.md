@@ -21,6 +21,13 @@ All PHEE components are **operator-managed**: deployed by the PaymentHub Kuberne
 
 ## Quick Start
 
+> **Prerequisite:** `localdev.py` patches a component's *existing* Deployment — it can't patch what isn't there yet. PaymentHub must already be deployed to the cluster first:
+> ```bash
+> cd ~/mifos-gazelle
+> ./run.sh -m deploy -a paymenthub
+> ```
+> Do this once per cluster (not before every `--setup`). If you see `namespaces "paymenthub" not found` or `deployments.apps "<name>" not found`, this step hasn't been done yet.
+
 ```bash
 cd ~/mifos-gazelle/src/utils/localdev
 
@@ -219,6 +226,13 @@ cd ~/mifos-gazelle/src/utils/localdev
 ---
 
 ## Troubleshooting
+
+### `namespaces "paymenthub" not found` / `deployments.apps "<name>" not found`
+PaymentHub hasn't been deployed to this cluster yet — `--setup`/`--dry-run` patch an *existing* Deployment, they don't create one. Deploy it first (see the Quick Start prerequisite above):
+```bash
+cd ~/mifos-gazelle
+./run.sh -m deploy -a paymenthub
+```
 
 ### Changes not taking effect
 ```bash
