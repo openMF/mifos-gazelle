@@ -480,11 +480,27 @@ class LocalDevPatcher:
         backup_dir = Path.home() / '.localdev-backups'
         backup_file = backup_dir / f"{component}-deployment.json"
 
-        if backup_file.exists():
+        # A backup file alone doesn't mean the live Deployment is still patched —
+        # a redeploy (run.sh -m deploy / cleanapps) recreates it from scratch and
+        # silently reverts any prior patch, leaving a stale backup on disk. Check
+        # the live image too (same "temurin" check --status already uses).
+        live_check = subprocess.run(
+            ['kubectl', 'get', 'deployment', k8s_deploy_name, '-n', k8s_namespace,
+             '-o', 'jsonpath={.spec.template.spec.containers[0].image}'],
+            capture_output=True, text=True
+        )
+        live_image = live_check.stdout.strip() if live_check.returncode == 0 else ''
+        live_is_patched = 'temurin' in live_image
+
+        if backup_file.exists() and live_is_patched:
             print(f"\n⏭️  Skipping {component} - already k8s-patched")
             print(f"  ℹ️  Backup: {backup_file}")
             print(f"  💡 Use --restore first to re-patch")
             return True
+        elif backup_file.exists():
+            print(f"\n⚠️  Stale backup for {component} — live Deployment reverted to "
+                  f"{live_image or 'a registry image'} (likely from a redeploy). "
+                  f"Re-patching and refreshing the backup.")
 
         print(f"\n{'[DRY RUN] ' if dry_run else ''}Processing {component} (k8s direct-patch)...")
         print(f"  📦 Deployment : {k8s_deploy_name}  ns: {k8s_namespace}")

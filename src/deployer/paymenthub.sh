@@ -178,55 +178,6 @@ deploy_ph_infra_helm() {
 }
 
 #------------------------------------------------------------------------------
-# Function : write_operator_deployment_image
-# Description: Outputs a complete Deployment YAML for the operator in image
-#              mode — uses the published Docker image with its own ENTRYPOINT.
-# Parameters:
-#   $1 - operator Docker image (e.g. openmf/ph-ee-k8s-operators:dev-dd9ac20)
-#------------------------------------------------------------------------------
-write_operator_deployment_image() {
-  local image="$1"
-  cat <<-YAML
-	apiVersion: apps/v1
-	kind: Deployment
-	metadata:
-	  name: ph-ee-operator
-	  namespace: paymenthub
-	  labels:
-	    app: ph-ee-operator
-	spec:
-	  replicas: 1
-	  selector:
-	    matchLabels:
-	      app: ph-ee-operator
-	  template:
-	    metadata:
-	      labels:
-	        app: ph-ee-operator
-	    spec:
-	      serviceAccountName: ph-ee-operator-sa
-	      containers:
-	        - name: operator
-	          image: ${image}
-	          imagePullPolicy: Always
-	          env:
-	            - name: WATCH_NAMESPACE
-	              valueFrom:
-	                fieldRef:
-	                  fieldPath: metadata.namespace
-	            - name: LOG_LEVEL
-	              value: INFO
-	          resources:
-	            requests:
-	              memory: "256Mi"
-	              cpu: "250m"
-	            limits:
-	              memory: "512Mi"
-	              cpu: "500m"
-	YAML
-}
-
-#------------------------------------------------------------------------------
 # Function : deploy_ph_operator
 # Description: Applies the CRD, deploys the operator pod, then applies the
 #              PaymentHubDeployment CRs with the Gazelle domain substituted
@@ -246,20 +197,12 @@ deploy_ph_operator() {
   kubectl apply -f "$deploy_dir/operator_rbac.yaml" -n "$PH_NAMESPACE" > /dev/null || { log_failed "Operator RBAC apply failed"; return 1; }
   log_ok
 
-  # Generate and apply the operator Deployment manifest (published image only —
-  # local-source-dir mode was removed; use ./localdev.py --setup --component
-  # paymenthub-operator to run from a local build instead).
-  local dep_manifest
-  dep_manifest=$(mktemp /tmp/ph-op-dep.XXXXXX)
-  mv "$dep_manifest" "${dep_manifest}.yaml"
-  dep_manifest="${dep_manifest}.yaml"
-  chmod 644 "$dep_manifest"
-
-  log_step "Deploying PaymentHub operator ($PH_OPERATOR_IMAGE)"
-  write_operator_deployment_image "$PH_OPERATOR_IMAGE" > "$dep_manifest"
-
-  kubectl apply -f "$dep_manifest" > /dev/null || { log_failed "Operator Deployment apply failed"; rm -f "$dep_manifest"; return 1; }
-  rm -f "$dep_manifest"
+  # Apply the operator's own Deployment manifest (image lives in the file
+  # itself — see operator_deployment.yaml — same as every other component's
+  # image lives in its own CR yaml, not in config.ini). To run from a local
+  # build instead, use ./localdev.py --setup --component paymenthub-operator.
+  log_step "Deploying PaymentHub operator"
+  kubectl apply -f "$deploy_dir/operator_deployment.yaml" -n "$PH_NAMESPACE" > /dev/null || { log_failed "Operator Deployment apply failed"; return 1; }
 
   if ! kubectl rollout status deployment/ph-ee-operator -n "$PH_NAMESPACE" --timeout=300s > /dev/null 2>&1; then
     log_failed "Operator pod did not start — check: kubectl logs deployment/ph-ee-operator -n $PH_NAMESPACE"
