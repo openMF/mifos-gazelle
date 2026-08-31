@@ -50,7 +50,7 @@ deploy_ph(){
   create_ingress_secret "$PH_NAMESPACE" \
     "bulk-processor.$GAZELLE_DOMAIN" \
     "sandbox-secret" \
-    "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,ph-ee-connector-channel,ph-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
+    "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,paymenthub-ee-connector-channel,paymenthub-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
 
   # Step 3 — operator reconciles app component Deployments, Services, Ingresses
   deploy_ph_operator || { log_failed "PaymentHub operator deployment failed"; return 1; }

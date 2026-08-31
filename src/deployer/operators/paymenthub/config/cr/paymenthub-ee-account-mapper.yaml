@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-identity-account-mapper
+  name: paymenthub-ee-account-mapper
   namespace: paymenthub
 spec:
   enabled: true
@@ -45,18 +45,18 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-identity-account-mapper
+                name: paymenthub-ee-account-mapper
                 port:
                   number: 80
   services:
-    - name: ph-ee-identity-account-mapper
+    - name: paymenthub-ee-account-mapper
       ports:
         - name: port
           port: 80
           targetPort: 8080
           protocol: TCP
       selector:
-        app: ph-ee-identity-account-mapper
+        app: paymenthub-ee-account-mapper
       sessionAffinity: None
       type: ClusterIP
   livenessProbe:
@@ -89,7 +89,7 @@ spec:
     - name: SPRING_DATASOURCE_PASSWORD
       valueFrom:
         secretKeyRef:
-          name: ph-ee-identity-account-mapper-secret
+          name: paymenthub-ee-account-mapper-secret
           key: database-password
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"

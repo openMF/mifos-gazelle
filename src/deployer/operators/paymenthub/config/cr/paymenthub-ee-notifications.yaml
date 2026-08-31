@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-notifications
+  name: paymenthub-ee-notifications
   namespace: paymenthub
 spec:
   enabled: true
@@ -28,7 +28,7 @@ spec:
   configMapEnabled: false
   ingressEnabled: false
   services:
-    - name: ph-ee-connector-notifications
+    - name: paymenthub-ee-notifications
       ports:
         - name: port
           port: 80
@@ -39,7 +39,7 @@ spec:
           targetPort: 9191
           protocol: TCP
       selector:
-        app: ph-ee-connector-notifications
+        app: paymenthub-ee-notifications
       sessionAffinity: None
       type: ClusterIP
   environment:

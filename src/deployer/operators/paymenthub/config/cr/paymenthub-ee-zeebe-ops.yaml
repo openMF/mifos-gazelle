@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-zeebe-ops
+  name: paymenthub-ee-zeebe-ops
   namespace: paymenthub
 spec:
   enabled: true
@@ -48,11 +48,11 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-zeebe-ops
+                name: paymenthub-ee-zeebe-ops
                 port:
                   number: 80
   services:
-    - name: ph-ee-zeebe-ops
+    - name: paymenthub-ee-zeebe-ops
       ports:
         - name: port
           port: 80
@@ -63,7 +63,7 @@ spec:
           port: 8080
           targetPort: 8080
       selector:
-        app: ph-ee-zeebe-ops
+        app: paymenthub-ee-zeebe-ops
       sessionAffinity: None
       type: ClusterIP
   livenessProbe:

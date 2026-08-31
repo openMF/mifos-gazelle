@@ -1,0 +1,79 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: paymenthub-ee-vouchers
+  namespace: paymenthub
+spec:
+  # Migrated to paymenthub-ee-vouchers (Java 21/Spring Boot 3.4). No documented
+  # migration lineage from ph-ee-vouchers was ever confirmed upstream (only a
+  # functional resemblance — G2P voucher lifecycle) — treat this as a first
+  # real test of whether it's the intended replacement, not a known-good swap.
+  # No semver tag published yet — pinned to dev-latest.
+  # Bundled application.yml defaults point at sandbox.mifos.io placeholder
+  # hosts and generic root/mysql DB creds — overridden below to real in-cluster
+  # services/credentials. camel.serverPort=5050 exists in config but isn't in
+  # the Dockerfile's EXPOSE; added defensively, remove if unused.
+  enabled: true
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  image: docker.io/openmf/paymenthub-ee-vouchers:dev-latest
+  containerPort: 8080
+  resources:
+    limits:
+      cpu: 500m
+      memory: 752M
+    requests:
+      cpu: 100m
+      memory: 256M
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8080
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  services:
+    - name: paymenthub-ee-vouchers
+      ports:
+        - name: port
+          port: 80
+          targetPort: 8080
+          protocol: TCP
+        - name: camel
+          port: 5050
+          targetPort: 5050
+          protocol: TCP
+      selector:
+        app: paymenthub-ee-vouchers
+      sessionAffinity: None
+      type: ClusterIP
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "paymenthub-infra-zeebe-gateway:26500"
+    - name: SPRING_DATASOURCE_URL
+      value: "jdbc:mysql://operationsmysql:3306/voucher_management"
+    - name: SPRING_DATASOURCE_USERNAME
+      value: "mifos"
+    - name: SPRING_DATASOURCE_PASSWORD
+      value: "password"
+    - name: IDENTITY_ACCOUNT_MAPPER_HOSTNAME
+      value: "http://paymenthub-ee-account-mapper:80"
+    - name: OPERATIONS_HOSTNAME
+      value: "http://paymenthub-ee-bff:80"
+    - name: MOCK_SCHEMA_HOSTNAME
+      value: "http://ph-ee-connector-mock-payment-schema:8080"

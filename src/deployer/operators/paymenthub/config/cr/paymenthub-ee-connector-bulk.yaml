@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-bulk
+  name: paymenthub-ee-connector-bulk
   namespace: paymenthub
 spec:
   enabled: true
@@ -50,18 +50,18 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-connector-bulk
+                name: paymenthub-ee-connector-bulk
                 port:
                   number: 80
   services:
-    - name: ph-ee-connector-bulk
+    - name: paymenthub-ee-connector-bulk
       ports:
         - name: port
           port: 80
           targetPort: 8080
           protocol: TCP
       selector:
-        app: ph-ee-connector-bulk
+        app: paymenthub-ee-connector-bulk
       sessionAffinity: None
       type: ClusterIP
   environment:
@@ -84,20 +84,20 @@ spec:
     - name: CLOUD_AWS_REGION_STATIC
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-region
     - name: AWS_ACCESS_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-access-key
     - name: AWS_SECRET_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-secret-key
     - name: OPERATIONS_APP_CONTACTPOINT
-      value: "http://ph-ee-operations-app:80"
+      value: "http://paymenthub-ee-bff:80"
     - name: OPERATIONS_APP_ENDPOINTS_BATCH_SUMMARY
       value: "/api/v1/batch"
     - name: OPERATIONS_APP_ENDPOINTS_BATCH_DETAIL
@@ -109,13 +109,13 @@ spec:
     - name: MOCK_PAYMENT_SCHEMA_ENDPOINTS_BATCH_DETAIL
       value: "/mockapi/v1/batch/detail"
     - name: BULK_PROCESSOR_CONTACTPOINT
-      value: "http://ph-ee-bulk-processor:80"
+      value: "http://paymenthub-ee-bulk-processor:80"
     - name: BULK_PROCESSOR_ENDPOINTS_BATCH_TRANSACTION
       value: "/batchtransactions"
     - name: IDENTITY_MAPPER_CONTACTPOINT
-      value: "http://ph-ee-identity-account-mapper:80"
+      value: "http://paymenthub-ee-account-mapper:80"
     - name: CHANNEL_CONTACTPOINT
-      value: "http://ph-ee-connector-channel:8443"
+      value: "http://paymenthub-ee-connector-channel:8443"
     - name: CHANNEL_ENDPOINTS_TRANSFER
       value: "/channel/transfer"
     - name: BULK_PROCESSOR_ENDPOINTS_BATCH_EXECUTION

@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-importer-es
+  name: paymenthub-ee-importer-es
   namespace: paymenthub
 spec:
   enabled: false

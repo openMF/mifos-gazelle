@@ -1,0 +1,66 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: paymenthub-ee-p2g
+  namespace: paymenthub
+spec:
+  # Migrated to paymenthub-ee-p2g (Java 21/Spring Boot 3.4; repo renamed
+  # "p2g"). No semver tag published yet — pinned to dev-latest. Dual port
+  # confirmed via source: server.port=8080 (Spring MVC + actuator,
+  # management.endpoint.health probes enabled), camel.server-port=5000
+  # (Camel REST bill-pay routes) — same pattern as zeebe-ops/notifications.
+  # Enabling for the first time to test the new image end-to-end.
+  enabled: true
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  image: docker.io/openmf/paymenthub-ee-p2g:dev-latest
+  containerPort: 8080
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512M
+    requests:
+      cpu: 100m
+      memory: 256M
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8080
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  services:
+    - name: paymenthub-ee-p2g
+      ports:
+        - name: port
+          port: 8080
+          targetPort: 8080
+          protocol: TCP
+        - name: camel
+          port: 5000
+          targetPort: 5000
+          protocol: TCP
+      selector:
+        app: paymenthub-ee-p2g
+      sessionAffinity: None
+      type: ClusterIP
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb,tenants"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "paymenthub-infra-zeebe-gateway:26500"
+    - name: DFSPIDS
+      value: "greenbank,redbank,bluebank"

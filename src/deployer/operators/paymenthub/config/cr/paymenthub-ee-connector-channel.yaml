@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-channel
+  name: paymenthub-ee-connector-channel
   namespace: paymenthub
 spec:
   enabled: true
@@ -51,11 +51,11 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-connector-channel
+                name: paymenthub-ee-connector-channel
                 port:
                   number: 8443
   services:
-    - name: ph-ee-connector-channel
+    - name: paymenthub-ee-connector-channel
       ports:
         - name: port
           port: 8443
@@ -74,7 +74,7 @@ spec:
           targetPort: 8080
           protocol: TCP
       selector:
-        app: ph-ee-connector-channel
+        app: paymenthub-ee-connector-channel
       sessionAffinity: None
       type: ClusterIP
   livenessProbe:
@@ -109,7 +109,7 @@ spec:
     - name: LOGGING_PATTERN_CONSOLE
       value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
     - name: operations_url
-      value: "http://ph-ee-operations-app:80/api/v1"
+      value: "http://paymenthub-ee-bff:80/api/v1"
     - name: operations_auth-enabled
       value: "false"
     - name: CHANNEL_TENANTPRIMARY_CLIENTID

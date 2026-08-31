@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-mojaloop-java
+  name: paymenthub-ee-connector-mojaloop
   namespace: paymenthub
 spec:
   enabled: true
@@ -28,7 +28,7 @@ spec:
       cpu: 100m
       memory: 256M
   services:
-    - name: ph-ee-connector-mojaloop-java
+    - name: paymenthub-ee-connector-mojaloop
       ports:
         - name: port
           port: 80
@@ -39,7 +39,7 @@ spec:
           port: 8080
           targetPort: 8080
       selector:
-        app: ph-ee-connector-mojaloop-java
+        app: paymenthub-ee-connector-mojaloop
       sessionAffinity: None
       type: ClusterIP
   livenessProbe:
@@ -106,7 +106,7 @@ spec:
     - name: SWITCH_oracle-host
       value: ""
     - name: parties_0_domain
-      value: "ph-ee-connector-mojaloop-java.paymenthub.svc.cluster.local"
+      value: "paymenthub-ee-connector-mojaloop.paymenthub.svc.cluster.local"
     - name: parties_1_domain
       value: "http://fineract-server.mifosx.svc.cluster.local:8080"
     - name: parties_0_tenantId

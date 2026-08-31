@@ -88,7 +88,7 @@ PROGRAM_FUND_AMOUNT=1000.0
 # In-cluster service DNS is used (the *.gazelle.test ingress host does not resolve
 # from inside the pbms pod). Payer = the PHEE_PAYER_TENANT (greenbank) client, whose
 # MSISDN (PHEE_PAYER_ID) is resolved from Fineract at runtime — see main().
-PHEE_PAYMENT_ENDPOINT="http://ph-ee-bulk-processor.paymenthub:80/batchtransactions"
+PHEE_PAYMENT_ENDPOINT="http://paymenthub-ee-bulk-processor.paymenthub:80/batchtransactions"
 PHEE_TENANT_ID="$PHEE_PAYER_TENANT"
 PHEE_PAYER_ID_TYPE="msisdn"
 PHEE_PAYER_ID=""            # resolved at runtime from PHEE_PAYER_TENANT (main)

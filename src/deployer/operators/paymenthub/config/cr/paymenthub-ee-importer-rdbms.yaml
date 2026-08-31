@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-importer-rdbms
+  name: paymenthub-ee-importer-rdbms
   namespace: paymenthub
 spec:
   labels:
@@ -57,7 +57,7 @@ spec:
     - name: DATASOURCE_CORE_PASSWORD
       valueFrom:
         secretKeyRef:
-          name: ph-ee-importer-rdbms-secret
+          name: paymenthub-ee-importer-rdbms-secret
           key: database-password
     - name: DATASOURCE_CORE_HOST
       value: operationsmysql
@@ -78,15 +78,15 @@ spec:
     - name: CLOUD_AWS_REGION_STATIC
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-region
     - name: AWS_ACCESS_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-access-key
     - name: AWS_SECRET_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-secret-key

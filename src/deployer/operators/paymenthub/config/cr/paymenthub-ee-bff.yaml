@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-operations-app
+  name: paymenthub-ee-bff
   namespace: paymenthub
 spec:
   enabled: true
@@ -45,18 +45,18 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-operations-app
+                name: paymenthub-ee-bff
                 port:
                   number: 80
   services:
-    - name: ph-ee-operations-app
+    - name: paymenthub-ee-bff
       ports:
         - name: port
           port: 80
           targetPort: 5000
           protocol: TCP
       selector:
-        app: ph-ee-operations-app
+        app: paymenthub-ee-bff
       sessionAffinity: None
       type: ClusterIP
   livenessProbe:
@@ -85,7 +85,7 @@ spec:
     - name: FINERACT_DATASOURCE_CORE_PASSWORD
       valueFrom:
         secretKeyRef:
-          name: ph-ee-operations-app-secret
+          name: paymenthub-ee-bff-secret
           key: database-password
     - name: FINERACT_DATASOURCE_CORE_HOST
       value: "operationsmysql"
@@ -110,27 +110,27 @@ spec:
     - name: CLOUD_AWS_REGION_STATIC
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-region
     - name: AWS_ACCESS_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-access-key
     - name: AWS_SECRET_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-secret-key
     - name: CLOUD_AWS_CREDENTIALS_ACCESS-KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-access-key
     - name: CLOUD_AWS_CREDENTIALS_SECRET-KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-secret-key
     - name: JAVA_TOOL_OPTIONS
       value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"

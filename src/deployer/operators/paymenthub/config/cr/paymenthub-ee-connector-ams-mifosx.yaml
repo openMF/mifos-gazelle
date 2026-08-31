@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-ams-mifos
+  name: paymenthub-ee-connector-ams-mifosx
   namespace: paymenthub
 spec:
   enabled: true
@@ -48,11 +48,11 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-connector-ams-mifos
+                name: paymenthub-ee-connector-ams-mifosx
                 port:
                   number: 80
   services:
-    - name: ph-ee-connector-ams-mifos
+    - name: paymenthub-ee-connector-ams-mifosx
       ports:
         - name: port
           port: 80
@@ -63,7 +63,7 @@ spec:
           targetPort: 5000
           protocol: TCP
       selector:
-        app: ph-ee-connector-ams-mifos
+        app: paymenthub-ee-connector-ams-mifosx
       sessionAffinity: None
       type: ClusterIP
   environment:

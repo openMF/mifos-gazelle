@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-bulk-processor
+  name: paymenthub-ee-bulk-processor
   namespace: paymenthub
 spec:
   enabled: true
@@ -47,11 +47,11 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-bulk-processor
+                name: paymenthub-ee-bulk-processor
                 port:
                   number: 80
   services:
-    - name: ph-ee-bulk-processor
+    - name: paymenthub-ee-bulk-processor
       ports:
         - name: port
           port: 80
@@ -62,7 +62,7 @@ spec:
           targetPort: 8080
           protocol: TCP
       selector:
-        app: ph-ee-bulk-processor
+        app: paymenthub-ee-bulk-processor
       sessionAffinity: None
       type: ClusterIP
   livenessProbe:
@@ -91,7 +91,7 @@ spec:
     - name: CAMEL_DISABLE_SSL
       value: "true"
     - name: OPERATIONS_APP_CONTACTPOINT
-      value: "http://ph-ee-operations-app:80"
+      value: "http://paymenthub-ee-bff:80"
     - name: OPERATIONS_APP_ENDPOINTS_BATCH_TRANSACTION
       value: "/api/v1/batch/transactions"
     - name: IDENTITY_MAPPER_CONTACTPOINT
@@ -103,31 +103,31 @@ spec:
     - name: CLOUD_AWS_REGION_STATIC
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-region
     - name: AWS_ACCESS_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-access-key
     - name: AWS_SECRET_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-secret-key
     - name: FINERACT_DATASOURCE_CORE_USERNAME
       value: "mifos"
     - name: FINERACT_DATASOURCE_CORE_PASSWORD
       valueFrom:
         secretKeyRef:
-          name: ph-ee-operations-app-secret
+          name: paymenthub-ee-bff-secret
           key: database-password
     - name: FINERACT_DATASOURCE_CORE_HOST
       value: "operationsmysql"
     - name: FINERACT_DATASOURCE_CORE_PORT
       value: "3306"
     - name: BULK_PROCESSOR_CALLBACK_URL
-      value: "http://ph-ee-bulk-processor:80/authorization/callback"
+      value: "http://paymenthub-ee-bulk-processor:80/authorization/callback"
     - name: CONFIG_PARTYLOOKUP_ENABLE
       value: "true"
     - name: CONFIG_APPROVAL_ENABLE
@@ -137,7 +137,7 @@ spec:
     - name: CONFIG_ORDERING_FIELD
       value: ""
     - name: CHANNEL_HOSTNAME
-      value: "http://ph-ee-connector-channel:8443"
+      value: "http://paymenthub-ee-connector-channel:8443"
     - name: CONFIG_SPLITTING_ENABLE
       value: "true"
     - name: CONFIG_SPLITTING_SUB_BATCH_SIZE
