@@ -88,8 +88,8 @@ clean_phee() {
   # it's gone, nothing is left to process that finalizer, so the CR (and the
   # whole namespace) hangs in Terminating forever, fixable only by hand-patching
   # afterwards. Waiting here closes that window.
-  kubectl scale deployment/ph-ee-operator --replicas=0 -n "$PH_NAMESPACE" > /dev/null 2>&1 || true
-  kubectl wait --for=delete pod -l app=ph-ee-operator -n "$PH_NAMESPACE" --timeout=60s > /dev/null 2>&1 || true
+  kubectl scale deployment/paymenthub-ee-operator --replicas=0 -n "$PH_NAMESPACE" > /dev/null 2>&1 || true
+  kubectl wait --for=delete pod -l app=paymenthub-ee-operator -n "$PH_NAMESPACE" --timeout=60s > /dev/null 2>&1 || true
 
   kubectl get paymenthubdeployments -n "$PH_NAMESPACE" -o name 2>/dev/null \
     | xargs -r -I{} kubectl patch {} -n "$PH_NAMESPACE" --type=merge -p '{"metadata":{"finalizers":[]}}' \
@@ -187,7 +187,7 @@ deploy_ph_operator() {
   local deploy_dir="$RUN_DIR/src/deployer/operators/paymenthub"
 
   log_step "Applying PaymentHub operator CRD"
-  kubectl apply -f "$deploy_dir/config/crd/ph-ee-CustomResourceDefinition.yaml" > /dev/null || { log_failed "CRD apply failed"; return 1; }
+  kubectl apply -f "$deploy_dir/config/crd/paymenthub-ee-CustomResourceDefinition.yaml" > /dev/null || { log_failed "CRD apply failed"; return 1; }
   kubectl wait --for=condition=Established crd/paymenthubdeployments.gazelle.mifos.io --timeout=60s > /dev/null 2>&1
   log_ok
 
@@ -204,8 +204,8 @@ deploy_ph_operator() {
   log_step "Deploying PaymentHub operator"
   kubectl apply -f "$deploy_dir/operator_deployment.yaml" -n "$PH_NAMESPACE" > /dev/null || { log_failed "Operator Deployment apply failed"; return 1; }
 
-  if ! kubectl rollout status deployment/ph-ee-operator -n "$PH_NAMESPACE" --timeout=300s > /dev/null 2>&1; then
-    log_failed "Operator pod did not start — check: kubectl logs deployment/ph-ee-operator -n $PH_NAMESPACE"
+  if ! kubectl rollout status deployment/paymenthub-ee-operator -n "$PH_NAMESPACE" --timeout=300s > /dev/null 2>&1; then
+    log_failed "Operator pod did not start — check: kubectl logs deployment/paymenthub-ee-operator -n $PH_NAMESPACE"
     return 1
   fi
   log_ok

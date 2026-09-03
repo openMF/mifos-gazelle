@@ -103,7 +103,7 @@ spec:
     - name: OPERATIONS_APP_ENDPOINTS_BATCH_DETAIL
       value: "/api/v1/batch/detail"
     - name: MOCK_PAYMENT_SCHEMA_CONTACTPOINT
-      value: "http://ph-ee-connector-mock-payment-schema:8080"
+      value: "http://paymenthub-ee-connector-mock-payment-schema:8080"
     - name: MOCK_PAYMENT_SCHEMA_ENDPOINTS_BATCH_SUMMARY
       value: "/mockapi/v1/batch"
     - name: MOCK_PAYMENT_SCHEMA_ENDPOINTS_BATCH_DETAIL

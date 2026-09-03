@@ -109,7 +109,7 @@ def print_curl_commands(domain, csv_file_path, private_key, tenant, correlation_
     print(f'  -H "Platform-TenantId: {tenant}" \\', file=sys.stderr)
     print(f'  -H "type: csv" \\', file=sys.stderr)
     print(f'  -H "filename: {Path(csv_file_path).name}" \\', file=sys.stderr)
-    print(f'  -H "X-CallbackURL: http://ph-ee-connector-mock-payment-schema:8080/batches/{correlation_id}/callback" \\', file=sys.stderr)
+    print(f'  -H "X-CallbackURL: http://paymenthub-ee-connector-mock-payment-schema:8080/batches/{correlation_id}/callback" \\', file=sys.stderr)
     print(f'  -H "Purpose: Batch payment" \\', file=sys.stderr)
     if govstack and registering_institution:
         print(f'  -H "X-Registering-Institution-ID: {registering_institution}" \\', file=sys.stderr)
@@ -179,7 +179,7 @@ def submit_batch_request(domain, csv_file_path, signature, tenant='greenbank',
         "Platform-TenantId": tenant,
         "type": "csv",
         "filename": Path(csv_file_path).name,
-        "X-CallbackURL": f"http://ph-ee-connector-mock-payment-schema:8080/batches/{correlation_id}/callback",
+        "X-CallbackURL": f"http://paymenthub-ee-connector-mock-payment-schema:8080/batches/{correlation_id}/callback",
         "Purpose": "Batch payment",
     }
     if govstack:

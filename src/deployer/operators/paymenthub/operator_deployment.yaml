@@ -3,7 +3,7 @@
 # in src/deployer/paymenthub.sh, the same way operator_rbac.yaml is.
 #
 # TEMPORARY: openmf/paymenthub-ee-k8s-operators has no published image yet, and
-# the old openmf/ph-ee-k8s-operators:dev-dd9ac20 can't parse the CRD's
+# the old openmf/paymenthub-ee-k8s-operators:dev-dd9ac20 can't parse the CRD's
 # volMount.mounts field (added after that image was built) — its informer
 # crashes on startup, so no CR reconciles at all. Pointed at a locally built
 # image in the meantime (built + imported via build-and-import-image.sh from
@@ -14,25 +14,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ph-ee-operator
+  name: paymenthub-ee-operator
   namespace: paymenthub
   labels:
-    app: ph-ee-operator
+    app: paymenthub-ee-operator
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ph-ee-operator
+      app: paymenthub-ee-operator
   template:
     metadata:
       labels:
-        app: ph-ee-operator
+        app: paymenthub-ee-operator
     spec:
-      serviceAccountName: ph-ee-operator-sa
+      serviceAccountName: paymenthub-ee-operator-sa
       containers:
         - name: operator
-          image: paymenthub-operator:local
-          imagePullPolicy: Never
+          image: docker.io/openmf/paymenthub-ee-k8s-operators:dev-fd987dd
+          imagePullPolicy: IfNotPresent
           env:
             - name: WATCH_NAMESPACE
               valueFrom:

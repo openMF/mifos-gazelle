@@ -74,9 +74,9 @@ For components with `k8s_deploy_name` in `localdev.ini`, the patcher:
 
 > **Operator reconciliation:** The in-cluster PaymentHub operator reconciles the 19 `PaymentHubDeployment`-managed components periodically and will revert k8s-direct patches to *those*. Scale it down while developing one of them:
 > ```bash
-> kubectl scale deployment ph-ee-operator -n paymenthub --replicas=0
+> kubectl scale deployment paymenthub-ee-operator -n paymenthub --replicas=0
 > # ... develop ...
-> kubectl scale deployment ph-ee-operator -n paymenthub --replicas=1
+> kubectl scale deployment paymenthub-ee-operator -n paymenthub --replicas=1
 > ```
 > This does **not** apply when patching the operator itself (`paymenthub-operator` in the table below) — its own Deployment is applied directly by `paymenthub.sh`, not reconciled by anything, so nothing reverts a patch to it.
 
@@ -184,7 +184,7 @@ checkout_to_dir = ${HOME}
 
 | Section | Mode | Checkout branch | k8s Deployment name |
 |---------|------|-----------------|---------------------|
-| `paymenthub-operator` | k8s-direct | main | `ph-ee-operator` |
+| `paymenthub-operator` | k8s-direct | main | `paymenthub-ee-operator` |
 | `channel` | k8s-direct | dev | `ph-ee-connector-channel` |
 | `bulk-processor` | k8s-direct | dev | `ph-ee-bulk-processor` |
 | `importer-rdbms` | k8s-direct | dev | `ph-ee-importer-rdbms` |
@@ -214,9 +214,9 @@ cd ~/mifos-gazelle/src/utils/localdev
 
 cd ~/ph-ee-k8s-operators/paymenthub-operator
 ./gradlew bootJar
-kubectl delete pod -n paymenthub -l app=ph-ee-operator   # pick up the new JAR
+kubectl delete pod -n paymenthub -l app=paymenthub-ee-operator   # pick up the new JAR
 
-kubectl logs -f -n paymenthub -l app=ph-ee-operator
+kubectl logs -f -n paymenthub -l app=paymenthub-ee-operator
 
 # When done
 cd ~/mifos-gazelle/src/utils/localdev
@@ -269,7 +269,7 @@ Common causes:
 ### Patch reverted by operator
 The in-cluster PaymentHub operator reconciles Deployments and will overwrite patches. Scale it down:
 ```bash
-kubectl scale deployment ph-ee-operator -n paymenthub --replicas=0
+kubectl scale deployment paymenthub-ee-operator -n paymenthub --replicas=0
 ```
 
 ### Restore fails

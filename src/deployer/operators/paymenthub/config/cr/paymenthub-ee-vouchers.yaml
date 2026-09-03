@@ -76,4 +76,4 @@ spec:
     - name: OPERATIONS_HOSTNAME
       value: "http://paymenthub-ee-bff:80"
     - name: MOCK_SCHEMA_HOSTNAME
-      value: "http://ph-ee-connector-mock-payment-schema:8080"
+      value: "http://paymenthub-ee-connector-mock-payment-schema:8080"

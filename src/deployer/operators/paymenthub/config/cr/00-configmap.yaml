@@ -10,7 +10,7 @@
 #   paymenthub-ee-importer-rdbms, paymenthub-ee-connector-channel, paymenthub-ee-bff,
 #   paymenthub-ee-connector-mojaloop, paymenthub-ee-notifications, paymenthub-ee-zeebe-ops,
 #   paymenthub-ee-connector-bulk, paymenthub-ee-bulk-processor,
-#   ph-ee-connector-mock-payment-schema, paymenthub-ee-account-mapper,
+#   paymenthub-ee-connector-mock-payment-schema, paymenthub-ee-account-mapper,
 #   paymenthub-ee-connector-ams-mifosx, paymenthub-ee-p2g, paymenthub-ee-vouchers
 #
 # Disabled (operator can enable via CR toggle when needed):
