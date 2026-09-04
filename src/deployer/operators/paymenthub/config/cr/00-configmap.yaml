@@ -14,8 +14,14 @@
 #   paymenthub-ee-connector-ams-mifosx, paymenthub-ee-p2g, paymenthub-ee-vouchers
 #
 # Disabled (operator can enable via CR toggle when needed):
-#   ph-ee-connector-gsma (image openmf/ph-ee-connector-gsma:v1.3.0-gazelle-1.1.0 not on Docker Hub),
-#   paymenthub-ee-importer-es, message-gateway, ph-ee-connector-crm,
+#   paymenthub-ee-connector-mm-gsma (CR renamed to match the upstream repo rename;
+#     image still pinned to the old openmf/ph-ee-connector-gsma-mm build --
+#     openmf/ph-ee-connector-gsma (no "-mm") never published that tag despite the CR
+#     historically pointing at it -- and openmf/paymenthub-ee-connector-mm-gsma has no
+#     published image yet either),
+#   paymenthub-ee-importer-es, message-gateway, paymenthub-ee-connector-crm (CR renamed;
+#     image still pinned to the old openmf/ph-ee-connector-crm build -- no
+#     openmf/paymenthub-ee-connector-crm image published yet),
 #   ph-ee-operations-web
 # =============================================================================
 apiVersion: v1

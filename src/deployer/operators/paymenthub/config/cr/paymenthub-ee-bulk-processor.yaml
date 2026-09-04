@@ -146,7 +146,7 @@ spec:
     # (bulk-gazelle-mojaloop-4.csv, bulk-gazelle-closedloop-4.csv) have exactly 4 rows,
     # so the previous value of 5 guaranteed every test batch got silently skipped.
     - name: CONFIG_SPLITTING_SUB_BATCH_SIZE
-      value: "1"
+      value: "2"
     - name: CONFIG_FORMATTING_ENABLE
       value: "false"
     - name: CONFIG_FORMATTING_STANDARD
