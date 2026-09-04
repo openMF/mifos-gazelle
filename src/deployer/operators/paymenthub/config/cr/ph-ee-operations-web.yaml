@@ -4,7 +4,9 @@ metadata:
   name: ph-ee-operations-web
   namespace: paymenthub
 spec:
-  enabled: true
+  # Disabled locally while testing paymenthub-ee-operationsui-react.yaml, which reuses this
+  # same ops.GAZELLE_DOMAIN ingress host as its React replacement.
+  enabled: false
   domain: GAZELLE_DOMAIN
   volMount:
     enabled: true

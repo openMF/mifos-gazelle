@@ -1,0 +1,90 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: paymenthub-ee-operationsui-react
+  namespace: paymenthub
+spec:
+  enabled: true
+  domain: GAZELLE_DOMAIN
+  replicas: 1
+  # Built and imported locally with:
+  #   src/utils/build-and-import-image.sh -n tdaly61/paymenthub-ee-operationsui-react -t dev-gaz248 \
+  #     -c ~/paymenthub-ee-operationsui-react -f ~/paymenthub-ee-operationsui-react/Dockerfile
+  # Swap this tag for whatever you rebuild locally, or a pushed tag once this is in CircleCI.
+  image: docker.io/tdaly61/paymenthub-ee-operationsui-react:dev-gaz248
+  containerPort: 80
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512M
+    requests:
+      cpu: 100m
+      memory: 256M
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: true
+  ingress:
+    className: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    tls:
+      - secretName: sandbox-secret
+    rules:
+      - host: ops.local
+        paths:
+          - path: "/"
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: paymenthub-ee-operationsui-react
+                port:
+                  number: 4200
+  services:
+    - name: paymenthub-ee-operationsui-react
+      ports:
+        - name: port
+          port: 4200
+          targetPort: 80
+          protocol: TCP
+      selector:
+        app: paymenthub-ee-operationsui-react
+      sessionAffinity: None
+      type: ClusterIP
+  livenessProbe:
+    path: /
+    port: 80
+    initialDelaySeconds: 20
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /
+    port: 80
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  environment:
+    - name: VITE_API_BASE_URL
+      value: "https://ops-bk.GAZELLE_DOMAIN/api/v1"
+    - name: VITE_BULK_CONNECTOR_URL
+      value: "https://connector-bulk.GAZELLE_DOMAIN"
+    - name: VITE_TENANT_ID
+      value: "greenbank"
+    # Keycloak now runs in-cluster as part of the shared infra chart (keycloak.enabled)
+    # behind its own ingress host -- see src/deployer/helm/infra/values.yaml for the
+    # image/DB/realm/client/test-user config. The browser talks to Keycloak directly, so
+    # this must be a hostname the browser can resolve (not a cluster-internal service
+    # name), which is also why Keycloak sits in the infra namespace's Postgres rather
+    # than paymenthub's -- it isn't PHEE-specific state.
+    - name: VITE_KEYCLOAK_URL
+      value: "https://keycloak-ops.GAZELLE_DOMAIN"
+    - name: VITE_KEYCLOAK_REALM
+      value: "paymenthub"
+    - name: VITE_KEYCLOAK_CLIENT_ID
+      value: "opsapp"
+    - name: VITE_G2P_SERVICE_URL
+      value: "https://g2p.GAZELLE_DOMAIN"
+    - name: VITE_ENABLE_MSW
+      value: "false"

@@ -364,3 +364,102 @@ postgresql:
         04-create-loanrisk-db.sql: |
           CREATE DATABASE loanrisk;
 
+############### Keycloak (SSO for paymenthub-ee-operationsui-react) ####################
+## Uses this chart's own Postgres instance above (own database, same superuser) rather
+## than a bundled one — postgresql.enabled: false + externalDatabase.
+keycloak:
+  enabled: true
+  fullnameOverride: "keycloak"
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/keycloak
+    tag: 26.3.3-debian-12-r0
+  auth:
+    adminUser: admin
+    adminPassword: admin
+  # Dev-mode: TLS is terminated at the shared nginx ingress, Keycloak itself runs
+  # plain HTTP and trusts nginx's X-Forwarded-* headers.
+  production: false
+  proxyHeaders: "xforwarded"
+  # 1Gi limit OOMKilled Keycloak during its first-boot Quarkus augmentation step
+  # (before it even reaches the readiness probe) — bumped to give that headroom.
+  resources:
+    requests:
+      memory: 768Mi
+      cpu: 200m
+    limits:
+      memory: 1536Mi
+      cpu: 500m
+  postgresql:
+    enabled: false
+  externalDatabase:
+    host: "postgres"
+    port: 5432
+    user: postgres
+    password: "postgrespw"
+    database: keycloak
+  # postgresql.primary.initdb.scripts below only runs against a brand-new, empty data
+  # directory -- useless for redeploys onto an already-initialized instance (which is
+  # every real deployment, since postgres predates Keycloak here). Create the database
+  # idempotently on every pod start instead, same pattern docs/MIFOSX.md prescribes for
+  # new components sharing this Postgres.
+  initContainers:
+    - name: create-keycloak-db
+      image: docker.io/bitnamilegacy/postgresql:16.6.0
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: PGPASSWORD
+          value: "postgrespw"
+      command:
+        - /bin/bash
+        - -c
+        - |
+          until pg_isready -h postgres -p 5432 -U postgres; do
+            echo "waiting for postgres..."
+            sleep 2
+          done
+          psql -h postgres -U postgres -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'keycloak'" | grep -q 1 || \
+            psql -h postgres -U postgres -d postgres -c "CREATE DATABASE keycloak"
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hostname: keycloak-ops.mifos.gazelle.test
+  # Declarative realm/client/user import via the bundled keycloak-config-cli job —
+  # no manual Admin-API calls needed after deploy. Users aren't part of a normal
+  # realm export; the "mifos" test user is defined explicitly below with
+  # firstName/lastName/email set, since Keycloak's default VERIFY_PROFILE required
+  # action otherwise blocks login with a generic "Account is not fully set up" error.
+  keycloakConfigCli:
+    enabled: true
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/keycloak-config-cli
+    configuration:
+      paymenthub.yaml: |
+        realm: paymenthub
+        enabled: true
+        clients:
+          - clientId: opsapp
+            publicClient: true
+            standardFlowEnabled: true
+            directAccessGrantsEnabled: true
+            redirectUris:
+              - "http://localhost:5173/*"
+              - "https://ops.mifos.gazelle.test/*"
+            webOrigins:
+              - "http://localhost:5173"
+              - "https://ops.mifos.gazelle.test"
+        # Demo/test login — mifos-gazelle is a local dev/demo tool, not a production
+        # deployment target, so a well-known test credential here is acceptable.
+        users:
+          - username: mifos
+            enabled: true
+            firstName: Mifos
+            lastName: Admin
+            email: mifos@mifos.gazelle.test
+            emailVerified: true
+            credentials:
+              - type: password
+                value: password
+                temporary: false
+
