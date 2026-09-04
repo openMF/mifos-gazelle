@@ -7,11 +7,7 @@ spec:
   enabled: true
   domain: GAZELLE_DOMAIN
   replicas: 1
-  # Built and imported locally with:
-  #   src/utils/build-and-import-image.sh -n tdaly61/paymenthub-ee-operationsui-react -t dev-gaz248 \
-  #     -c ~/paymenthub-ee-operationsui-react -f ~/paymenthub-ee-operationsui-react/Dockerfile
-  # Swap this tag for whatever you rebuild locally, or a pushed tag once this is in CircleCI.
-  image: docker.io/tdaly61/paymenthub-ee-operationsui-react:dev-gaz248
+  image: docker.io/openmf/paymenthub-ee-operationsui-react:dev-da2f15d
   containerPort: 80
   resources:
     limits:

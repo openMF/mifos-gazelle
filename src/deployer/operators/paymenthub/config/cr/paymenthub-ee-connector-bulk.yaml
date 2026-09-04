@@ -114,8 +114,10 @@ spec:
       value: "/batchtransactions"
     - name: IDENTITY_MAPPER_CONTACTPOINT
       value: "http://paymenthub-ee-account-mapper:80"
+    # Port 8443 (jar default) doesn't answer for this service -- verified from inside the
+    # connector-channel pod that its real HTTP listener is 8080 (8443 gives 500, 82 refuses).
     - name: CHANNEL_CONTACTPOINT
-      value: "http://paymenthub-ee-connector-channel:8443"
+      value: "http://paymenthub-ee-connector-channel:8080"
     - name: CHANNEL_ENDPOINTS_TRANSFER
       value: "/channel/transfer"
     - name: BULK_PROCESSOR_ENDPOINTS_BATCH_EXECUTION

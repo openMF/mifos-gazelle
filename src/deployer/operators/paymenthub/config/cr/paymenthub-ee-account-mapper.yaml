@@ -95,6 +95,10 @@ spec:
       value: "INFO"
     - name: JAVA_TOOL_OPTIONS
       value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
+    - name: MOJALOOP_CONNECTOR_CONTACTPOINT
+      value: "http://account-lookup-http-oracle-svc.vnext.svc.cluster.local:3031/_interop"
+    - name: GSMA_CONNECTOR_CONTACTPOINT
+      value: "http://paymenthub-ee-connector-ams-mifosx"
 
 # =============================================================================
 # Disabled components — set enabled: true to activate via operator
