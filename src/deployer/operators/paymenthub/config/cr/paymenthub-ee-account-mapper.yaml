@@ -99,6 +99,14 @@ spec:
       value: "http://account-lookup-http-oracle-svc.vnext.svc.cluster.local:3031/_interop"
     - name: GSMA_CONNECTOR_CONTACTPOINT
       value: "http://paymenthub-ee-connector-ams-mifosx"
+    # callback_enabled defaults to false, which silently disables SendCallbackService --
+    # AccountLookupService never POSTs back to the caller-supplied callbackURL after a
+    # batch account lookup finishes. That leaves bulk-processor's "Batch Account Lookup
+    # response" receiveTask waiting on a message that's never sent: no exception, no Zeebe
+    # incident, just permanently ACTIVE. Confirmed via Zeebe Operate on a live stuck
+    # instance of bulk_processor_account_lookup-greenbank.
+    - name: CALLBACK_ENABLED
+      value: "true"
 
 # =============================================================================
 # Disabled components — set enabled: true to activate via operator

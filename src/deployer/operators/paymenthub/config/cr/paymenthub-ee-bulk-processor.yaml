@@ -140,8 +140,13 @@ spec:
       value: "http://paymenthub-ee-connector-channel:8443"
     - name: CONFIG_SPLITTING_ENABLE
       value: "true"
+    # SplittingRoute.java (non-GovStack path) skips sub-batch creation entirely --
+    # SUB_BATCH_CREATED=false, no fallback, batch silently ends with 0 transactions --
+    # whenever the CSV's row count is <= this value. The standard demo/test CSVs
+    # (bulk-gazelle-mojaloop-4.csv, bulk-gazelle-closedloop-4.csv) have exactly 4 rows,
+    # so the previous value of 5 guaranteed every test batch got silently skipped.
     - name: CONFIG_SPLITTING_SUB_BATCH_SIZE
-      value: "5"
+      value: "1"
     - name: CONFIG_FORMATTING_ENABLE
       value: "false"
     - name: CONFIG_FORMATTING_STANDARD
@@ -178,8 +183,11 @@ spec:
     # all (only 80 does), so this is wrong regardless of whether a given batch run reaches it.
     - name: BULK_PROCESSOR_HOSTNAME
       value: "http://paymenthub-ee-connector-bulk:80"
-    # channel.hostname default is https://ph-ee-connector-channel:8443 -- pre-rename name,
-    # and 8443 doesn't answer either (verified from inside that pod: real listener is
-    # plain HTTP on 8080; 8443 gives 500, 82 refuses).
+    # channel.hostname default is https://ph-ee-connector-channel:8443 -- pre-rename name
+    # and wrong scheme (plain HTTP, not HTTPS). Port 8080 (tried first, based on
+    # /actuator/health responding there) turned out to be a separate management-only
+    # context -- POST /channel/transfer 404s there ("No mapping for POST /channel/transfer").
+    # 8443 plain HTTP is where the real business routes are mapped (confirmed: POST
+    # /channel/transfer returns 500 there, i.e. reaches real handler logic, vs 404 on 8080).
     - name: CHANNEL_HOSTNAME
-      value: "http://paymenthub-ee-connector-channel:8080"
+      value: "http://paymenthub-ee-connector-channel:8443"
