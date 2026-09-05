@@ -68,6 +68,8 @@ PROGRAM_FUND_AMOUNT="$(crudini --get "$CONFIG_FILE" \
 # Platform-TenantId + Type:csv headers and does NO OAuth handshake in this version,
 # so the auth/status/details URLs and authorization/grant_type are unused
 # placeholders. The tenant id IS the payer tenant, so it is derived here.
+# PHEE_PAYMENT_ENDPOINT itself is set further down, after PH_NAMESPACE, since it's
+# derived from it.
 PHEE_TENANT_ID="$PHEE_PAYER_TENANT"
 PHEE_PAYER_ID_TYPE="$(crudini --get "$CONFIG_FILE" \
   openg2p OPENG2P_PHEE_PAYER_ID_TYPE 2>/dev/null || echo msisdn)"
@@ -106,7 +108,7 @@ VNEXT_NAMESPACE="$(crudini --get "$CONFIG_FILE" vnext VNEXT_NAMESPACE 2>/dev/nul
 PHEE_PAYMENT_ENDPOINT="$(crudini --get "$CONFIG_FILE" \
   openg2p OPENG2P_PHEE_PAYMENT_ENDPOINT 2>/dev/null)"
 if [[ -z "$PHEE_PAYMENT_ENDPOINT" ]]; then
-  PHEE_BULK_SVC="ph-ee-bulk-processor.${PH_NAMESPACE}:80"
+  PHEE_BULK_SVC="paymenthub-ee-bulk-processor.${PH_NAMESPACE}:80"
   PHEE_PAYMENT_ENDPOINT="http://${PHEE_BULK_SVC}/batchtransactions"
 fi
 
@@ -116,7 +118,7 @@ fi
 PHEE_OPS_ENDPOINT="$(crudini --get "$CONFIG_FILE" \
   openg2p OPENG2P_PHEE_OPS_ENDPOINT 2>/dev/null)"
 if [[ -z "$PHEE_OPS_ENDPOINT" ]]; then
-  PHEE_OPS_ENDPOINT="http://ph-ee-operations-app.${PH_NAMESPACE}:80/api/v1/batch"
+  PHEE_OPS_ENDPOINT="http://paymenthub-ee-bff.${PH_NAMESPACE}:80/api/v1/batch"
 fi
 
 # Base URL Payment Hub posts batch progress back to, as reachable from ITS namespace.

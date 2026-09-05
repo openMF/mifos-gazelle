@@ -21,6 +21,10 @@ spec:
   rbacEnabled: false
   secretEnabled: true
   configMapEnabled: false
+  secretData:
+    api-key: "<api-key>"
+    project-id: "<project-id>"
+    database-password: password
   ingressEnabled: false
   initContainerEnabled: true
   services:
@@ -47,7 +51,7 @@ spec:
           name: message-gateway-secret
           key: database-password
     - name: CALLBACKCONFIG_HOST
-      value: "ph-ee-connector-notifications"
+      value: "paymenthub-ee-notifications"
     - name: HOSTCONFIG_HOST
       value: "message-gateway"
     - name: PROVIDERSOURCE_FROMDATABASE

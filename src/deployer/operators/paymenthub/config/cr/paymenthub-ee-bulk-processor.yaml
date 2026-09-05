@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-bulk-processor
+  name: paymenthub-ee-bulk-processor
   namespace: paymenthub
 spec:
   enabled: true
@@ -10,7 +10,11 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-bulk-processor:dev-latest
+  # Migrated to paymenthub-ee-bulk-processor (Java 21/Spring Boot 3.4). Port
+  # topology unchanged: the app's real listen port is still 8443 (confirmed
+  # live — Docker `EXPOSE 5000` in the image was misleading/unused; Tomcat
+  # logs "initialized with port 8443" on boot).
+  image: docker.io/openmf/paymenthub-ee-bulk-processor:dev-latest
   containerPort: 8443
   resources:
     limits:
@@ -43,11 +47,11 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-bulk-processor
+                name: paymenthub-ee-bulk-processor
                 port:
                   number: 80
   services:
-    - name: ph-ee-bulk-processor
+    - name: paymenthub-ee-bulk-processor
       ports:
         - name: port
           port: 80
@@ -58,7 +62,7 @@ spec:
           targetPort: 8080
           protocol: TCP
       selector:
-        app: ph-ee-bulk-processor
+        app: paymenthub-ee-bulk-processor
       sessionAffinity: None
       type: ClusterIP
   livenessProbe:
@@ -87,7 +91,7 @@ spec:
     - name: CAMEL_DISABLE_SSL
       value: "true"
     - name: OPERATIONS_APP_CONTACTPOINT
-      value: "http://ph-ee-operations-app:80"
+      value: "http://paymenthub-ee-bff:80"
     - name: OPERATIONS_APP_ENDPOINTS_BATCH_TRANSACTION
       value: "/api/v1/batch/transactions"
     - name: IDENTITY_MAPPER_CONTACTPOINT
@@ -99,31 +103,31 @@ spec:
     - name: CLOUD_AWS_REGION_STATIC
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-region
     - name: AWS_ACCESS_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-access-key
     - name: AWS_SECRET_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-secret-key
     - name: FINERACT_DATASOURCE_CORE_USERNAME
       value: "mifos"
     - name: FINERACT_DATASOURCE_CORE_PASSWORD
       valueFrom:
         secretKeyRef:
-          name: ph-ee-operations-app-secret
+          name: paymenthub-ee-bff-secret
           key: database-password
     - name: FINERACT_DATASOURCE_CORE_HOST
       value: "operationsmysql"
     - name: FINERACT_DATASOURCE_CORE_PORT
       value: "3306"
     - name: BULK_PROCESSOR_CALLBACK_URL
-      value: "http://ph-ee-bulk-processor:80/authorization/callback"
+      value: "http://paymenthub-ee-bulk-processor:80/authorization/callback"
     - name: CONFIG_PARTYLOOKUP_ENABLE
       value: "true"
     - name: CONFIG_APPROVAL_ENABLE
@@ -133,11 +137,16 @@ spec:
     - name: CONFIG_ORDERING_FIELD
       value: ""
     - name: CHANNEL_HOSTNAME
-      value: "http://ph-ee-connector-channel:8443"
+      value: "http://paymenthub-ee-connector-channel:8443"
     - name: CONFIG_SPLITTING_ENABLE
       value: "true"
+    # SplittingRoute.java (non-GovStack path) skips sub-batch creation entirely --
+    # SUB_BATCH_CREATED=false, no fallback, batch silently ends with 0 transactions --
+    # whenever the CSV's row count is <= this value. The standard demo/test CSVs
+    # (bulk-gazelle-mojaloop-4.csv, bulk-gazelle-closedloop-4.csv) have exactly 4 rows,
+    # so the previous value of 5 guaranteed every test batch got silently skipped.
     - name: CONFIG_SPLITTING_SUB_BATCH_SIZE
-      value: "5"
+      value: "2"
     - name: CONFIG_FORMATTING_ENABLE
       value: "false"
     - name: CONFIG_FORMATTING_STANDARD
@@ -156,3 +165,29 @@ spec:
       value: "INFO"
     - name: JAVA_TOOL_OPTIONS
       value: "-Xms128m -Xmx384m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
+    # identity_account_mapper.hostname default is http://ph-ee-identity-account-mapper:80 --
+    # the pre-rename service name (now paymenthub-ee-account-mapper). AccountLookupService
+    # couldn't resolve it (UnknownHostException), so every batch -- GovStack and
+    # non-GovStack alike, since account lookup is a shared pipeline step -- completed with
+    # total_transactions=0.
+    - name: IDENTITY_ACCOUNT_MAPPER_HOSTNAME
+      value: "http://paymenthub-ee-account-mapper:80"
+    # mock-payment-schema.contactpoint default is http://ph-ee-connector-mock-payment-schema:8080
+    # -- same pre-rename issue (now paymenthub-ee-connector-mock-payment-schema). Confirmed
+    # failing live: "UnknownHostException: ph-ee-connector-mock-payment-schema" while
+    # POSTing /batches/<id> after the account-lookup fix above.
+    - name: MOCK_PAYMENT_SCHEMA_CONTACTPOINT
+      value: "http://paymenthub-ee-connector-mock-payment-schema:8080"
+    # bulk_processor.hostname default is http://ph-ee-connector-bulk:82 -- besides the
+    # pre-rename name, port 82 doesn't exist on paymenthub-ee-connector-bulk's Service at
+    # all (only 80 does), so this is wrong regardless of whether a given batch run reaches it.
+    - name: BULK_PROCESSOR_HOSTNAME
+      value: "http://paymenthub-ee-connector-bulk:80"
+    # channel.hostname default is https://ph-ee-connector-channel:8443 -- pre-rename name
+    # and wrong scheme (plain HTTP, not HTTPS). Port 8080 (tried first, based on
+    # /actuator/health responding there) turned out to be a separate management-only
+    # context -- POST /channel/transfer 404s there ("No mapping for POST /channel/transfer").
+    # 8443 plain HTTP is where the real business routes are mapped (confirmed: POST
+    # /channel/transfer returns 500 there, i.e. reaches real handler logic, vs 404 on 8080).
+    - name: CHANNEL_HOSTNAME
+      value: "http://paymenthub-ee-connector-channel:8443"

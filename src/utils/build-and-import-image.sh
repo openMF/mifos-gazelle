@@ -79,6 +79,10 @@ error() {
     exit 1
 }
 
+is_colima_running() {
+    command -v colima &> /dev/null && colima status 2>/dev/null | grep -q "running"
+}
+
 # Host architecture in Docker/Kubernetes naming.
 # Same mapping as src/environmentSetup/k8s.sh.
 detect_arch() {
@@ -131,11 +135,14 @@ fi
 
 if [[ "$IMPORT" == true && "$PUSH" != true ]]; then
     [[ -x "$IMPORT_SCRIPT" ]] || error "Import script not found or not executable: $IMPORT_SCRIPT"
-    # The import runs 'k3s ctr' on this machine, so k3s has to be here. Checked before the
-    # build, which can take half an hour, and not after it.
-    command -v k3s &> /dev/null || error "k3s not found, so the image could not be imported after building it.
-The import loads the image into the container runtime of a k3s cluster running on this machine.
-Use --push to send the image to a registry instead, or --no-import to only build it."
+    # The import runs 'k3s ctr' either on this machine (Linux) or, via 'colima ssh', inside
+    # the Colima VM (macOS). Checked before the build, which can take half an hour, and not
+    # after it.
+    if ! command -v k3s &> /dev/null && ! is_colima_running; then
+        error "Neither k3s nor a running Colima VM was found, so the image could not be imported after building it.
+The import loads the image into the container runtime of a k3s cluster running on this machine, or inside a
+running Colima VM on macOS. Use --push to send the image to a registry instead, or --no-import to only build it."
+    fi
 fi
 
 [[ -d "$BUILD_CONTEXT" ]] || error "Build context not found: $BUILD_CONTEXT"
@@ -207,10 +214,23 @@ fi
 import_args=(-n "$IMAGE_NAME" -t "$IMAGE_TAG")
 [[ "$VERBOSE" == true ]] && import_args+=(-v)
 
+# On macOS/Colima the import must run as the invoking user (docker needs the Colima
+# context to reach the VM's daemon); only the step inside 'colima ssh' escalates to root,
+# and it does so by itself. On Linux the import needs root to reach the k3s containerd.
+if is_colima_running; then
+    import_cmd=("$IMPORT_SCRIPT" "${import_args[@]}")
+else
+    import_cmd=(sudo "$IMPORT_SCRIPT" "${import_args[@]}")
+fi
+
 printf "\n==> importing into k3s using %s\n" "$(basename "$IMPORT_SCRIPT")"
-if ! sudo "$IMPORT_SCRIPT" "${import_args[@]}"; then
+if ! "${import_cmd[@]}"; then
     echo "ERROR: import into k3s failed. You can run it by hand with:" >&2
-    echo "  docker save ${IMAGE_REF} | sudo k3s ctr images import -" >&2
+    if is_colima_running; then
+        echo "  docker save ${IMAGE_REF} | colima ssh -- sudo k3s ctr images import -" >&2
+    else
+        echo "  docker save ${IMAGE_REF} | sudo k3s ctr images import -" >&2
+    fi
     exit 1
 fi
 

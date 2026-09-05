@@ -1,0 +1,121 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: paymenthub-ee-connector-mojaloop
+  namespace: paymenthub
+spec:
+  enabled: true
+  waitForGatewayEnabled: true
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  # Migrated to paymenthub-ee-connector-mojaloop (Java 21/Spring Boot 3.4).
+  # Port topology unchanged: 5000 is the Camel/Undertow REST port, actuator
+  # still lives on a separate Tomcat port 8080 — confirmed live (Docker
+  # `EXPOSE 5000` in the image was incomplete; both ports are actually bound).
+  image: docker.io/openmf/paymenthub-ee-connector-mojaloop:dev-latest
+  containerPort: 5000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512M
+    requests:
+      cpu: 100m
+      memory: 256M
+  services:
+    - name: paymenthub-ee-connector-mojaloop
+      ports:
+        - name: port
+          port: 80
+          targetPort: 5000
+          protocol: TCP
+        - name: actuator
+          protocol: TCP
+          port: 8080
+          targetPort: 8080
+      selector:
+        app: paymenthub-ee-connector-mojaloop
+      sessionAffinity: None
+      type: ClusterIP
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb"
+    - name: DFSPIDS
+      value: "greenbank,redbank,bluebank"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "paymenthub-infra-zeebe-gateway:26500"
+    - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
+      value: "50"
+    - name: ZEEBE_CLIENT_POLL-INTERVAL
+      value: "10"
+    # Same fix as SWITCH_als-host below: this was empty, causing "Endpoint
+    # should include scheme:path" on /quotes once the workflow got past
+    # party-lookup — confirmed live. Points at the same FSPIOP switch gateway.
+    - name: SWITCH_quotes-host
+      value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
+    - name: SWITCH_quote-service
+      value: ""
+    # NOTE: was "vnextadmin.mifos.gazelle.test/_interop" (no scheme, and pods
+    # can't resolve *.gazelle.test hostnames at all — no CoreDNS custom
+    # config, no hostAliases — a pre-existing cluster DNS limitation).
+    # This connector calls GET /parties/MSISDN/{id} — the FSPIOP switch
+    # gateway's party-lookup endpoint, not the raw oracle. The oracle Service
+    # (account-lookup-http-oracle-svc:3031) only implements /participants/...
+    # (confirmed live: /parties/... 404s there even for a registered MSISDN;
+    # /participants/... on the same service returns {"fspId":"bluebank"}).
+    # The real target is the switch's own gateway, vnext's
+    # fspiop-api-svc:4000 (externally fronted by a *separate* ingress on
+    # fspiop.mifos.gazelle.test, not vnextadmin...) — confirmed live: it
+    # accepts /parties/MSISDN/{id} and validates real FSPIOP headers
+    # (Date, fspiop-source, Accept/Content-Type), which this connector's own
+    # code already sets. Calling the in-cluster Service directly avoids the
+    # external DNS dependency entirely.
+    - name: SWITCH_als-host
+      value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
+    - name: SWITCH_account-lookup-service
+      value: ""
+    # Same fix, pre-emptive: same empty-host pattern would hit the same
+    # missing-scheme error at the transfers/transactions steps next.
+    - name: SWITCH_transfers-host
+      value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
+    - name: SWITCH_transfers-service
+      value: ""
+    - name: SWITCH_transactions-host
+      value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
+    - name: SWITCH_transaction-request-service
+      value: ""
+    - name: SWITCH_oracle-host
+      value: ""
+    - name: parties_0_domain
+      value: "paymenthub-ee-connector-mojaloop.paymenthub.svc.cluster.local"
+    - name: parties_1_domain
+      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
+    - name: parties_0_tenantId
+      value: "greenbank"
+    - name: parties_1_tenantId
+      value: "bluebank"
+    - name: parties_0_fspId
+      value: "greenbank"
+    - name: parties_1_fspId
+      value: "bluebank"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms64m -Xmx192m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=96m"

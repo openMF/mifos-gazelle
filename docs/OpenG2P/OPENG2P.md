@@ -526,15 +526,16 @@ every 10 minutes. It ships inactive and is armed on the first send, and it exist
 retries a dropped callback three times and then never redelivers.
 
 **Endpoints.** `OPENG2P_PHEE_PAYMENT_ENDPOINT` and `OPENG2P_PHEE_OPS_ENDPOINT` in `config.ini` point
-at `ph-ee-bulk-processor` and `ph-ee-operations-app` over in-cluster DNS, because reaching the ingress
-from inside the cluster would need the self-signed certificate trusted.
+at `paymenthub-ee-bulk-processor` and `paymenthub-ee-bff` (formerly `ph-ee-operations-app`) over
+in-cluster DNS, because reaching the ingress from inside the cluster would need the self-signed
+certificate trusted.
 
 **Staying idempotent.** Each patch greps for its own result before applying. The reconciliation block
 is cut from its marker to end-of-file and re-appended every run so that edits actually land, with the
 file restored if the result does not parse; new files are compared before being replaced, and a real
 change forces an Odoo restart, since controllers are imported at process start.
 
-**Caveats.** The `int()` cast is measurably unnecessary on `openmf/ph-ee-bulk-processor:dev-latest` —
+**Caveats.** The `int()` cast is measurably unnecessary on `openmf/paymenthub-ee-bulk-processor:dev-latest` —
 a decimal amount parses and totals identically to an integer one — and it truncates where Payment Hub
 rounds, so `int(round(...))` would be the safer form. This Odoo's `ir.cron` still carries
 `numbercall`, which counts down and disables the record at zero, so it is pinned to `-1` and repaired
@@ -557,7 +558,7 @@ the callback defaults are set in both places.
 | "Send Payments" does nothing | Approve **both** the entitlements and the cycle first |
 | PBMS says "sent" but balances don't change | PBMS marks sent on POST and never polls. Check the balance in MifosX (Step 10) |
 | A beneficiary is never credited | Their MSISDN isn't in the vNext ALS oracle — re-run the data-setup script's oracle step |
-| Only part of a large batch is paid | Connector saturates under load. Use smaller batches or give `ph-ee-connector-mojaloop-java` more resources |
+| Only part of a large batch is paid | Connector saturates under load. Use smaller batches or give `paymenthub-ee-connector-mojaloop` more resources |
 | Cycle won't approve ("approver group not specified") | Re-run `openg2p-data-setup.sh` — it sets this idempotently |
 | Ops Web transfers list empty | Accept the `ops-bk.mifos.gazelle.test` certificate |
 

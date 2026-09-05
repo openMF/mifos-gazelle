@@ -27,6 +27,8 @@ After downloading, open postman, go to collections. Then click on `import` and o
 
 NOTE: This directory and file appears only after you have run the installation, if you need to import the collections without running the deployment, then you can download from [here](https://raw.githubusercontent.com/openMF/ph-ee-env-template/master/PostmanCollections/Payment%20Hub.json).
 
+NOTE: `openMF/ph-ee-env-template` predates the `ph-ee-` → `paymenthub-ee-` repo rename and Gazelle no longer clones it (its Helm chart was vendored directly into `src/deployer/helm/paymenthub-infra/`) — verify this link still resolves, or locate the current home of the Postman collections, before relying on it.
+
 
 ## Step 4: Importing Environment
 To import the environment for running the collection, you can go to Environments, then click on Import and then open the file `repos/ph_template/PostmanCollections/Environment/PHEE_G2P_Demo.postman_environment.json`.
