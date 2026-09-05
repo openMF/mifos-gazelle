@@ -10,6 +10,8 @@
 
 All PHEE components are **operator-managed**: deployed by the PaymentHub Kubernetes operator from `PaymentHubDeployment` CRs in `src/deployer/operators/paymenthub/config/cr/`. `localdev.py` patches live Kubernetes Deployments directly via `kubectl get/apply` (k8s-direct-mode).
 
+> **Naming note:** the upstream `openMF/ph-ee-*` repos are being renamed to `paymenthub-ee-*`. In-cluster Kubernetes Deployment/pod names have mostly already moved to `paymenthub-ee-*`, but a few source repos (and therefore local checkout directories) haven't been renamed upstream yet — e.g. `ph-ee-operations-web`, `ph-ee-importer-rdbms`, `ph-ee-zeebe-ops`. The tables below reflect the current, mixed state; always verify with `kubectl get deployments -n paymenthub` before assuming a name.
+
 ### Files
 
 | File | Purpose |
@@ -42,7 +44,7 @@ cd ~/ph-ee-importer-rdbms
 JAVA_HOME=/home/mifosu/jdk-17.0.2 ./gradlew build -x test
 
 # 4. Restart the pod to pick up the new JAR
-kubectl delete pod -n paymenthub -l app=ph-ee-importer-rdbms
+kubectl delete pod -n paymenthub -l app=paymenthub-ee-importer-rdbms
 
 # 5. When done, restore the original deployment
 cd ~/mifos-gazelle/src/utils/localdev
@@ -124,8 +126,8 @@ For components with `k8s_deploy_name` in `localdev.ini`, the patcher:
 cd ~/ph-ee-importer-rdbms
 # ... edit Java files ...
 JAVA_HOME=/home/mifosu/jdk-17.0.2 ./gradlew build -x test
-kubectl delete pod -n paymenthub -l app=ph-ee-importer-rdbms
-kubectl logs -f -n paymenthub -l app=ph-ee-importer-rdbms
+kubectl delete pod -n paymenthub -l app=paymenthub-ee-importer-rdbms
+kubectl logs -f -n paymenthub -l app=paymenthub-ee-importer-rdbms
 ```
 
 ---
@@ -166,7 +168,7 @@ The operator itself (`paymenthub-operator`) uses plain k8s-direct mode too — i
 
 ```ini
 [my-component]
-k8s_deploy_name = ph-ee-my-component       # verify with: kubectl get deployments -n paymenthub
+k8s_deploy_name = paymenthub-ee-my-component   # verify with: kubectl get deployments -n paymenthub
 k8s_namespace   = paymenthub
 app_type        = springboot
 image           = eclipse-temurin:17
@@ -185,21 +187,21 @@ checkout_to_dir = ${HOME}
 | Section | Mode | Checkout branch | k8s Deployment name |
 |---------|------|-----------------|---------------------|
 | `paymenthub-operator` | k8s-direct | main | `paymenthub-ee-operator` |
-| `channel` | k8s-direct | dev | `ph-ee-connector-channel` |
-| `bulk-processor` | k8s-direct | dev | `ph-ee-bulk-processor` |
-| `importer-rdbms` | k8s-direct | dev | `ph-ee-importer-rdbms` |
-| `connector-mojaloop` | k8s-direct | dev | `ph-ee-connector-mojaloop-java` |
-| `ams-mifos` | k8s-direct | dev | `ph-ee-connector-ams-mifos` |
-| `bill-pay` | k8s-direct | mifos-v2.0.0 | `ph-ee-connector-bill-pay` |
+| `channel` | k8s-direct | dev | `paymenthub-ee-connector-channel` |
+| `bulk-processor` | k8s-direct | dev | `paymenthub-ee-bulk-processor` |
+| `mock-payment` | k8s-direct | dev | `paymenthub-ee-connector-mock-payment-schema` |
+| `operations-web` | k8s-direct | dev | `ph-ee-operations-web` — not yet renamed upstream; the two candidate replacement repos (`paymenthub-ee-operationsui-react`, `paymenthub-ee-operationsui-angular`) are scaffold-only |
+| `importer-rdbms` | k8s-direct | dev | `paymenthub-ee-importer-rdbms` |
+| `ams-mifos` | k8s-direct | dev | `paymenthub-ee-connector-ams-mifosx` |
+| `connector-mojaloop` | k8s-direct | dev | `paymenthub-ee-connector-mojaloop` |
+| `bill-pay` | k8s-direct | dev | `paymenthub-ee-p2g` |
 | `connector-bulk` | checkout-only | dev | — |
-| `mock-payment` | checkout-only | dev | — |
-| `operations-app` | checkout-only | gaz-258 | — |
-| `operations-web` | checkout-only | dev | — |
-| `identity-account-mapper` | checkout-only | dev | — |
-| `zeebe-ops` | checkout-only | dev | — |
-| `connector-mccbs` | checkout-only | dev | — (separate operator) |
-| `connector-gsma` | checkout-only | dev | — |
-| `integration-test` | checkout-only | tomdev1 | — (test suite) |
+| `operations-app` | checkout-only | dev | — (repo renamed/merged into `paymenthub-ee-bff`) |
+| `identity-account-mapper` | checkout-only | dev | — (repo renamed to `paymenthub-ee-account-mapper`) |
+| `zeebe-ops` | checkout-only | dev | — (repo still `ph-ee-zeebe-ops`) |
+| `connector-mccbs` | checkout-only | dev | — (separate operator; repo still `ph-ee-connector-mccbs`) |
+| `connector-gsma` | checkout-only | dev | — (repo renamed to `paymenthub-ee-connector-mm-gsma`) |
+| `integration-test` | checkout-only | dev | — (test suite; now a module of `paymenthub-ee-e2e-tests`, shared with `mock-payment`) |
 | `notifications` | checkout-only | dev | — |
 
 ---
@@ -212,7 +214,7 @@ The operator (`paymenthub-operator`) is set up in `localdev.ini` exactly like an
 cd ~/mifos-gazelle/src/utils/localdev
 ./localdev.py --setup --component paymenthub-operator   # checkout + patch
 
-cd ~/ph-ee-k8s-operators/paymenthub-operator
+cd ~/paymenthub-ee-k8s-operators/paymenthub-operator
 ./gradlew bootJar
 kubectl delete pod -n paymenthub -l app=paymenthub-ee-operator   # pick up the new JAR
 

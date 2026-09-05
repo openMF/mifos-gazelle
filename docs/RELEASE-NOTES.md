@@ -73,25 +73,31 @@ The working branch for the next release is **`mifos-v2.0.0`** — the placeholde
 All of the active components have now been merged into current dev branch and will be developed further from there so the mifos-v2.0.0 commit into dev aloing with this table gives traceable history of each component and their versions.
 The current Gazelle deployment is based on **PHEE v1.13.3** (reference: Release Notes v1.13.1-1).
 
+> **Repository naming:** Since this v2.0.0 work, the upstream `openMF` repos below have been progressively
+> renamed from a `ph-ee-*` prefix to `paymenthub-ee-*` (not every component has moved yet). Component
+> names below are kept as originally written for historical accuracy, with the current name noted
+> alongside each. See [PHEE-RELEASE-HISTORY.md](PHEE-RELEASE-HISTORY.md#repository-naming-ph-ee---paymenthub-ee-)
+> for the full old-name → new-name mapping and its caveats.
+
 ---
 
 ## Active Components (deployed by Gazelle)
 
 | Component | Gazelle Branch | Version Lineage |
 |-----------|---------------|-----------------|
-| `ph-ee-connector-channel` | `mifos-v2.0.0` | `v1.11.0-gazelle-1.1.0` + v1.12.2 + CORS fixes |
-| `ph-ee-connector-bulk` | `mifos-v2.0.0` | `v1.1.0-gazelle-1.1.0` + PHEE v1.13.3 (tag v1.2.1) |
-| `ph-ee-bulk-processor` | `mifos-v2.0.0` | master ≡ PHEE v1.13.3 (tag v1.13.1) |
-| `ph-ee-connector-ams-mifos` | `mifos-v2.0.0` | `tomtest-v1.15.0` (already merged PHEE v1.13.3, tag v1.17.3) — note: shared with other users |
-| `ph-ee-connector-mojaloop-java` | `mifos-v2.0.0` | tag v1.5.2 (master = v1.5.2 as at Nov 2025) |
-| `ph-ee-identity-account-mapper` | `mifos-v2.0.0` | `v1.6.0-gazelle-1.1.0` + tom-work + v1.6.2 (PHEE v1.13.3) + other fixes |
-| `ph-ee-connector-mock-payment-schema` | `mifos-v2.0.0` | `v1.6.0-gazelle-1.1.0` + v1.6.1 (PHEE v1.13.3), updated to JDK 17 |
-| `ph-ee-importer-rdbms` | `mifos-v2.0.0` | `v1.13.1-gazelle-1.1.0` + tag v1.14.2 |
-| `ph-ee-operations-app` | `mifos-v2.0.0` | `v1.17.1-gazelle-1.1.0` + tag v1.20.2 + JDK 17 updates |
-| `ph-ee-operations-web` | `mifos-v2.0.0` | `v1.25.0-gazelle-1.1.0` + Dipan's UI changes (`v1.26.0-gazelle-1.2.0-beta`) |
-| `ph-ee-zeebe-ops` | `mifos-v2.0.0` | `v1.4.0-gazelle-1.1.0` (v1.5.0 tag may exist but unconfirmed / likely redundant) |
-| `ph-ee-env-template` | `gazelle-dev` | From `v1.13.0-gazelle-1.1.0` |
-| `ph-ee-connector-gsma-mm` | `mifos-v2.0.0` | `v1.3.0-gazelle-1.1.0` + JDK 17 migration |
+| `ph-ee-connector-channel` → `paymenthub-ee-connector-channel` | `mifos-v2.0.0` | `v1.11.0-gazelle-1.1.0` + v1.12.2 + CORS fixes |
+| `ph-ee-connector-bulk` → `paymenthub-ee-connector-bulk` | `mifos-v2.0.0` | `v1.1.0-gazelle-1.1.0` + PHEE v1.13.3 (tag v1.2.1) |
+| `ph-ee-bulk-processor` → `paymenthub-ee-bulk-processor` | `mifos-v2.0.0` | master ≡ PHEE v1.13.3 (tag v1.13.1) |
+| `ph-ee-connector-ams-mifos` → `paymenthub-ee-connector-ams-mifosx` | `mifos-v2.0.0` | `tomtest-v1.15.0` (already merged PHEE v1.13.3, tag v1.17.3) — note: shared with other users |
+| `ph-ee-connector-mojaloop-java` → `paymenthub-ee-connector-mojaloop` | `mifos-v2.0.0` | tag v1.5.2 (master = v1.5.2 as at Nov 2025) |
+| `ph-ee-identity-account-mapper` → `paymenthub-ee-account-mapper` | `mifos-v2.0.0` | `v1.6.0-gazelle-1.1.0` + tom-work + v1.6.2 (PHEE v1.13.3) + other fixes |
+| `ph-ee-connector-mock-payment-schema` → `paymenthub-ee-e2e-tests` (module) | `mifos-v2.0.0` | `v1.6.0-gazelle-1.1.0` + v1.6.1 (PHEE v1.13.3), updated to JDK 17 |
+| `ph-ee-importer-rdbms` (unchanged upstream) | `mifos-v2.0.0` | `v1.13.1-gazelle-1.1.0` + tag v1.14.2 |
+| `ph-ee-operations-app` → `paymenthub-ee-bff` | `mifos-v2.0.0` | `v1.17.1-gazelle-1.1.0` + tag v1.20.2 + JDK 17 updates |
+| `ph-ee-operations-web` (unchanged) | `mifos-v2.0.0` | `v1.25.0-gazelle-1.1.0` + Dipan's UI changes (`v1.26.0-gazelle-1.2.0-beta`) |
+| `ph-ee-zeebe-ops` (unchanged upstream) | `mifos-v2.0.0` | `v1.4.0-gazelle-1.1.0` (v1.5.0 tag may exist but unconfirmed / likely redundant) |
+| `ph-ee-env-template` (retired) | `gazelle-dev` | From `v1.13.0-gazelle-1.1.0` |
+| `ph-ee-connector-gsma-mm` → `paymenthub-ee-connector-mm-gsma` | `mifos-v2.0.0` | `v1.3.0-gazelle-1.1.0` + JDK 17 migration |
 
 ---
 
@@ -99,7 +105,7 @@ The current Gazelle deployment is based on **PHEE v1.13.3** (reference: Release 
 
 | Component | Gazelle Branch | Version Lineage |
 |-----------|---------------|-----------------|
-| `ph-ee-id-account-validator-impl` | `mifos-v2.0.0` | `v1.1.0-gazelle-1.1.0` |
+| `ph-ee-id-account-validator-impl` (unconfirmed) | `mifos-v2.0.0` | `v1.1.0-gazelle-1.1.0` |
 
 ---
 
@@ -107,8 +113,8 @@ The current Gazelle deployment is based on **PHEE v1.13.3** (reference: Release 
 
 | Component | Notes |
 |-----------|-------|
-| `ph-ee-exporter` | Version/branch to be confirmed |
-| `ph-ee-connector-common` | Version unclear |
+| `ph-ee-exporter` (unconfirmed) | Version/branch to be confirmed |
+| `ph-ee-connector-common` (unconfirmed) | Version unclear |
 
 ---
 
@@ -116,16 +122,16 @@ The current Gazelle deployment is based on **PHEE v1.13.3** (reference: Release 
 
 | Component | Status |
 |-----------|--------|
-| `ph-ee-importer-es` | Not yet used |
-| `ph-ee-connector-slcb` | Not yet used |
-| `ph-ee-connector-ams-paygops` | Not yet used |
-| `ph-ee-connector-ams-pesa` | Not yet used |
-| `ph-ee-connector-mpesa` | Not yet used |
-| `ph-ee-notifications` | Not yet used |
-| `message-gateway` | Not yet used |
-| `ph-ee-vouchers` | Not yet used |
-| `ph-ee-connector-crm` | Not yet used |
-| `ph-ee-bill-pay` | Not yet used |
+| `ph-ee-importer-es` → `paymenthub-ee-importer-es` | Not yet used |
+| `ph-ee-connector-slcb` (unconfirmed) | Not yet used |
+| `ph-ee-connector-ams-paygops` (unconfirmed) | Not yet used |
+| `ph-ee-connector-ams-pesa` (unconfirmed) | Not yet used |
+| `ph-ee-connector-mpesa` (unconfirmed) | Not yet used |
+| `ph-ee-notifications` → `paymenthub-ee-notifications` | Not yet used |
+| `message-gateway` (unchanged) | Not yet used |
+| `ph-ee-vouchers` → `paymenthub-ee-vouchers` | Not yet used |
+| `ph-ee-connector-crm` → `paymenthub-ee-connector-crm` | Not yet used |
+| `ph-ee-bill-pay` → `paymenthub-ee-p2g` | Not yet used |
 
 ## Tickets
 
@@ -213,6 +219,12 @@ Mifos would like to recognise the significant contributions of the following con
 ---
 
 ## PaymentHub EE Components (-gazelle-1.1.0)
+
+> **Repository naming:** component names below use the `ph-ee-*` prefix that was standard for the
+> v1.1.0 release and are left unchanged for historical accuracy. Many of these repos have since been
+> renamed to a `paymenthub-ee-*` prefix — see the mapping table in
+> [PHEE-RELEASE-HISTORY.md](PHEE-RELEASE-HISTORY.md#repository-naming-ph-ee---paymenthub-ee-) for
+> current names.
 
 ### Core Components
 
