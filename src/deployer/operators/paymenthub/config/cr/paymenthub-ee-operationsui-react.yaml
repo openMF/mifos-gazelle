@@ -7,7 +7,7 @@ spec:
   enabled: true
   domain: GAZELLE_DOMAIN
   replicas: 1
-  image: docker.io/tdaly61/paymenthub-ee-operationsui-react:dev-amountfix
+  image: docker.io/openmf/paymenthub-ee-operationsui-react:latest
   containerPort: 80
   resources:
     limits:

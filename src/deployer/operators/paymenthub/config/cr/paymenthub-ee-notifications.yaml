@@ -12,8 +12,7 @@ spec:
   # Migrated to paymenthub-ee-notifications (Java 21/Spring Boot 3.4) — also
   # absorbs the old message-gateway image into the same process (port 9191 =
   # gateway API, port 5000 = Camel notification routes; both confirmed via
-  # `docker inspect`). Tag downgrades from pinned v1.4.0-gazelle-1.1.0 to
-  # floating dev-latest — no semver tags exist yet on the new repo.
+  # `docker inspect`). 
   image: docker.io/openmf/paymenthub-ee-notifications:dev-latest
   containerPort: 5000
   resources:

@@ -19,7 +19,7 @@ spec:
   # own comment ("8080 actuator/management, 5000 Camel REST API"): main port
   # 5000, actuator on a separate 8080 — matches existing containerPort/probes
   # exactly, no other fields need to change.
-  image: docker.io/openmf/paymenthub-ee-zeebe-ops:dev-68edde5
+  image: docker.io/openmf/paymenthub-ee-zeebe-ops:dev-9dfd119
   containerPort: 5000
   resources:
     limits:
