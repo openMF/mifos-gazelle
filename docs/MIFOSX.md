@@ -109,7 +109,7 @@ Components deployed into the `mifosx` namespace:
 | Fineract | `fineract-server` pod | `openmf/fineract:1.14.0` | Core banking engine and API |
 | Web App | `web-app` pod + ingress | `openmf/web-app:dev-10d24b8` | Angular user interface |
 | Reports | *inside* `fineract-server` | plugin staged by initContainer | Pentaho formatted reporting |
-| Workflow Engine | `mifos-workflow` pod + ingress | `kanishksingh23/mifos-workflow:07082026` | Flowable BPMN process orchestration |
+| Workflow Engine | `mifos-workflow` pod + ingress | `kanishksingh23/mifos-workflow:21082026` | Flowable BPMN process orchestration |
 | Credit Bureau | `credit-bureau` pod + ingress | `kanishksingh23/mifos-credit-bureau:21082026` | Credit bureau integration |
 | SMS & Messaging | `message-gateway` pod + ingress | `openmf/message-gateway:dev-51abedb` | SMS and email delivery |
 | Loan Assessment | `loan-module` pod + ingress | `kanishksingh23/mifos-x-reactive-loan-module:09082026` | Reactive loan risk assessment |
@@ -159,7 +159,7 @@ Every MifosX component stores its data in one shared PostgreSQL instance. It is 
 | Image | `bitnamilegacy/postgresql:16.6.0` |
 | In-cluster host | `postgres.infra.svc.cluster.local:5432` |
 | Fineract databases | `fineract_tenants`, plus one per tenant — `greenbank`, `bluebank`, `redbank`, `fineract_default` |
-| Module databases | `mifos_flowable` (Workflow Engine) · `creditbureau` (Credit Bureau) |
+| Module databases | `mifos_flowable` (Workflow Engine) · `creditbureau` (Credit Bureau) · `messagegateway` (SMS & Messaging) · `loanrisk` (Loan Assessment) |
 
 MifosX ran on MySQL/MariaDB before Gazelle standardised on PostgreSQL. Sharing a single instance rather than giving each module its own database pod is what keeps the deployment inside Gazelle's 16GB memory budget. Gazelle still runs MySQL, but only for Payment Hub EE — no MifosX component uses it.
 
@@ -221,13 +221,18 @@ curl -X POST http://workflow.<GAZELLE_DOMAIN>/api/v1/auth/authenticate \
   -d '{"username":"mifos","password":"password"}'
 ```
 
-It returns `"authenticated":true`. Confirm with `GET /api/v1/auth/status`, then call the workflow endpoints:
+It returns `"authenticated":true`. Confirm with `GET /api/v1/auth/status`, then start a process. `firstName`, `lastName`, `officeId`, `legalFormId`, `active`, `dateFormat` and `locale` are all required:
 
 ```bash
-curl http://workflow.<GAZELLE_DOMAIN>/api/v1/workflow/client-onboarding/tasks
-
 curl -X POST http://workflow.<GAZELLE_DOMAIN>/api/v1/workflow/client-onboarding/start \
-  -H 'Content-Type: application/json' -d '{ ... }'
+  -H 'Content-Type: application/json' \
+  -d '{
+        "firstName": "Ada", "lastName": "Lovelace",
+        "officeId": 1, "legalFormId": 1, "active": false,
+        "dateFormat": "dd MMMM yyyy", "locale": "en"
+      }'
+
+curl http://workflow.<GAZELLE_DOMAIN>/api/v1/workflow/client-onboarding/tasks
 ```
 
 **Onboard a client end-to-end with one command.** `src/utils/demo-workflow.sh` runs a full client-onboarding process — it authenticates, ensures a loan officer exists, creates a client, approves the verification task (which assigns the officer and activates the client), and confirms the client is **Active** in Fineract:
@@ -289,7 +294,17 @@ An `ensure-messagegateway-db` initContainer creates the database if it does not 
 curl http://message-gateway.<GAZELLE_DOMAIN>/actuator/health
 ```
 
-No SMS or email provider credentials are configured in Gazelle, so the gateway accepts and records requests but cannot deliver to a real handset. Configuring a live provider is a deployment-time decision, not something Gazelle presumes.
+**A message needs a bridge before it can be sent.** `POST /sms` dispatches through the provider bridge named in the request; with no bridge registered the call fails with a 500. Register one first — the gateway ships a built-in `Dummy` provider, which is what Gazelle uses:
+
+```bash
+curl -X POST http://message-gateway.<GAZELLE_DOMAIN>/smsbridges \
+  -H 'Content-Type: application/json' \
+  -H 'Fineract-Platform-TenantId: <tenant>' \
+  -H 'Fineract-Tenant-App-Key: <app key>' \
+  -d '{"phoneNo":"+10000000000","providerName":"Dummy","providerKey":"Dummy","countryCode":"1","providerDescription":"Dummy demo provider"}'
+```
+
+No real SMS or email provider credentials are configured in Gazelle, so nothing leaves the cluster: the Dummy provider sets the delivery status from the message body. Configuring a live provider is a deployment-time decision, not something Gazelle presumes.
 
 **Send a message end-to-end with one command.** `src/utils/demo-message-gateway.sh` registers a demo tenant, wires up the built-in Dummy provider, sends a message and polls until the gateway marks it `DELIVERED` — a simulated delivery that exercises the whole Fineract → gateway → provider → status pipeline without a real provider:
 
@@ -369,7 +384,7 @@ Each extension module has its own ingress — browse or `curl` them at `http://w
 
 ### /etc/hosts entries
 
-`setup-env.sh` writes these automatically. If you set the machine up before the workflow and credit bureau ingresses were added, re-run `sudo ./setup-env.sh -u $USER` to pick up the two new hostnames.
+`setup-env.sh` writes these automatically. If you set the machine up before a module's ingress was added, re-run `sudo ./setup-env.sh -u $USER` to pick up its hostname.
 
 ```
 # Linux/macOS
@@ -435,7 +450,7 @@ After publishing, update the `image:` pin in the module's manifest under `src/de
 
 ## Adding a New MifosX Module
 
-The three modules integrated so far follow one pattern. To add a fourth:
+The five extension modules integrated so far follow one pattern. To add another:
 
 1. **Check the database.** Gazelle's MifosX stack is PostgreSQL-only. If the module is tied to MySQL, make it database-agnostic at source — add the PostgreSQL driver alongside the existing one, make the datasource environment-overridable, keep the upstream default unchanged, and remove any hardcoded dialect. That keeps the change upstreamable instead of creating a fork.
 2. **Build a multi-architecture image.** Gazelle targets amd64 and arm64 — an amd64-only image breaks Apple Silicon and Raspberry Pi deployments. Use the repo's own builder rather than raw `docker buildx`; see [Building images for Gazelle](BUILDING-IMAGES.md):
@@ -453,7 +468,7 @@ The three modules integrated so far follow one pattern. To add a fourth:
 
 ## Version Pins
 
-All image tags are pinned — no `:latest`. The current pins live in the manifests under `src/deployer/manifests/mifosx/`; the components and their tags are listed in the table under [How It Fits into Mifos Gazelle](#how-it-fits-into-mifos-gazelle).
+All image tags are pinned — no `:latest`. [VERSIONS.md](../src/deployer/manifests/mifosx/VERSIONS.md) is the single source of truth: it lists every application and helper image, the Pentaho plugin, and the shared PostgreSQL, each with the manifest it is pinned in. [UPGRADE-RUNBOOK.md](UPGRADE-RUNBOOK.md) covers adopting a future MifosX release.
 
 ---
 
@@ -462,7 +477,7 @@ All image tags are pinned — no `:latest`. The current pins live in the manifes
 - **Pentaho per-tenant routing needs a fixed plugin release.** The published plugin resolves its datasource in a way that can return another tenant's data. The fix is a two-line change, merged upstream into `openMF/mifos-reporting-plugin` ([PR #513](https://github.com/openMF/mifos-reporting-plugin/pull/513), `pentaho` branch), but **no fixed release has been published yet** and Gazelle installs the published artifact. Until a fixed release ships, treat multi-tenant report output as unreliable. Closing this needs either a new plugin release or a temporary class swap in the initContainer.
 - **The Workflow Engine, Credit Bureau and Loan Assessment images are temporary.** None of those projects publishes a container image, so all three are built from source and currently pushed to a personal DockerHub namespace. All three pins should move to `openMF` images once those are published — see [Building the Module Images](#building-the-module-images) for the build and publish commands.
 - **The Loan Assessment module only sees the `default` tenant.** The `enable-loan-events` initContainer enables external events on that tenant alone, so loan activity on `greenbank`, `bluebank` or `redbank` produces no events for it to consume. Widening it means editing that initContainer in `fineract-server-deployment.yaml`, not the module.
-- **No SMS or email provider is configured.** The message gateway accepts and records requests, but with no provider credentials it cannot deliver to a real handset or mailbox. Wiring a live provider is a deployment-time decision.
+- **No real SMS or email provider is configured.** The message gateway sends through its built-in `Dummy` provider, which simulates delivery inside the cluster — nothing reaches a real handset or mailbox. A message also needs a provider bridge registered before `POST /sms` will accept it; without one the call returns a 500. Wiring a live provider is a deployment-time decision.
 - **`redbank` is not selectable in the web app.** It is seeded and waited on at deploy time, but absent from the web app's tenant list, so it is reachable through the API only.
 
 ---
