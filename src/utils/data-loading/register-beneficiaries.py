@@ -145,7 +145,7 @@ def register_with_identity_mapper(domain, client, registering_institution):
     }
 
     headers = {
-        "X-CallbackURL": "http://ph-ee-connector-mock-payment-schema:8080/beneficiary/registration/callback",
+        "X-CallbackURL": "http://paymenthub-ee-connector-mock-payment-schema:8080/beneficiary/registration/callback",
         "X-Registering-Institution-ID": registering_institution,
         "Content-Type": "application/json",
         "Accept": "application/json"

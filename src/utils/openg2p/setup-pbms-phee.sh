@@ -33,7 +33,7 @@ ODOO_DEPLOY="pbms-odoo"
 PHEE_CB_MARKER="GAZELLE-PHEE-CALLBACK"
 # Payment Hub's operations API, read back during reconciliation. In-cluster, so no
 # ingress and no TLS: the ingress hostname would need the self-signed cert trusted.
-PHEE_OPS_API_URL="http://ph-ee-operations-app.paymenthub:80/api/v1/batch"
+PHEE_OPS_API_URL="http://paymenthub-ee-bff.paymenthub:80/api/v1/batch"
 
 OPENG2P_NAMESPACE="$(crudini --get "$CONFIG_FILE" openg2p OPENG2P_NAMESPACE 2>/dev/null || echo openg2p)"
 NS="$OPENG2P_NAMESPACE"

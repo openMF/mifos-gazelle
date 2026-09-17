@@ -1,30 +1,33 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-ams-mifos
+  name: paymenthub-ee-zeebe-ops
   namespace: paymenthub
 spec:
   enabled: true
-  waitForGatewayEnabled: true
-  tlsKeystoreEnabled: true
   rbacEnabled: false
   secretEnabled: false
   configMapEnabled: false
   ingressEnabled: true
-  initContainerEnabled: true
   volMount:
-    enabled: true
-    name: ph-ee-config
+    enabled: false
   replicas: 1
-  image: docker.io/openmf/ph-ee-connector-ams-mifos:dev-latest
+  # Migrated to paymenthub-ee-zeebe-ops (module of paymenthub-ee-data-pipeline,
+  # Java 21/Spring Boot 3.4). No floating tag exists yet — see the note in
+  # ph-ee-importer-rdbms.yaml; pinned to the merge commit's tag.
+  # Port topology unchanged and confirmed via source + the new Dockerfile's
+  # own comment ("8080 actuator/management, 5000 Camel REST API"): main port
+  # 5000, actuator on a separate 8080 — matches existing containerPort/probes
+  # exactly, no other fields need to change.
+  image: docker.io/openmf/paymenthub-ee-zeebe-ops:dev-9dfd119
   containerPort: 5000
   resources:
     limits:
       cpu: 500m
-      memory: 768Mi
+      memory: 512M
     requests:
       cpu: 100m
-      memory: 384Mi
+      memory: 256M
   ingress:
     className: nginx
     annotations:
@@ -39,48 +42,70 @@ spec:
     tls:
       - secretName: sandbox-secret
     rules:
-      - host: ams-mifos.local
+      - host: zeebeops.local
         paths:
           - path: "/"
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-connector-ams-mifos
+                name: paymenthub-ee-zeebe-ops
                 port:
                   number: 80
   services:
-    - name: ph-ee-connector-ams-mifos
+    - name: paymenthub-ee-zeebe-ops
       ports:
         - name: port
           port: 80
           targetPort: 5000
           protocol: TCP
-        - name: http
-          port: 70
-          targetPort: 7070
+        - name: actuator
           protocol: TCP
+          port: 8080
+          targetPort: 8080
       selector:
-        app: ph-ee-connector-ams-mifos
+        app: paymenthub-ee-zeebe-ops
       sessionAffinity: None
       type: ClusterIP
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8080
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
   environment:
-    - name: SPRING_PROFILES_ACTIVE
-      value: "fin12,bb"
     - name: ZEEBE_BROKER_CONTACTPOINT
       value: "paymenthub-infra-zeebe-gateway:26500"
+    - name: TENANTS
+      value: "greenbank,bluebank,redbank"
     - name: DFSPIDS
       value: "greenbank,redbank,bluebank"
-    - name: ams_local_enabled
-      value: "true"
-    - name: ams_local_interop_host
-      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
-    - name: ams_local_account_host
-      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
-    - name: ams_local_customer_host
-      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
-    - name: ams_local_auth_host
-      value: "http://fineract-server.mifosx.svc.cluster.local:8080"
-    - name: ams_local_loan_host
-      value: ""
+    - name: ELASTICSEARCH_URL
+      value: "http://infra-elasticsearch.infra.svc.cluster.local:9200/"
+    - name: SPRING_DATA_ELASTICSEARCH_CLIENT_REACTIVE_ENDPOINTS
+      value: "infra-elasticsearch.infra.svc.cluster.local:9200"
+    - name: ELASTICSEARCH_SECURITY_ENABLED
+      value: "false"
+    - name: ELASTICSEARCH_SSLVERIFICATION
+      value: "false"
+    - name: ELASTICSEARCH_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: elastic-credentials
+          key: username
+    - name: ELASTICSEARCH_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: elastic-credentials
+          key: password
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
     - name: JAVA_TOOL_OPTIONS
       value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"

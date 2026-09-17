@@ -10,6 +10,8 @@
 
 All PHEE components are **operator-managed**: deployed by the PaymentHub Kubernetes operator from `PaymentHubDeployment` CRs in `src/deployer/operators/paymenthub/config/cr/`. `localdev.py` patches live Kubernetes Deployments directly via `kubectl get/apply` (k8s-direct-mode).
 
+> **Naming note:** the upstream `openMF/ph-ee-*` repos are being renamed to `paymenthub-ee-*`. In-cluster Kubernetes Deployment/pod names have mostly already moved to `paymenthub-ee-*`, but a few source repos (and therefore local checkout directories) haven't been renamed upstream yet — e.g. `ph-ee-operations-web`, `ph-ee-importer-rdbms`, `ph-ee-zeebe-ops`. The tables below reflect the current, mixed state; always verify with `kubectl get deployments -n paymenthub` before assuming a name.
+
 ### Files
 
 | File | Purpose |
@@ -20,6 +22,13 @@ All PHEE components are **operator-managed**: deployed by the PaymentHub Kuberne
 ---
 
 ## Quick Start
+
+> **Prerequisite:** `localdev.py` patches a component's *existing* Deployment — it can't patch what isn't there yet. PaymentHub must already be deployed to the cluster first:
+> ```bash
+> cd ~/mifos-gazelle
+> ./run.sh -m deploy -a paymenthub
+> ```
+> Do this once per cluster (not before every `--setup`). If you see `namespaces "paymenthub" not found` or `deployments.apps "<name>" not found`, this step hasn't been done yet.
 
 ```bash
 cd ~/mifos-gazelle/src/utils/localdev
@@ -35,7 +44,7 @@ cd ~/ph-ee-importer-rdbms
 JAVA_HOME=/home/mifosu/jdk-17.0.2 ./gradlew build -x test
 
 # 4. Restart the pod to pick up the new JAR
-kubectl delete pod -n paymenthub -l app=ph-ee-importer-rdbms
+kubectl delete pod -n paymenthub -l app=paymenthub-ee-importer-rdbms
 
 # 5. When done, restore the original deployment
 cd ~/mifos-gazelle/src/utils/localdev
@@ -65,13 +74,13 @@ For components with `k8s_deploy_name` in `localdev.ini`, the patcher:
 
 `--restore` re-applies the original JSON backup and deletes the backup file.
 
-> **Operator reconciliation:** The in-cluster PaymentHub operator reconciles Deployments periodically and will revert k8s-direct patches. Scale it down while developing:
+> **Operator reconciliation:** The in-cluster PaymentHub operator reconciles the 19 `PaymentHubDeployment`-managed components periodically and will revert k8s-direct patches to *those*. Scale it down while developing one of them:
 > ```bash
-> kubectl scale deployment ph-ee-operator -n paymenthub --replicas=0
+> kubectl scale deployment paymenthub-ee-operator -n paymenthub --replicas=0
 > # ... develop ...
-> kubectl scale deployment ph-ee-operator -n paymenthub --replicas=1
+> kubectl scale deployment paymenthub-ee-operator -n paymenthub --replicas=1
 > ```
-> Alternatively, run the operator locally (see **Running the Operator Locally** below).
+> This does **not** apply when patching the operator itself (`paymenthub-operator` in the table below) — its own Deployment is applied directly by `paymenthub.sh`, not reconciled by anything, so nothing reverts a patch to it.
 
 ---
 
@@ -105,9 +114,6 @@ For components with `k8s_deploy_name` in `localdev.ini`, the patcher:
 ./localdev.py --restore
 ./localdev.py --restore --component importer-rdbms
 
-# Run the PaymentHub operator locally
-./localdev.py --run
-
 # Use a custom config file
 ./localdev.py --config /path/to/custom.ini
 ```
@@ -120,8 +126,8 @@ For components with `k8s_deploy_name` in `localdev.ini`, the patcher:
 cd ~/ph-ee-importer-rdbms
 # ... edit Java files ...
 JAVA_HOME=/home/mifosu/jdk-17.0.2 ./gradlew build -x test
-kubectl delete pod -n paymenthub -l app=ph-ee-importer-rdbms
-kubectl logs -f -n paymenthub -l app=ph-ee-importer-rdbms
+kubectl delete pod -n paymenthub -l app=paymenthub-ee-importer-rdbms
+kubectl logs -f -n paymenthub -l app=paymenthub-ee-importer-rdbms
 ```
 
 ---
@@ -134,7 +140,8 @@ kubectl logs -f -n paymenthub -l app=ph-ee-importer-rdbms
 |---------------|------|--------|
 | `k8s_deploy_name` | k8s-direct | Patches live Kubernetes Deployment + hostPath mount |
 | `checkout_enabled` only | checkout-only | Clones/updates repo; no deployment patching |
-| `[paymenthub-operator]` section | operator | Run operator locally via `./gradlew run` |
+
+The operator itself (`paymenthub-operator`) uses plain k8s-direct mode too — its Deployment is applied directly by `paymenthub.sh`, not by itself, so there's no reconciler to fight the patch.
 
 ### Configuration Parameters
 
@@ -161,7 +168,7 @@ kubectl logs -f -n paymenthub -l app=ph-ee-importer-rdbms
 
 ```ini
 [my-component]
-k8s_deploy_name = ph-ee-my-component       # verify with: kubectl get deployments -n paymenthub
+k8s_deploy_name = paymenthub-ee-my-component   # verify with: kubectl get deployments -n paymenthub
 k8s_namespace   = paymenthub
 app_type        = springboot
 image           = eclipse-temurin:17
@@ -179,47 +186,55 @@ checkout_to_dir = ${HOME}
 
 | Section | Mode | Checkout branch | k8s Deployment name |
 |---------|------|-----------------|---------------------|
-| `channel` | k8s-direct | dev | `ph-ee-connector-channel` |
-| `bulk-processor` | k8s-direct | dev | `ph-ee-bulk-processor` |
-| `importer-rdbms` | k8s-direct | dev | `ph-ee-importer-rdbms` |
-| `connector-mojaloop` | k8s-direct | dev | `ph-ee-connector-mojaloop-java` |
-| `ams-mifos` | k8s-direct | dev | `ph-ee-connector-ams-mifos` |
-| `bill-pay` | k8s-direct | mifos-v2.0.0 | `ph-ee-connector-bill-pay` |
+| `paymenthub-operator` | k8s-direct | main | `paymenthub-ee-operator` |
+| `channel` | k8s-direct | dev | `paymenthub-ee-connector-channel` |
+| `bulk-processor` | k8s-direct | dev | `paymenthub-ee-bulk-processor` |
+| `mock-payment` | k8s-direct | dev | `paymenthub-ee-connector-mock-payment-schema` |
+| `operations-web` | k8s-direct | dev | `ph-ee-operations-web` — not yet renamed upstream; the two candidate replacement repos (`paymenthub-ee-operationsui-react`, `paymenthub-ee-operationsui-angular`) are scaffold-only |
+| `importer-rdbms` | k8s-direct | dev | `paymenthub-ee-importer-rdbms` |
+| `ams-mifos` | k8s-direct | dev | `paymenthub-ee-connector-ams-mifosx` |
+| `connector-mojaloop` | k8s-direct | dev | `paymenthub-ee-connector-mojaloop` |
+| `bill-pay` | k8s-direct | dev | `paymenthub-ee-p2g` |
 | `connector-bulk` | checkout-only | dev | — |
-| `mock-payment` | checkout-only | dev | — |
-| `operations-app` | checkout-only | gaz-258 | — |
-| `operations-web` | checkout-only | dev | — |
-| `identity-account-mapper` | checkout-only | dev | — |
-| `zeebe-ops` | checkout-only | dev | — |
-| `connector-mccbs` | checkout-only | dev | — (separate operator) |
-| `connector-gsma` | checkout-only | dev | — |
-| `integration-test` | checkout-only | tomdev1 | — (test suite) |
+| `operations-app` | checkout-only | dev | — (repo renamed/merged into `paymenthub-ee-bff`) |
+| `identity-account-mapper` | checkout-only | dev | — (repo renamed to `paymenthub-ee-account-mapper`) |
+| `zeebe-ops` | checkout-only | dev | — (repo still `ph-ee-zeebe-ops`) |
+| `connector-mccbs` | checkout-only | dev | — (separate operator; repo still `ph-ee-connector-mccbs`) |
+| `connector-gsma` | checkout-only | dev | — (repo renamed to `paymenthub-ee-connector-mm-gsma`) |
+| `integration-test` | checkout-only | dev | — (test suite; now a module of `paymenthub-ee-e2e-tests`, shared with `mock-payment`) |
 | `notifications` | checkout-only | dev | — |
 
 ---
 
-## Running the Operator Locally
+## Running the Operator From a Local Build
 
-Instead of patching individual Deployments, you can run the PaymentHub operator locally against the cluster. The operator reads `PaymentHubDeployment` CRs and reconciles Deployments — running it locally lets you modify operator logic without building a Docker image.
+The operator (`paymenthub-operator`) is set up in `localdev.ini` exactly like any other k8s-direct component — its own Deployment is applied directly by `paymenthub.sh`, not reconciled by anything, so there's no need to scale anything down first:
 
 ```bash
-# Scale down the in-cluster operator first (avoids dual reconcilers)
-kubectl scale deployment ph-ee-operator -n paymenthub --replicas=0
-
-# Run the local operator
 cd ~/mifos-gazelle/src/utils/localdev
-./localdev.py --run
-# (or directly: cd ~/mifos-operators/paymenthub-operator && ./gradlew run)
+./localdev.py --setup --component paymenthub-operator   # checkout + patch
 
-# When done, restore the in-cluster operator
-kubectl scale deployment ph-ee-operator -n paymenthub --replicas=1
+cd ~/paymenthub-ee-k8s-operators/paymenthub-operator
+./gradlew bootJar
+kubectl delete pod -n paymenthub -l app=paymenthub-ee-operator   # pick up the new JAR
+
+kubectl logs -f -n paymenthub -l app=paymenthub-ee-operator
+
+# When done
+cd ~/mifos-gazelle/src/utils/localdev
+./localdev.py --restore --component paymenthub-operator
 ```
-
-`./localdev.py --run` checks out the operator repo if not already present (configured under `[paymenthub-operator]` in `localdev.ini`).
 
 ---
 
 ## Troubleshooting
+
+### `namespaces "paymenthub" not found` / `deployments.apps "<name>" not found`
+PaymentHub hasn't been deployed to this cluster yet — `--setup`/`--dry-run` patch an *existing* Deployment, they don't create one. Deploy it first (see the Quick Start prerequisite above):
+```bash
+cd ~/mifos-gazelle
+./run.sh -m deploy -a paymenthub
+```
 
 ### Changes not taking effect
 ```bash
@@ -256,7 +271,7 @@ Common causes:
 ### Patch reverted by operator
 The in-cluster PaymentHub operator reconciles Deployments and will overwrite patches. Scale it down:
 ```bash
-kubectl scale deployment ph-ee-operator -n paymenthub --replicas=0
+kubectl scale deployment paymenthub-ee-operator -n paymenthub --replicas=0
 ```
 
 ### Restore fails

@@ -350,7 +350,7 @@ generate_mastercard_csv() {
 configure_payment_mode() {
     log_with_verbose_check "$debug" "$INFO" "Payment mode MASTERCARD_CBS requires bulk-processor config:"
     log_with_verbose_check "$debug" "$INFO" "  payment-modes: [{id: MASTERCARD_CBS, type: BULK, endpoint: bulk_connector_mastercard_cbs-{dfspid}}]"
-    if [ -d "$HOME/ph-ee-bulk-processor" ]; then
+    if [ -d "$HOME/paymenthub-ee-bulk-processor" ]; then
         log_with_verbose_check "$debug" "$INFO" "Hostpath detected - rebuild JAR and restart pod after editing application.yaml"
     fi
 }

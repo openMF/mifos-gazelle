@@ -125,7 +125,7 @@ fi
 # Check if running inside Kubernetes pod (check for service account token)
 if [ -f /var/run/secrets/kubernetes.io/serviceaccount/token ]; then
     # Running inside a pod, use internal service
-    HOST="http://ph-ee-zeebe-ops.paymenthub.svc.cluster.local/zeebe/upload"
+    HOST="http://paymenthub-ee-zeebe-ops.paymenthub.svc.cluster.local/zeebe/upload"
     echo "================================================================"
     echo "Zeebe BPMN Deployment Tool (Kubernetes Internal)"
     echo "================================================================"

@@ -49,11 +49,12 @@ instance, with nothing to remember.
 - **BuildKit / buildx.** The utility uses `docker buildx`, and some Dockerfiles need it: the OpenSPP2
   Dockerfile reads the `TARGETARCH` build argument to pick its downloads, and it is only set by
   BuildKit. If buildx is missing the utility says how to install it.
-- **`sudo` for the import step.** The import is delegated to
+- **`sudo` for the import step (Linux only).** The import is delegated to
   `src/utils/import-local-image-to-k3s.sh`, which loads the image into the cluster's container
   runtime and needs root. It resolves the user that owns the built image from `$SUDO_USER`, so it
   also works over a non-interactive ssh and in a pipeline, as long as `sudo` does not ask for a
-  password.
+  password. On macOS/Colima the import runs as the invoking user instead — `sudo` is not used, since
+  `docker` needs your own Colima context and `colima ssh` escalates to root inside the VM by itself.
 - **Registry credentials for `--push`.** The registry comes from the image name
   (`ghcr.io/openmf/openspp` -> ghcr.io; a bare name -> Docker Hub). Credentials come from
   `docker login <registry>`, which stores them in `$HOME/.docker/config.json`; this utility does not
@@ -63,10 +64,11 @@ instance, with nothing to remember.
 - **Disk space on the node.** k3s garbage-collects images when the disk fills up. A build-only image
   cannot be pulled back, so keep the node's root filesystem below about 85% or it may be evicted and
   have to be built again.
-- **Linux for the import path.** The import runs `k3s ctr images import`, so it needs k3s on the same
-  machine. On macOS the cluster lives inside the Colima virtual machine and the host has no `k3s`
-  binary, so run the utility from inside that machine, or use `--push` and let the cluster pull the
-  image. The build itself works anywhere Docker does.
+- **k3s or Colima for the import path.** The import runs `k3s ctr images import`. On Linux it runs
+  directly on this machine, so k3s has to be here. On macOS the cluster lives inside the Colima virtual
+  machine, which has no `k3s` binary on the host, so the utility detects a running Colima and instead
+  streams the image in via `colima ssh -- sudo k3s ctr images import -`. Either way `--push` remains an
+  option, letting the cluster pull the image instead. The build itself works anywhere Docker does.
 
 ## OpenSPP on arm64
 

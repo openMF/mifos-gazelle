@@ -111,7 +111,7 @@ kubectl exec -n paymenthub operationsmysql-0 -- env MYSQL_PWD=ethieTieCh8ahv mys
 ### Batch total shows 0 or status stays ACCEPTED/IN_PROGRESS indefinitely
 
 - **GovStack mode:** check that the identity-account-mapper has entries for your institution: `kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword identity_account_mapper -e "SELECT COUNT(*) FROM identity_details WHERE registering_institution_id = 'greenbank'"`
-- **Any mode:** check bulk-processor logs for errors: `kubectl logs -n paymenthub -l app=ph-ee-bulk-processor --tail=100`
+- **Any mode:** check bulk-processor logs for errors: `kubectl logs -n paymenthub -l app=paymenthub-ee-bulk-processor --tail=100`
 - **Mojaloop batches:** check for Zeebe incidents at https://zeebe-operate.mifos.gazelle.test
 
 See [GOVSTACK.md](GOVSTACK.md) for a full troubleshooting table.

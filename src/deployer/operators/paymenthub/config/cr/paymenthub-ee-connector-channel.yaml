@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-channel
+  name: paymenthub-ee-connector-channel
   namespace: paymenthub
 spec:
   enabled: true
@@ -14,7 +14,15 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-connector-channel:dev-latest
+  # Migrated to paymenthub-ee-connector-channel (Java 21/Spring Boot 3.4).
+  # Port topology is unchanged from the old image: server.port=8443 is the
+  # main Tomcat/Spring MVC port (all @RestControllers, incl. /channel/transfer),
+  # management.server.port=8080 is a SEPARATE actuator-only embedded server
+  # (confirmed via the app's own application.yml — NOT the main app port,
+  # despite docker inspect only showing one EXPOSE), and Camel/Undertow on
+  # 5000 hosts the beneficiary CRUD rest() routes only. Verified end-to-end
+  # live: POST /channel/transfer on 8443 returns 200 with a transactionId.
+  image: docker.io/openmf/paymenthub-ee-connector-channel:dev-latest
   containerPort: 8443
   resources:
     limits:
@@ -43,11 +51,11 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-connector-channel
+                name: paymenthub-ee-connector-channel
                 port:
                   number: 8443
   services:
-    - name: ph-ee-connector-channel
+    - name: paymenthub-ee-connector-channel
       ports:
         - name: port
           port: 8443
@@ -57,8 +65,16 @@ spec:
           port: 82
           targetPort: 8443
           protocol: TCP
+        - name: beneficiary
+          port: 5000
+          targetPort: 5000
+          protocol: TCP
+        - name: actuator
+          port: 8080
+          targetPort: 8080
+          protocol: TCP
       selector:
-        app: ph-ee-connector-channel
+        app: paymenthub-ee-connector-channel
       sessionAffinity: None
       type: ClusterIP
   livenessProbe:
@@ -93,7 +109,7 @@ spec:
     - name: LOGGING_PATTERN_CONSOLE
       value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
     - name: operations_url
-      value: "http://ph-ee-operations-app:80/api/v1"
+      value: "http://paymenthub-ee-bff:80/api/v1"
     - name: operations_auth-enabled
       value: "false"
     - name: CHANNEL_TENANTPRIMARY_CLIENTID

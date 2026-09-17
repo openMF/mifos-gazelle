@@ -4,6 +4,8 @@
 # Date: Oct 2024
 # Mainly useful for dev/test of Mifos Gazelle components
 
+set -euo pipefail
+
 # Default values
 IMAGE_NAME=""
 IMAGE_TAG=""
@@ -11,22 +13,27 @@ VERBOSE=false
 
 showUsage() {
     cat << EOF
-Usage: $(basename $0) [OPTIONS]
-Publish a local Docker image to k3s Kubernetes cluster.
+Usage: $(basename "$0") [OPTIONS]
+Publish a local Docker image to the k3s cluster's containerd runtime.
+On Linux this loads directly into the local k3s; on macOS with Colima running,
+the image is streamed into the k3s containerd inside the Colima VM instead.
 
 Required Options:
     -n, --name         Docker image name
-    -t, --tag         Docker image tag
+    -t, --tag          Docker image tag
 
 Optional Options:
-    -v, --verbose     Enable verbose output
-    -h, --help        Show this help message
+    -v, --verbose      Enable verbose output
+    -h, --help         Show this help message
 
 Example:
-    $(basename $0) -n myapp -t latest
-    $(basename $0) --name myapp --tag v1.0.0
+    $(basename "$0") -n myapp -t latest
+    $(basename "$0") --name myapp --tag v1.0.0
 
-Note: This script must be run as root.
+Note: On Linux this script must be run as root (e.g. via sudo). On macOS/Colima
+it must NOT be run with sudo -- 'docker' needs to run as the invoking user to
+reach the Colima VM's daemon, and 'colima ssh' escalates to root inside the VM
+for the import step on its own.
 EOF
     exit 1
 }
@@ -40,6 +47,10 @@ log() {
 error() {
     echo "ERROR: $1" >&2
     exit 1
+}
+
+is_colima_running() {
+    command -v colima &> /dev/null && colima status 2>/dev/null | grep -q "running"
 }
 
 set_user() {
@@ -80,17 +91,34 @@ done
 [[ -z "$IMAGE_NAME" ]] && error "Image name is required. Use -n or --name"
 [[ -z "$IMAGE_TAG" ]] && error "Image tag is required. Use -t or --tag"
 
-# Set directory variables
-SCRIPTS_DIR="$(cd "$(dirname "$0")" || exit; pwd)"
-BASE_DIR="$(cd "$(dirname "$0")/../../.." || exit; pwd)"
-
-# Check if running as root
-[[ "$EUID" -ne 0 ]] && error "Please run as root"
+IMAGE_REF="${IMAGE_NAME}:${IMAGE_TAG}"
 
 # Print header
 printf "\n\n******************************************\n"
 printf " -- publish local image to k3s -- \n"
 printf "*************** << START >> *******************\n\n"
+
+if is_colima_running; then
+    # The k3s cluster lives inside the Colima VM; there is no k3s binary or containerd on
+    # the macOS host to import into. 'docker' on the host already talks to the VM's daemon
+    # (via the colima context) as the normal user, so none of the su/root juggling below is
+    # needed here -- only the import step needs root, and 'colima ssh' escalates to that
+    # inside the VM by itself.
+    [[ "$EUID" -eq 0 ]] && error "Do not run this with sudo on macOS/Colima: docker needs to run as your normal user to reach the Colima VM's daemon."
+
+    printf "==> streaming docker image %s into the Colima VM's k3s containerd\n" "$IMAGE_REF"
+    if ! docker save "$IMAGE_REF" | colima ssh -- sudo k3s ctr images import -; then
+        error "Failed to import image into k3s inside the Colima VM"
+    fi
+
+    printf "\n ** image appears to have imported ok\n"
+    printf " You can check it exists by running.. \n"
+    printf " colima ssh -- sudo k3s ctr images list | grep %s \n" "$IMAGE_NAME"
+    exit 0
+fi
+
+# Linux / native k3s path
+[[ "$EUID" -ne 0 ]] && error "Please run as root"
 
 # Set user
 set_user
@@ -99,7 +127,7 @@ set_user
 # A registry-qualified image name contains slashes (ghcr.io/openmf/openspp), and those cannot go
 # straight into a file path: docker save would fail with "invalid output path". Flatten them.
 # The tag is part of the name so two tags of the same image do not share the file.
-tarfile="/tmp/$(echo "$IMAGE_NAME:$IMAGE_TAG" | tr '/:' '__').tar"
+tarfile="/tmp/$(echo "$IMAGE_REF" | tr '/:' '__').tar"
 
 # Clean up any existing tarfile
 if [[ -f "$tarfile" ]]; then
@@ -108,8 +136,8 @@ if [[ -f "$tarfile" ]]; then
 fi
 
 # Export Docker image
-printf "==> export docker image using docker save --output %s %s \n" "$tarfile" "$IMAGE_NAME:$IMAGE_TAG"
-if ! su - "$k8s_user" -c "docker save --output $tarfile $IMAGE_NAME:$IMAGE_TAG"; then
+printf "==> export docker image using docker save --output %s %s \n" "$tarfile" "$IMAGE_REF"
+if ! su - "$k8s_user" -c "docker save --output $tarfile $IMAGE_REF"; then
     error "Failed to save Docker image"
 fi
 

@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-importer-rdbms
+  name: paymenthub-ee-importer-rdbms
   namespace: paymenthub
 spec:
   labels:
@@ -16,8 +16,32 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-importer-rdbms:dev-latest
+  # Migrated to paymenthub-ee-importer-rdbms (module of paymenthub-ee-data-pipeline,
+  # Java 21/Spring Boot 3.4). No floating tag exists yet for this repo — its
+  # CircleCI config only pushes <branch>-<sha> tags on dev, and a floating
+  # "latest" tag only builds on main/master (confirmed via .circleci/config.yml).
+  # Pinned to the merge commit's tag; bump when a newer commit/tag is needed.
+  # containerPort unchanged: server.port=8000 in the new application.yml
+  # matches exactly. Added liveness/readiness probes for the first time —
+  # confirmed via source (Healthcheck.java): a plain HttpServer on port 5000
+  # answering "/" with 200 (anything else 404), independent of Spring's
+  # server.port/actuator entirely.
+  image: docker.io/openmf/paymenthub-ee-importer-rdbms:dev-9dfd119
   containerPort: 8000
+  livenessProbe:
+    path: /
+    port: 5000
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /
+    port: 5000
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
   resources:
     limits:
       cpu: 500m
@@ -33,7 +57,7 @@ spec:
     - name: DATASOURCE_CORE_PASSWORD
       valueFrom:
         secretKeyRef:
-          name: ph-ee-importer-rdbms-secret
+          name: paymenthub-ee-importer-rdbms-secret
           key: database-password
     - name: DATASOURCE_CORE_HOST
       value: operationsmysql
@@ -54,15 +78,15 @@ spec:
     - name: CLOUD_AWS_REGION_STATIC
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-region
     - name: AWS_ACCESS_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-access-key
     - name: AWS_SECRET_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-secret-key

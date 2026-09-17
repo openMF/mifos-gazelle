@@ -145,7 +145,8 @@ add_hosts() {
 
         local VNEXTHOSTS=( mongohost.$DOMAIN mongo-express.$DOMAIN \
             vnextadmin.$DOMAIN elasticsearch.$DOMAIN kibana.$DOMAIN redpanda-console.$DOMAIN \
-            mongoexpress.$DOMAIN fspiop.$DOMAIN bluebank.$DOMAIN greenbank.$DOMAIN )
+            mongoexpress.$DOMAIN fspiop.$DOMAIN bluebank.$DOMAIN greenbank.$DOMAIN \
+            keycloak-ops.$DOMAIN )
 
         local PHEEHOSTS=( ops.$DOMAIN ops-bk.$DOMAIN \
             bulk-processor.$DOMAIN connector-bulk.$DOMAIN messagegateway.$DOMAIN \

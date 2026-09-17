@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-identity-account-mapper
+  name: paymenthub-ee-account-mapper
   namespace: paymenthub
 spec:
   enabled: true
@@ -14,7 +14,12 @@ spec:
   volMount:
     enabled: false
   replicas: 1
-  image: docker.io/openmf/ph-ee-identity-account-mapper:mifos-v2.0.0
+  # Migrated to paymenthub-ee-account-mapper (Java 21/Spring Boot 3.4; also
+  # absorbs ph-ee-id-account-validator-impl as a "validator" module). Tag
+  # downgrades from pinned mifos-v2.0.0 to floating dev-latest — no semver
+  # tags exist yet on the new repo. Port unchanged (8080, confirmed via
+  # `docker inspect`).
+  image: docker.io/openmf/paymenthub-ee-account-mapper:dev-latest
   containerPort: 8080
   resources:
     limits:
@@ -40,18 +45,18 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-identity-account-mapper
+                name: paymenthub-ee-account-mapper
                 port:
                   number: 80
   services:
-    - name: ph-ee-identity-account-mapper
+    - name: paymenthub-ee-account-mapper
       ports:
         - name: port
           port: 80
           targetPort: 8080
           protocol: TCP
       selector:
-        app: ph-ee-identity-account-mapper
+        app: paymenthub-ee-account-mapper
       sessionAffinity: None
       type: ClusterIP
   livenessProbe:
@@ -84,12 +89,24 @@ spec:
     - name: SPRING_DATASOURCE_PASSWORD
       valueFrom:
         secretKeyRef:
-          name: ph-ee-identity-account-mapper-secret
+          name: paymenthub-ee-account-mapper-secret
           key: database-password
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"
     - name: JAVA_TOOL_OPTIONS
       value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
+    - name: MOJALOOP_CONNECTOR_CONTACTPOINT
+      value: "http://account-lookup-http-oracle-svc.vnext.svc.cluster.local:3031/_interop"
+    - name: GSMA_CONNECTOR_CONTACTPOINT
+      value: "http://paymenthub-ee-connector-ams-mifosx"
+    # callback_enabled defaults to false, which silently disables SendCallbackService --
+    # AccountLookupService never POSTs back to the caller-supplied callbackURL after a
+    # batch account lookup finishes. That leaves bulk-processor's "Batch Account Lookup
+    # response" receiveTask waiting on a message that's never sent: no exception, no Zeebe
+    # incident, just permanently ACTIVE. Confirmed via Zeebe Operate on a live stuck
+    # instance of bulk_processor_account_lookup-greenbank.
+    - name: CALLBACK_ENABLED
+      value: "true"
 
 # =============================================================================
 # Disabled components — set enabled: true to activate via operator

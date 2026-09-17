@@ -188,7 +188,7 @@ flowchart LR
         P_ops["ph-ee-operations-app ✅"]
         P_opsweb["ph-ee-operations-web ✅"]
         P_iamapper["ph-ee-identity-account-mapper ✅"]
-        P_mock["ph-ee-connector-mock-payment-schema ✅"]
+        P_mock["paymenthub-ee-connector-mock-payment-schema ✅"]
         P_more["+ 7 more ✅"]
     end
 

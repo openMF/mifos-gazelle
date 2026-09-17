@@ -83,3 +83,13 @@ dependencies:
   - dependency
   - postgresql
   version: 15.5.38
+## Keycloak (SSO for paymenthub-ee-operationsui-react)
+- name: keycloak
+  alias: keycloak
+  condition: keycloak.enabled
+  repository: https://charts.bitnami.com/bitnami
+  tags:
+  - gazelle
+  - dependency
+  - keycloak
+  version: 25.2.0

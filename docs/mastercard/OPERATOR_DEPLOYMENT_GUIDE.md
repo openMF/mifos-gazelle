@@ -144,7 +144,7 @@ spec:
     clientSecretName: "mastercard-cbs-credentials"
   paymenthub:
     namespace: "paymenthub"
-    zeebeGateway: "phee-zeebe-gateway.paymenthub.svc.cluster.local:26500"
+    zeebeGateway: "zeebe-gateway.paymenthub.svc.cluster.local:26500"
     operationsDb:
       host: "operationsmysql.paymenthub.svc.cluster.local"
       port: 3306

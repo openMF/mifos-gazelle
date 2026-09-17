@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-bulk
+  name: paymenthub-ee-connector-bulk
   namespace: paymenthub
 spec:
   enabled: true
@@ -9,7 +9,9 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-connector-bulk:dev-latest
+  # Migrated to paymenthub-ee-connector-bulk (Java 21/Spring Boot 3.4). Port
+  # unchanged (8080), confirmed via `docker inspect`.
+  image: docker.io/openmf/paymenthub-ee-connector-bulk:dev-latest
   containerPort: 8080
   resources:
     limits:
@@ -21,6 +23,12 @@ spec:
   rbacEnabled: false
   secretEnabled: true
   configMapEnabled: false
+  # aws-region/aws-access-key/aws-secret-key back the CLOUD_AWS_* env vars below,
+  # pointed at the local minio instance rather than real AWS.
+  secretData:
+    aws-access-key: root
+    aws-secret-key: password
+    aws-region: ap-south-1
   ingressEnabled: true
   ingress:
     className: nginx
@@ -42,18 +50,18 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: ph-ee-connector-bulk
+                name: paymenthub-ee-connector-bulk
                 port:
                   number: 80
   services:
-    - name: ph-ee-connector-bulk
+    - name: paymenthub-ee-connector-bulk
       ports:
         - name: port
           port: 80
           targetPort: 8080
           protocol: TCP
       selector:
-        app: ph-ee-connector-bulk
+        app: paymenthub-ee-connector-bulk
       sessionAffinity: None
       type: ClusterIP
   environment:
@@ -76,38 +84,42 @@ spec:
     - name: CLOUD_AWS_REGION_STATIC
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-region
     - name: AWS_ACCESS_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-access-key
     - name: AWS_SECRET_KEY
       valueFrom:
         secretKeyRef:
-          name: ph-ee-connector-bulk-secret
+          name: paymenthub-ee-connector-bulk-secret
           key: aws-secret-key
     - name: OPERATIONS_APP_CONTACTPOINT
-      value: "http://ph-ee-operations-app:80"
+      value: "http://paymenthub-ee-bff:80"
     - name: OPERATIONS_APP_ENDPOINTS_BATCH_SUMMARY
       value: "/api/v1/batch"
     - name: OPERATIONS_APP_ENDPOINTS_BATCH_DETAIL
       value: "/api/v1/batch/detail"
     - name: MOCK_PAYMENT_SCHEMA_CONTACTPOINT
-      value: "http://ph-ee-connector-mock-payment-schema:8080"
+      value: "http://paymenthub-ee-connector-mock-payment-schema:8080"
     - name: MOCK_PAYMENT_SCHEMA_ENDPOINTS_BATCH_SUMMARY
       value: "/mockapi/v1/batch"
     - name: MOCK_PAYMENT_SCHEMA_ENDPOINTS_BATCH_DETAIL
       value: "/mockapi/v1/batch/detail"
     - name: BULK_PROCESSOR_CONTACTPOINT
-      value: "http://ph-ee-bulk-processor:80"
+      value: "http://paymenthub-ee-bulk-processor:80"
     - name: BULK_PROCESSOR_ENDPOINTS_BATCH_TRANSACTION
       value: "/batchtransactions"
     - name: IDENTITY_MAPPER_CONTACTPOINT
-      value: "http://ph-ee-identity-account-mapper:80"
+      value: "http://paymenthub-ee-account-mapper:80"
+    # Port 8080 (tried first, based on /actuator/health) turned out to be a separate
+    # management-only context -- POST /channel/transfer 404s there. Port 8443 plain HTTP
+    # (not HTTPS -- jar default's scheme was also wrong) is where the real business route
+    # is mapped (confirmed: POST /channel/transfer returns 500 there, not 404).
     - name: CHANNEL_CONTACTPOINT
-      value: "http://ph-ee-connector-channel:8443"
+      value: "http://paymenthub-ee-connector-channel:8443"
     - name: CHANNEL_ENDPOINTS_TRANSFER
       value: "/channel/transfer"
     - name: BULK_PROCESSOR_ENDPOINTS_BATCH_EXECUTION

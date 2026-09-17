@@ -1,7 +1,7 @@
 apiVersion: gazelle.mifos.io/v1
 kind: PaymentHubDeployment
 metadata:
-  name: ph-ee-connector-bill-pay
+  name: paymenthub-ee-connector-crm
   namespace: paymenthub
 spec:
   enabled: false
@@ -13,7 +13,10 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/ph-ee-bill-pay:v1.1.0
+  # openMF/paymenthub-ee-connector-crm exists upstream (source migrated) but has no
+  # CI/CD wired up yet and no published Docker image -- pinned to the last working
+  # ph-ee-connector-crm image until openmf/paymenthub-ee-connector-crm is published.
+  image: docker.io/openmf/ph-ee-connector-crm:v1.1.0
   containerPort: 8080
   resources:
     limits:
@@ -23,14 +26,14 @@ spec:
       cpu: 100m
       memory: 256M
   services:
-    - name: ph-ee-connector-bill-pay
+    - name: paymenthub-ee-connector-crm
       ports:
         - name: port
           port: 8080
           targetPort: 8080
           protocol: TCP
       selector:
-        app: ph-ee-connector-bill-pay
+        app: paymenthub-ee-connector-crm
       sessionAffinity: None
       type: ClusterIP
   environment:
