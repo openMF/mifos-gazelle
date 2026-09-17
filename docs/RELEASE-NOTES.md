@@ -2,6 +2,16 @@
 
 ## Major New Features
 
+- **MifosX is now fully deployed** — previously Gazelle brought up Fineract and the web app only. `./run.sh -m deploy -a mifosx` now also deploys all five MifosX extension modules: Pentaho reporting, the Flowable workflow engine, credit bureau integration, SMS & messaging, and loan assessment
+- **MifosX on PostgreSQL** — the MifosX stack moved off MySQL/MariaDB onto Gazelle's shared PostgreSQL, so every component and module shares one database engine instead of running its own (GAZ-305)
+- **Pentaho reporting** — the reporting plugin is staged into the Fineract pod at startup, registering 44 Pentaho reports alongside Fineract's built-in ones. See the release note below on the outstanding upstream fix (GAZ-306)
+- **Workflow Engine (Flowable)** — BPMN client onboarding, offboarding, transfer, and loan origination, disbursement and cancellation, driven against Fineract over REST (GAZ-308)
+- **Credit Bureau integration** — registers bureau credentials and fetches credit reports, running in mock mode so it returns a report built from real Fineract client data without live bureau credentials (GAZ-307)
+- **SMS & Messaging** — the message gateway, sending through its built-in Dummy provider so the pipeline can be exercised without a real SMS provider (GAZ-319, GAZ-357)
+- **Loan Assessment** — an event-driven module that consumes Fineract's loan events from Kafka and records a risk assessment (GAZ-318, GAZ-356)
+- **One-command demos for every module** — `src/utils/demo-workflow.sh`, `demo-credit-bureau.sh`, `demo-message-gateway.sh` and `demo-loan-module.sh` each exercise a module end to end and print a readable result, so the modules can be tried without reading their APIs first
+- **MifosX documentation** — `docs/MIFOSX.md` describes every deployed component, how to use it, the pattern for adding a new module, and the known limitations (GAZ-327)
+- **Version pins and an upgrade path** — `VERSIONS.md` records every pinned image in one place with no `:latest` tags, and `UPGRADE-RUNBOOK.md` is the checklist for adopting a future MifosX release (GAZ-309)
 - **macOS Support** — Full deployment on macOS via Colima/k3s; `run.sh` automatically installs Homebrew, Colima, Docker, and Docker Compose on first run
 - **macOS Setup Module** — macOS/Colima setup logic extracted into a dedicated `src/environmentSetup/mac_setup.sh` for cleaner separation of concerns
 - **GovStack Cross-Border Payment Support** — Added `cert-manager` for CORS handling and a GovStack cross-border client deployment script with batch payment features
@@ -10,6 +20,15 @@
 
 ## Notable Changes
 
+- Updated MifosX to the 25.12.25 release line — Apache Fineract 1.14.0 and a multi-architecture web-app build (GAZ-45)
+- Each MifosX module is reachable at its own hostname rather than through `kubectl port-forward` (GAZ-319)
+- The MifosX deploy now warns when an image referenced by the manifests cannot be found in a registry, instead of failing later as an image-pull error
+- Enriched the MifosX demo data with a savings product on CASH accounting, so deposits and withdrawals post general-ledger entries and the accounting reports have something to report (GAZ-306)
+- Fixed the workflow engine's init container hanging on ARM64 when `apk add curl` failed (GAZ-342)
+- Fixed out-of-memory pods and the resulting `make-payment` failure on a full deployment (GAZ-353)
+- Added a build script for images that have to be built rather than pulled, with multi-architecture support (GAZ-317)
+- Every demo script fails with a clear message if MifosX is not deployed, rather than hanging (GAZ-345, GAZ-346)
+- Fixed `setup-env.sh` so it installs `python3-venv`/`pip` and completes on a fresh Ubuntu 22.04 or 24.04 host (GAZ-310)
 - Fixed vNext pods crash-looping on Colima (macOS)
 - Fixed macOS/Linux platform detection in `commandline.sh`
 - Fixed Bitnami Helm chart registry path (`oci://registry-1.docker.io/bitnamicharts`) reverting a regression
@@ -22,9 +41,35 @@
 - Added `CLAUDE.md` developer guide to the repository
 - Added CLA contributor check to CI workflow
 
+## Known Limitations — MifosX
+
+- **Pentaho reports do not run yet.** The plugin deploys and its reports register, but running one fails: the published plugin cannot resolve the per-tenant datasource. The fix is merged upstream in `openMF/mifos-reporting-plugin` (PR #513) and Gazelle installs the published artifact, so reporting starts working once a fixed release is cut — no Gazelle change needed.
+- **Three module images are temporary.** The workflow engine, credit bureau and loan assessment modules publish no container image upstream, so Gazelle builds them from source and pins images in a personal DockerHub namespace. They should move to `openMF` images once published. `VERSIONS.md` and `docs/MIFOSX.md` record the pins and the build commands.
+- **No live SMS or email provider is configured.** The message gateway sends through its built-in Dummy provider, which simulates delivery inside the cluster. Wiring a real provider is a deployment-time decision.
+- **The loan assessment module only sees the `default` tenant.** Loan activity on `greenbank`, `bluebank` or `redbank` produces no events for it to consume.
+
+`docs/MIFOSX.md` carries the full list along with troubleshooting.
+
 ## Tickets
 
 EPIC: [GAZ-268 - release 2.1.0](https://mifosforge.jira.com/browse/GAZ-268)<br>
+[GAZ-45 - Update MifosX images to the 25.12.25 release](https://mifosforge.jira.com/browse/GAZ-45)<br>
+[GAZ-305 - Move to Postgres instead of MySQL for MifosX](https://mifosforge.jira.com/browse/GAZ-305)<br>
+[GAZ-306 - Add the Pentaho reporting plugin as a MifosX module](https://mifosforge.jira.com/browse/GAZ-306)<br>
+[GAZ-307 - Add the Credit Bureau as a module to the MifosX deployment](https://mifosforge.jira.com/browse/GAZ-307)<br>
+[GAZ-308 - Add the Workflow Engine (Flowable) as a MifosX module](https://mifosforge.jira.com/browse/GAZ-308)<br>
+[GAZ-309 - Document the upgrade process for future MifosX releases](https://mifosforge.jira.com/browse/GAZ-309)<br>
+[GAZ-310 - Install python3-venv/pip so setup completes on fresh Ubuntu](https://mifosforge.jira.com/browse/GAZ-310)<br>
+[GAZ-317 - Build images for the host architecture and support arm64](https://mifosforge.jira.com/browse/GAZ-317)<br>
+[GAZ-318 - Add the Loan Assessment as a module to the MifosX deployment](https://mifosforge.jira.com/browse/GAZ-318)<br>
+[GAZ-319 - Add the message-gateway as a module to the MifosX deployment](https://mifosforge.jira.com/browse/GAZ-319)<br>
+[GAZ-327 - Add documentation for MIFOSX.md](https://mifosforge.jira.com/browse/GAZ-327)<br>
+[GAZ-342 - Fix the Workflow init container hang on ARM64](https://mifosforge.jira.com/browse/GAZ-342)<br>
+[GAZ-345 - Credit Bureau: make it usable and demoable in Gazelle](https://mifosforge.jira.com/browse/GAZ-345)<br>
+[GAZ-346 - Workflow Engine: make it usable and demoable in Gazelle](https://mifosforge.jira.com/browse/GAZ-346)<br>
+[GAZ-353 - Fix OOM pods and make-payment failure on full deployment](https://mifosforge.jira.com/browse/GAZ-353)<br>
+[GAZ-356 - Loan Assessment: make it usable and demoable in Gazelle](https://mifosforge.jira.com/browse/GAZ-356)<br>
+[GAZ-357 - Message-gateway: make it usable and demoable in Gazelle](https://mifosforge.jira.com/browse/GAZ-357)<br>
 [GAZ-227 - commandline.sh allows parameters without preceding minus sign](https://mifosforge.jira.com/browse/GAZ-227)<br>
 [GAZ-259 - Improve deployment resilience](https://mifosforge.jira.com/browse/GAZ-259)<br>
 [GAZ-281 - Mastercard Test and help integrate solution into GovStack Sandbox Env](https://mifosforge.jira.com/browse/GAZ-281)<br>
