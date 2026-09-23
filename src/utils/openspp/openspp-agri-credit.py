@@ -58,6 +58,10 @@ LOAN_PURPOSE = "Agricultural inputs"
 COLLATERAL_CODE = "LoanCollateral"
 COLLATERAL_TYPE = "Farm land"
 REGISTRY_TABLE = "openspp_registry_snapshot"
+# Fineract's financial activity for the liability side of an account transfer, and the
+# suspense account the shared MifosX data generator creates for it.
+LIABILITY_TRANSFER_ACTIVITY = 200
+TRANSFER_SUSPENSE_GL_CODE = "220000"
 
 # The loan is a seasonal input loan: one repayment after the season, no interest, so the demo
 # shows where the amount comes from instead of an amortisation schedule.
@@ -705,6 +709,44 @@ def disburse(headers, loan_id, principal):
                                      headers, json_data=payload))
 
 
+def ensure_transfer_mapping(headers):
+    """Map the liability transfer activity, so a loan can pay out into savings.
+
+    A loan reaches a savings account through an account transfer. When the savings
+    product keeps accounting, which the shared data generator now turns on, that
+    transfer needs this activity mapped to a liability account, and no deployment step
+    creates the mapping. Without it the payout answers 404 with
+    error.msg.financialActivityAccount.not.found and every loan stays Approved.
+
+    True when the mapping is there afterwards. Created once per tenant.
+    """
+    mapped = gen.make_api_request("GET", f"{gen.API_BASE_URL}/financialactivityaccounts",
+                                  headers) or []
+    if any((m.get("financialActivityData") or {}).get("id") == LIABILITY_TRANSFER_ACTIVITY
+           for m in mapped):
+        return True
+
+    accounts = gen.make_api_request("GET", f"{gen.API_BASE_URL}/glaccounts", headers) or []
+    liabilities = [a for a in accounts if (a.get("type") or {}).get("value") == "LIABILITY"]
+    # The suspense account by its code first, since that is the one meant for transfers;
+    # any other liability account still lets the payout through.
+    account = next((a for a in liabilities if a.get("glCode") == TRANSFER_SUSPENSE_GL_CODE),
+                   next(iter(liabilities), None))
+    if not account:
+        print("  WARN: this tenant has no liability account, so the transfer mapping "
+              "cannot be created", file=sys.stderr)
+        return False
+
+    created = gen.make_api_request("POST", f"{gen.API_BASE_URL}/financialactivityaccounts",
+                                   headers,
+                                   json_data={"financialActivityId": LIABILITY_TRANSFER_ACTIVITY,
+                                              "glAccountId": account["id"]})
+    if created:
+        print(f"  mapped liability transfers to {account['glCode']} {account['name']}",
+              file=sys.stderr)
+    return bool(created)
+
+
 def ensure_registry_table(headers):
     """Register the datatable that carries the registry evidence on the loan.
 
@@ -875,6 +917,7 @@ def main():
     print(f"Lender: {tenant}", file=sys.stderr)
 
     product_id = ensure_loan_product(headers, args.currency)
+    ensure_transfer_mapping(headers)
     purpose_id = ensure_code_value(headers, PURPOSE_CODE, LOAN_PURPOSE)
     collateral_type_id = ensure_code_value(headers, COLLATERAL_CODE, COLLATERAL_TYPE)
     if not ensure_registry_table(headers):
