@@ -16,7 +16,7 @@ spec:
   # Migrated to paymenthub-ee-bff (Java 21/Spring Boot 3.4; renamed "bff",
   # also absorbs ph-ee-operations-g2p-service). Port unchanged (5000, single
   # exposed port confirmed via `docker inspect`).
-  image: docker.io/openmf/paymenthub-ee-bff:dev-latest
+  image: docker.io/openmf/paymenthub-ee-bff:dev-6bd6fac
   containerPort: 5000
   resources:
     limits:
