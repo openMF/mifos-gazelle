@@ -16,7 +16,7 @@ spec:
   # Migrated to paymenthub-ee-bff (Java 21/Spring Boot 3.4; renamed "bff",
   # also absorbs ph-ee-operations-g2p-service). Port unchanged (5000, single
   # exposed port confirmed via `docker inspect`).
-  image: docker.io/openmf/paymenthub-ee-bff:dev-latest
+  image: docker.io/openmf/paymenthub-ee-bff:dev-6bd6fac
   containerPort: 5000
   resources:
     limits:
@@ -105,7 +105,7 @@ spec:
       value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
     - name: CLOUD_AWS_S3BASEURL
       value: "http://minio:9000"
-    - name: APPLICATION_BUCKET-NAME
+    - name: APPLICATION_BUCKETNAME
       value: "paymenthub-ee"
     - name: CLOUD_AWS_REGION_STATIC
       valueFrom:
@@ -122,12 +122,12 @@ spec:
         secretKeyRef:
           name: paymenthub-ee-connector-bulk-secret
           key: aws-secret-key
-    - name: CLOUD_AWS_CREDENTIALS_ACCESS-KEY
+    - name: CLOUD_AWS_CREDENTIALS_ACCESSKEY
       valueFrom:
         secretKeyRef:
           name: paymenthub-ee-connector-bulk-secret
           key: aws-access-key
-    - name: CLOUD_AWS_CREDENTIALS_SECRET-KEY
+    - name: CLOUD_AWS_CREDENTIALS_SECRETKEY
       valueFrom:
         secretKeyRef:
           name: paymenthub-ee-connector-bulk-secret
