@@ -5,7 +5,7 @@ metadata:
   namespace: paymenthub
 spec:
   # Migrated to paymenthub-ee-p2g (Java 21/Spring Boot 3.4; repo renamed
-  # "p2g"). No semver tag published yet — pinned to dev-latest. Dual port
+  # "p2g"). No semver tag published yet — pinned to the dev merge-commit tag. Dual port
   # confirmed via source: server.port=8080 (Spring MVC + actuator,
   # management.endpoint.health probes enabled), camel.server-port=5000
   # (Camel REST bill-pay routes) — same pattern as zeebe-ops/notifications.
@@ -19,7 +19,7 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/paymenthub-ee-p2g:dev-latest
+  image: docker.io/openmf/paymenthub-ee-p2g:dev-cb75640
   containerPort: 8080
   resources:
     limits:
