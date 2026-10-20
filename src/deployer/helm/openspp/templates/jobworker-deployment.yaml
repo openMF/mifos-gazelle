@@ -25,6 +25,10 @@ spec:
       nodeSelector:
         kubernetes.io/arch: {{ .Values.arch }}
       {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- end }}
       # Wait until Odoo has INITIALISED the DB (ir_module_module exists), not just until Postgres is
       # up. Both odoo and this worker run the same entrypoint, which tries to init the DB on an empty
       # database; starting the worker only after odoo has initialised avoids racing for the init lock.

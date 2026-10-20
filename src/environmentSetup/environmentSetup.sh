@@ -4,6 +4,7 @@
 source "$RUN_DIR/src/environmentSetup/helpers.sh" || { echo "FATAL: Could not source helpers.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/environmentSetup/k8s.sh" || { echo "FATAL: Could not source k8s.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 source "$RUN_DIR/src/environmentSetup/mac_setup.sh" || { echo "FATAL: Could not source mac_setup.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
+source "$RUN_DIR/src/environmentSetup/multinode.sh" || { echo "FATAL: Could not source multinode.sh. Check RUN_DIR: $RUN_DIR"; exit 1; }
 
 #------------------------------------------------------------------------------
 # Function: install_os_prerequisites   
@@ -175,8 +176,13 @@ add_hosts() {
         local NODE_IP
         # The node may have both IPv4 and IPv6 InternalIP addresses; the jsonpath
         # returns both space-separated.  Filter to the first IPv4 address only.
+        # Select the control-plane node explicitly (not .items[0]) — with more than
+        # one node, kubectl's default ordering is not guaranteed to put the server
+        # node first, and ingress-nginx is pinned to the control-plane node
+        # (see config/nginx_values.yaml), so /etc/hosts must match that same node.
         NODE_IP=$(sudo -u "$k8s_user" kubectl get nodes \
             --kubeconfig "$kubeconfig_path" \
+            -l node-role.kubernetes.io/control-plane \
             -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
             2>/dev/null \
             | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
