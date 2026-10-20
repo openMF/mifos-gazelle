@@ -18,7 +18,7 @@ spec:
   # Port topology unchanged: 5000 is the Camel/Undertow REST port, actuator
   # still lives on a separate Tomcat port 8080 — confirmed live (Docker
   # `EXPOSE 5000` in the image was incomplete; both ports are actually bound).
-  image: docker.io/openmf/paymenthub-ee-connector-mojaloop:dev-latest
+  image: docker.io/openmf/paymenthub-ee-connector-mojaloop:dev-8685c4f
   containerPort: 5000
   resources:
     limits:
@@ -63,16 +63,16 @@ spec:
       value: "greenbank,redbank,bluebank"
     - name: ZEEBE_BROKER_CONTACTPOINT
       value: "paymenthub-infra-zeebe-gateway:26500"
-    - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
+    - name: ZEEBE_CLIENT_MAXEXECUTIONTHREADS
       value: "50"
-    - name: ZEEBE_CLIENT_POLL-INTERVAL
+    - name: ZEEBE_CLIENT_POLLINTERVAL
       value: "10"
-    # Same fix as SWITCH_als-host below: this was empty, causing "Endpoint
+    # Same fix as SWITCH_ALS_HOST below: this was empty, causing "Endpoint
     # should include scheme:path" on /quotes once the workflow got past
     # party-lookup — confirmed live. Points at the same FSPIOP switch gateway.
-    - name: SWITCH_quotes-host
+    - name: SWITCH_QUOTES_HOST
       value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
-    - name: SWITCH_quote-service
+    - name: SWITCH_QUOTE_SERVICE
       value: ""
     # NOTE: was "vnextadmin.mifos.gazelle.test/_interop" (no scheme, and pods
     # can't resolve *.gazelle.test hostnames at all — no CoreDNS custom
@@ -89,21 +89,21 @@ spec:
     # (Date, fspiop-source, Accept/Content-Type), which this connector's own
     # code already sets. Calling the in-cluster Service directly avoids the
     # external DNS dependency entirely.
-    - name: SWITCH_als-host
+    - name: SWITCH_ALS_HOST
       value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
-    - name: SWITCH_account-lookup-service
+    - name: SWITCH_ACCOUNT_LOOKUP_SERVICE
       value: ""
     # Same fix, pre-emptive: same empty-host pattern would hit the same
     # missing-scheme error at the transfers/transactions steps next.
-    - name: SWITCH_transfers-host
+    - name: SWITCH_TRANSFERS_HOST
       value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
-    - name: SWITCH_transfers-service
+    - name: SWITCH_TRANSFER_SERVICE
       value: ""
-    - name: SWITCH_transactions-host
+    - name: SWITCH_TRANSACTIONS_HOST
       value: "http://fspiop-api-svc.vnext.svc.cluster.local:4000"
-    - name: SWITCH_transaction-request-service
+    - name: SWITCH_TRANSACTION_REQUEST_SERVICE
       value: ""
-    - name: SWITCH_oracle-host
+    - name: SWITCH_ORACLE_HOST
       value: ""
     - name: parties_0_domain
       value: "paymenthub-ee-connector-mojaloop.paymenthub.svc.cluster.local"
