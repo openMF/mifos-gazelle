@@ -98,7 +98,7 @@ spec:
       value: "paymenthub-infra-zeebe-gateway:26500"
     - name: DFSPIDS
       value: "greenbank,redbank,bluebank"
-    - name: TRANSACTION-ID-LENGTH
+    - name: TRANSACTIONIDLENGTH
       value: "20"
     - name: MPESA_NOTIFICATION_SUCCESS_ENABLED
       value: "false"
@@ -110,7 +110,7 @@ spec:
       value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
     - name: operations_url
       value: "http://paymenthub-ee-bff:80/api/v1"
-    - name: operations_auth-enabled
+    - name: OPERATIONS_AUTHENABLED
       value: "false"
     - name: CHANNEL_TENANTPRIMARY_CLIENTID
       value: "mifos"

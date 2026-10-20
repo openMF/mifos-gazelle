@@ -71,7 +71,7 @@ spec:
       value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
     - name: JAVA_TOOL_OPTIONS
       value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
-    - name: APPLICATION_BUCKET-NAME
+    - name: APPLICATION_BUCKETNAME
       value: paymenthub-ee
     - name: CLOUD_AWS_S3BASEURL
       value: "http://minio:9000"

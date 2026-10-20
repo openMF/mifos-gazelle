@@ -78,9 +78,9 @@ spec:
       value: "bb"
     - name: ZEEBE_BROKER_CONTACTPOINT
       value: "paymenthub-infra-zeebe-gateway:26500"
-    - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
+    - name: ZEEBE_CLIENT_MAXEXECUTIONTHREADS
       value: "10"
-    - name: ZEEBE_CLIENT_POLL-INTERVAL
+    - name: ZEEBE_CLIENT_POLLINTERVAL
       value: "10"
     - name: SPRING_DATASOURCE_URL
       value: "jdbc:mysql://operationsmysql:3306/identity_account_mapper"

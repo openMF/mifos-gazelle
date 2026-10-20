@@ -63,9 +63,9 @@ spec:
       value: "greenbank,redbank,bluebank"
     - name: ZEEBE_BROKER_CONTACTPOINT
       value: "paymenthub-infra-zeebe-gateway:26500"
-    - name: ZEEBE_CLIENT_MAX-EXECUTION-THREADS
+    - name: ZEEBE_CLIENT_MAXEXECUTIONTHREADS
       value: "50"
-    - name: ZEEBE_CLIENT_POLL-INTERVAL
+    - name: ZEEBE_CLIENT_POLLINTERVAL
       value: "10"
     # Same fix as SWITCH_ALS_HOST below: this was empty, causing "Endpoint
     # should include scheme:path" on /quotes once the workflow got past
