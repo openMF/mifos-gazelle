@@ -218,24 +218,26 @@ welcome() {
 #------------------------------------------------------------------------------
 show_usage() {
     echo "
-    USAGE: $0 [-f <config_file_path>] -m [mode] -a [apps] -e [environment] -d [true/false] -r [true/false]
+USAGE: $0 [-f <config_file_path>] -m [mode] -a [apps] -e [environment] -d [true/false] -r [true/false]
 
     Deploys or removes Mifos Gazelle applications on an already-configured cluster.
     Run 'sudo ./setup-env.sh' first to set up the environment (k3s, /etc/hosts, tools).
 
     Example 1 : $0 -m deploy                                  # deploy all apps enabled in config.ini
     Example 2 : $0 -m deploy -a paymenthub                    # deploy PaymentHub only
-    Example 3 : $0 -m deploy -a \"mifosx,vnext\"                # deploy MifosX and vNext only
+    Example 3 : $0 -m deploy -a "mifosx,vnext"                # deploy MifosX and vNext only
     Example 4 : $0 -m deploy -e remote -d true                # deploy on remote cluster with debug
     Example 5 : $0 -m cleanapps                               # delete all deployed apps
     Example 6 : $0 -m cleanapps -a paymenthub                 # delete PaymentHub only
     Example 7 : $0 -f /opt/my_config.ini -m deploy            # use a custom config file
     Example 8 : $0 -m deploy -a setup-data                    # re-run data generation
+    Example 9 : $0 -m test -a all                             # health check all deployed components
+    Example 10: $0 -m test -a mifosx                          # health check MifosX only
 
     Options:
     -f config_file_path .. Specify an alternative config.ini file path (optional)
-    -m mode .............. deploy|cleanapps (required)
-    -u user .............. non-root user for k8s operations (optional, defaults to \$USER)
+    -m mode .............. deploy|cleanapps|test (required)
+    -u user .............. non-root user for k8s operations (optional, defaults to $USER)
     -a apps .............. Comma-separated list of apps or 'all' (optional)
                            Valid: vnext paymenthub mifosx infra mastercard-demo openg2p openspp setup-data all
     -e environment ....... local (default) | remote
@@ -298,14 +300,14 @@ validate_inputs() {
         exit 1
     fi
 
-    if [[ "$mode" != "deploy" && "$mode" != "cleanapps" ]]; then
-        log_error "Invalid mode '$mode'. run.sh accepts: deploy | cleanapps"
+if [[ "$mode" != "deploy" && "$mode" != "cleanapps" && "$mode" != "test" ]]; then
+        log_error "Invalid mode '$mode'. run.sh accepts: deploy | cleanapps | test"
         log_error "For environment setup and teardown use: sudo ./setup-env.sh [-m cleanall]"
         show_usage
         exit 1
     fi
 
-    if [[ "$mode" == "deploy" || "$mode" == "cleanapps" ]]; then
+    if [[ "$mode" == "deploy" || "$mode" == "cleanapps" || "$mode" == "test" ]]; then
         if [[ -z "$apps" ]]; then
             log_warn "No apps specified via -a or config file. Defaulting to 'all'."
             apps="all"
@@ -356,7 +358,7 @@ validate_inputs() {
                 # for mode = deploy ensure 'infra' is first app if present
                 apps="infra $(echo "$apps" | sed 's/infra//')"
                 apps=$(echo "$apps" | xargs)
-            else # mode = cleanapps
+            elif [[ "$mode" == "cleanapps" ]]; then
                 # for mode = cleanapps ensure 'infra' is last app if present
                 apps="$(echo "$apps" | sed 's/infra//') infra"
                 apps=$(echo "$apps" | xargs)
@@ -562,6 +564,9 @@ main() {
     elif [ "$mode" == "cleanapps" ]; then
         log_with_verbose_check "$debug" "$INFO" "Cleaning up Mifos Gazelle applications only"
         delete_apps "$apps"
+    elif [ "$mode" == "test" ]; then
+        test_apps "$apps"
+        exit $?
     else
         show_usage
         exit 1

@@ -235,6 +235,36 @@ CR definitions live in `src/deployer/operators/paymenthub/config/cr/` — one fi
 
 ---
 
+## Health Checks
+
+After a deployment completes, you can verify all components are healthy:
+
+```bash
+# Check all deployed components
+sudo ./run.sh -u $USER -m test -a all
+
+# Check individual components
+sudo ./run.sh -u $USER -m test -a mifosx
+sudo ./run.sh -u $USER -m test -a phee
+sudo ./run.sh -u $USER -m test -a vnext
+sudo ./run.sh -u $USER -m test -a infra
+
+# Check a subset
+sudo ./run.sh -u $USER -m test -a "mifosx,phee"
+```
+
+Health checks verify:
+- All pods in the component's namespace are `Running` or `Completed`
+- Key web endpoints return HTTP 2xx/3xx responses
+
+If a check fails, the output identifies the failing namespace, pod, or endpoint.
+The `src/utils/k8s-error-summary.py` utility is automatically invoked on pod failures to provide additional diagnostics.
+
+Failed checks return a non-zero exit code, suitable for use in CI pipelines.
+
+
+---
+
 ## Cleanup
 
 ```bash
