@@ -1,6 +1,8 @@
 ## Example of verbose output on installing on Raspberry Pi
 
 This verbose output was generated deploying v2.0.0 using the following command:
+
+> **Note:** This is a verbatim, unedited console transcript. It predates the `ph-ee-` → `paymenthub-ee-` repository/component rename (see [RELEASE-NOTES.md](RELEASE-NOTES.md) and [PHEE-RELEASE-HISTORY.md](PHEE-RELEASE-HISTORY.md)), so `ph-ee-*` names, `repos/ph_template`, and the `helm install phee ...` step below reflect the old naming and the retired Helm-based install path — not current behaviour.
 ```bash
 davidhiggins@gazelle1:~/mifos-gazelle$ sudo ./run.sh -u ¢USER -m deploy -a all -d true
 ```

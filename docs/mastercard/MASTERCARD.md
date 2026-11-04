@@ -207,14 +207,15 @@ kubectl exec -n paymenthub operationsmysql-0 -- \
 To enable the `MASTERCARD_CBS` routing in the bulk-processor, the following entry must be present (it is added automatically when the connector is deployed via `run.sh`):
 
 ```yaml
-# ph-ee-bulk-processor application.yaml or config/ph_values.yaml
+# paymenthub-ee-bulk-processor application.yaml, or the shared ph-ee-config ConfigMap
+# (src/deployer/operators/paymenthub/config/cr/00-configmap.yaml)
 payment-modes:
   - id: "MASTERCARD_CBS"
     type: "BULK"
     endpoint: "bulk_connector_mastercard_cbs-{dfspid}"
 ```
 
-> If using hostPath mounts (localdev mode), edit `~/ph-ee-bulk-processor/src/main/resources/application.yaml`, rebuild the JAR, and restart the pod.
+> If using hostPath mounts (localdev mode), edit `~/paymenthub-ee-bulk-processor/src/main/resources/application.yaml`, rebuild the JAR, and restart the pod.
 
 ---
 

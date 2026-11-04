@@ -31,16 +31,16 @@ camunda-platform:
     affinity: {}
     ingress:
       enabled: true
-      host: "zeebe-operate.mifos.gazelle.local"
+      host: "zeebe-operate.mifos.gazelle.test"
 
   zeebe-gateway:
     ingress:
-      host: "zeebe-gateway.mifos.gazelle.local"
+      host: "zeebe-gateway.mifos.gazelle.test"
 
 minio:
   ingress:
     hosts:
-      - minio.mifos.gazelle.local
+      - minio.mifos.gazelle.test
   consoleIngress:
     hosts:
-      - minio-console.mifos.gazelle.local
+      - minio-console.mifos.gazelle.test

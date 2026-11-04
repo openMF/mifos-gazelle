@@ -21,7 +21,7 @@ spec:
     spec:
       {{- if .Values.arch }}
       nodeSelector:
-        kubernetes.io/arch: {{ .Values.arch }}   # postgis/postgis:18-3.6-alpine is amd64-only
+        kubernetes.io/arch: {{ .Values.arch }}
       {{- end }}
       containers:
         - name: postgis

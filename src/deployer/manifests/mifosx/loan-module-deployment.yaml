@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: loan-module
+    tier: backend
+  name: loan-module
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loan-module
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: loan-module
+        tier: backend
+    spec:
+      initContainers:
+        - name: ensure-loanrisk-db
+          image: postgres:16-alpine
+          env:
+            - name: PGPASSWORD
+              value: "postgrespw"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              until pg_isready -h postgres.infra.svc.cluster.local -p 5432 -U postgres; do
+                echo "waiting for postgres..."; sleep 3
+              done
+              if psql -h postgres.infra.svc.cluster.local -U postgres -tAc \
+                   "SELECT 1 FROM pg_database WHERE datname='loanrisk'" | grep -q 1; then
+                echo "loanrisk DB already exists"
+              else
+                echo "creating loanrisk DB"
+                createdb -h postgres.infra.svc.cluster.local -U postgres loanrisk
+              fi
+      containers:
+        - name: loan-module
+          image: kanishksingh23/mifos-x-reactive-loan-module:09082026
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SPRING_R2DBC_URL
+              value: "r2dbc:postgresql://postgres.infra.svc.cluster.local:5432/loanrisk"
+            - name: SPRING_R2DBC_USERNAME
+              value: "postgres"
+            - name: SPRING_R2DBC_PASSWORD
+              value: "postgrespw"
+            - name: SPRING_LIQUIBASE_URL
+              value: "jdbc:postgresql://postgres.infra.svc.cluster.local:5432/loanrisk"
+            - name: SPRING_LIQUIBASE_USER
+              value: "postgres"
+            - name: SPRING_LIQUIBASE_PASSWORD
+              value: "postgrespw"
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka.infra.svc.cluster.local:9092"
+            - name: FINERACT_BASE_URL
+              value: "http://fineract-server:8080/fineract-provider/api/v1"
+            - name: FINERACT_USERNAME
+              value: "mifos"
+            - name: FINERACT_PASSWORD
+              value: "password"
+            - name: FINERACT_TENANT_ID
+              value: "default"
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "384Mi"
+              cpu: "100m"
+            limits:
+              memory: "640Mi"
+              cpu: "500m"
+      restartPolicy: Always

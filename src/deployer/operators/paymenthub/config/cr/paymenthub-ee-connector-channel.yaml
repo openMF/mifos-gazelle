@@ -1,0 +1,149 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: paymenthub-ee-connector-channel
+  namespace: paymenthub
+spec:
+  enabled: true
+  waitForGatewayEnabled: true
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: true
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  # Migrated to paymenthub-ee-connector-channel (Java 21/Spring Boot 3.4).
+  # Port topology is unchanged from the old image: server.port=8443 is the
+  # main Tomcat/Spring MVC port (all @RestControllers, incl. /channel/transfer),
+  # management.server.port=8080 is a SEPARATE actuator-only embedded server
+  # (confirmed via the app's own application.yml — NOT the main app port,
+  # despite docker inspect only showing one EXPOSE), and Camel/Undertow on
+  # 5000 hosts the beneficiary CRUD rest() routes only. Verified end-to-end
+  # live: POST /channel/transfer on 8443 returns 200 with a transactionId.
+  image: docker.io/openmf/paymenthub-ee-connector-channel:dev-5e61700
+  containerPort: 8443
+  resources:
+    limits:
+      cpu: 500m
+      memory: 768M
+    requests:
+      cpu: 100m
+      memory: 384M
+  ingress:
+    className: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      nginx.ingress.kubernetes.io/enable-cors: "true"
+      nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+      nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE, PATCH"
+      nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Platform-TenantId,platform-tenantid,purpose,Purpose,type,filename,x-callback-url,x-callbackurl,X-CallbackURL,x-correlationid,x-correlation-id,X-Correlation-ID,x-program-id,x-registering-institution-id,x-signature,privateKey,privatekey,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-GPC,Pragma"
+      nginx.ingress.kubernetes.io/cors-expose-headers: "Content-Length,Content-Range,X-Correlation-ID,x-correlation-id"
+      nginx.ingress.kubernetes.io/cors-max-age: "86400"
+      nginx.ingress.kubernetes.io/enable-access-log: "true"
+    tls:
+      - secretName: sandbox-secret
+    rules:
+      - host: channel.local
+        paths:
+          - path: "/"
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: paymenthub-ee-connector-channel
+                port:
+                  number: 8443
+  services:
+    - name: paymenthub-ee-connector-channel
+      ports:
+        - name: port
+          port: 8443
+          targetPort: 8443
+          protocol: TCP
+        - name: http
+          port: 82
+          targetPort: 8443
+          protocol: TCP
+        - name: beneficiary
+          port: 5000
+          targetPort: 5000
+          protocol: TCP
+        - name: actuator
+          port: 8080
+          targetPort: 8080
+          protocol: TCP
+      selector:
+        app: paymenthub-ee-connector-channel
+      sessionAffinity: None
+      type: ClusterIP
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8080
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    failureThreshold: 3
+    timeoutSeconds: 5
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb,tenants"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "paymenthub-infra-zeebe-gateway:26500"
+    - name: DFSPIDS
+      value: "greenbank,redbank,bluebank"
+    - name: TRANSACTIONIDLENGTH
+      value: "20"
+    - name: MPESA_NOTIFICATION_SUCCESS_ENABLED
+      value: "false"
+    - name: MPESA_NOTIFICATION_FAILURE_ENABLED
+      value: "false"
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
+    - name: LOGGING_PATTERN_CONSOLE
+      value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
+    - name: operations_url
+      value: "http://paymenthub-ee-bff:80/api/v1"
+    - name: OPERATIONS_AUTHENABLED
+      value: "false"
+    - name: CHANNEL_TENANTPRIMARY_CLIENTID
+      value: "mifos"
+    - name: CHANNEL_TENANTPRIMARY_CLIENTSECRET
+      value: "password"
+    - name: CHANNEL_TENANTPRIMARY_TENANT
+      value: "greenbank"
+    - name: CHANNEL_TENANTSECONDARY_CLIENTID
+      value: "mifos"
+    - name: CHANNEL_TENANTSECONDARY_CLIENTSECRET
+      value: "password"
+    - name: CHANNEL_TENANTSECONDARY_TENANT
+      value: "bluebank"
+    - name: AMS
+      value: ""
+    - name: gsma_payee_tenant
+      value: "bluebank"
+    - name: redis_idempotency_enabled
+      value: "true"
+    - name: redis_idempotency_keyFormat
+      value: "clientCorrelationId_tenant_api"
+    - name: redis_idempotency_apiList
+      value: "/channel/transfer,/channel/collection,/channel/gsma/transaction,/channel/transactionRequest"
+    - name: redis_host
+      value: "paymenthub-infra-redis-master"
+    - name: redis_port
+      value: "6379"
+    - name: redis_password
+      valueFrom:
+        secretKeyRef:
+          name: paymenthub-infra-redis
+          key: redis-password
+    - name: server_ssl_enabled
+      value: "false"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"

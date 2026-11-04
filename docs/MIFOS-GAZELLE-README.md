@@ -180,7 +180,7 @@ Once `kubectl get pods -A` or `~/local/bin/k9s` shows all pods running:
 ### DPG Documentation
 
 - vNext: https://github.com/mojaloop/platform-shared-tools/blob/main/packages/deployment/docker-compose-apps/README.md
-- MifosX: https://docs.mifos.org/core-banking-and-embedded-finance/core-banking
+- MifosX: [MIFOSX.md](MIFOSX.md) — components deployed by Gazelle and how to use them; upstream: https://docs.mifos.org/core-banking-and-embedded-finance/core-banking
 - Payment Hub EE: https://mifos.gitbook.io/docs/payment-hub-ee/business-overview/vision
 
 Join the `#mifos-gazelle` channel on [Mifos Slack](https://mifos.slack.com)
@@ -224,7 +224,7 @@ To view the resulting transaction history across all tenants:
 Payment Hub EE uses a two-layer deployment managed entirely by Gazelle:
 
 1. **Infrastructure (Helm)** — Zeebe, MySQL, Redis, MinIO, and Kafka are deployed via the `paymenthub-infra` Helm chart into the `paymenthub` namespace.
-2. **App components (Kubernetes operator)** — all PHEE application components (connector-channel, bulk-processor, operations-app, connector-mojaloop, identity-account-mapper, etc.) are managed by a Kubernetes operator from [openMF/mifos-operators](https://github.com/openMF/mifos-operators). The operator watches `PaymentHubDeployment` custom resources (CRD: `paymenthubdeployments.gazelle.mifos.io`) and reconciles the Deployments, Services, and Ingresses for each component.
+2. **App components (Kubernetes operator)** — all PHEE application components (connector-channel, bulk-processor, operations-app, connector-mojaloop, identity-account-mapper, etc.) are managed by a Kubernetes operator from [openMF/paymenthub-ee-k8s-operators](https://github.com/openMF/paymenthub-ee-k8s-operators) (formerly `ph-ee-k8s-operators`). The operator watches `PaymentHubDeployment` custom resources (CRD: `paymenthubdeployments.gazelle.mifos.io`) and reconciles the Deployments, Services, and Ingresses for each component.
 
 CR definitions live in `src/deployer/operators/paymenthub/config/cr/` — one file per component. To re-apply modified CRs to a running cluster without a full redeploy:
 
@@ -297,6 +297,8 @@ Add the following to your **local** `/etc/hosts` (or Windows `C:\Windows\System3
 ```
 
 Login at https://mifos.mifos.gazelle.test with user `mifos` / password `password`. Select tenant: `default`, `greenbank`, or `bluebank`.
+
+For the MifosX components Gazelle deploys — Fineract, the web app, reporting, the workflow engine and credit bureau integration — and how to use each, see [MIFOSX.md](MIFOSX.md).
 
 ### vNext
 

@@ -1,0 +1,73 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: paymenthub-ee-notifications
+  namespace: paymenthub
+spec:
+  enabled: true
+  waitForGatewayEnabled: true
+  volMount:
+    enabled: false
+  replicas: 1
+  # Migrated to paymenthub-ee-notifications (Java 21/Spring Boot 3.4) — also
+  # absorbs the old message-gateway image into the same process (port 9191 =
+  # gateway API, port 5000 = Camel notification routes; both confirmed via
+  # `docker inspect`). 
+  image: docker.io/openmf/paymenthub-ee-notifications:dev-f64d57c
+  containerPort: 5000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1G
+    requests:
+      cpu: 100m
+      memory: 512M
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  services:
+    - name: paymenthub-ee-notifications
+      ports:
+        - name: port
+          port: 80
+          targetPort: 5000
+          protocol: TCP
+        - name: gateway
+          port: 9191
+          targetPort: 9191
+          protocol: TCP
+      selector:
+        app: paymenthub-ee-notifications
+      sessionAffinity: None
+      type: ClusterIP
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: ""
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "paymenthub-infra-zeebe-gateway:26500"
+    - name: HOSTCONFIG_HOST
+      value: "message-gateway"
+    - name: HOSTCONFIG_PORT
+      value: "80"
+    - name: NOTIFICATION_LOCAL_HOST
+      value: "connector-notifications"
+    # New image requires a datasource at startup (Flyway) that the old image
+    # never needed — confirmed live via CrashLoopBackOff on a hardcoded
+    # default host "operations-mysql" (doesn't exist; real Service is
+    # "operationsmysql"). Schema "messagegateway" already exists in that
+    # instance with these credentials.
+    - name: SPRING_DATASOURCE_URL
+      value: "jdbc:mysql://operationsmysql:3306/messagegateway"
+    - name: MYSQL_USERNAME
+      value: "mifos"
+    - name: MYSQL_PASSWORD
+      value: "password"
+    - name: NOTIFICATION_SUCCESS_ENABLED
+      value: "false"
+    - name: NOTIFICATION_FAILURE_ENABLED
+      value: "false"
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xms128m -Xmx512m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"

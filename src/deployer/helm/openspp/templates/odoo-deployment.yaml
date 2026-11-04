@@ -40,7 +40,7 @@ spec:
               done
       containers:
         - name: odoo
-          image: "{{ .Values.odoo.image.repository }}:{{ .Values.odoo.image.tag }}"
+          image: "{{ .Values.odoo.image.repository }}:{{ .Values.odoo.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.odoo.image.pullPolicy }}
           ports:
             - name: http

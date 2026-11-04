@@ -4,8 +4,10 @@
 # Deployment sequence:
 #   1. deploy_ph_infra_helm  -- Helm --wait: Zeebe, operationsmysql, Redis, MinIO, Kafka into paymenthub ns
 #   2. elastic + TLS secrets
-#   3. deploy_ph_operator      -- CRD + operator pod + 10 PaymentHubDeployment CRs
+#   3. deploy_ph_operator      -- CRD + operator pod + PaymentHubDeployment CRs
 #   4. wait_for_phee_crs_ready -- poll until all enabled CRs reach ready; zeebe-ops confirmed up
+#   4b. wait_for_pods_ready    -- CRs report ready once Deployments exist, not once pods pass
+#                                 their readiness probes — this waits for the latter
 #   5. deploy_bpmns            -- curl BPMN files to zeebe-ops ingress (https://zeebeops.$GAZELLE_DOMAIN)
 
 #------------------------------------------------------------------------------
@@ -25,7 +27,6 @@ deploy_ph(){
 
   log_step "Removing existing Payment Hub resources"
   clean_phee
-  manage_elastic_secrets delete "$INFRA_NAMESPACE"
   kubectl wait --for=delete "namespace/$PH_NAMESPACE" --timeout=300s > /dev/null 2>&1 || true
   log_ok
 
@@ -49,7 +50,7 @@ deploy_ph(){
   create_ingress_secret "$PH_NAMESPACE" \
     "bulk-processor.$GAZELLE_DOMAIN" \
     "sandbox-secret" \
-    "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,ph-ee-connector-channel,ph-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
+    "ops.$GAZELLE_DOMAIN,ops-bk.$GAZELLE_DOMAIN,api.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN,localhost,paymenthub-ee-connector-channel,paymenthub-ee-connector-channel.$PH_NAMESPACE.svc.cluster.local"
 
   # Step 3 — operator reconciles app component Deployments, Services, Ingresses
   deploy_ph_operator || { log_failed "PaymentHub operator deployment failed"; return 1; }
@@ -70,20 +71,29 @@ deploy_ph(){
 #------------------------------------------------------------------------------
 # Function : clean_phee
 # Description: Orderly PHEE teardown for cleanapps mode.
-#   1. Scale operator to 0 — stops reconciliation immediately.
-#   2. helm uninstall — sends orderly SIGTERM to Zeebe/Kafka/Redis/MinIO/MySQL pods.
-#   3. cleanup_phee_cluster_rbac — removes orphaned cluster-scoped RBAC.
-#   4. kubectl delete ns --wait=false — fire-and-forget; Kubernetes drains in background.
+#   1. Scale operator to 0 and wait for its pod to actually terminate (order
+#      matters here — see inline comment).
+#   2. Remove finalizers from all PaymentHubDeployment CRs — otherwise those
+#      finalizers are never processed and the namespace hangs in Terminating.
+#   3. helm uninstall — sends orderly SIGTERM to Zeebe/Kafka/Redis/MinIO/MySQL pods.
+#   4. cleanup_phee_cluster_rbac — removes orphaned cluster-scoped RBAC.
+#   5. kubectl delete ns --wait=false — fire-and-forget; Kubernetes drains in background.
 #------------------------------------------------------------------------------
 clean_phee() {
-  # Remove finalizers from all PaymentHubDeployment CRs first — if the operator
-  # is stopped before this, those finalizers are never processed and the namespace
-  # hangs in Terminating indefinitely.
+  # Must wait for the operator pod to actually die before clearing finalizers
+  # below, not just fire the scale-down: clearing them while it's still alive
+  # (even mid-shutdown) races its reconcile loop, which re-adds a finalizer to
+  # any CR not yet marked for deletion. If that happens, the CR gets its
+  # finalizer back moments before the operator is actually gone — and once
+  # it's gone, nothing is left to process that finalizer, so the CR (and the
+  # whole namespace) hangs in Terminating forever, fixable only by hand-patching
+  # afterwards. Waiting here closes that window.
+  kubectl scale deployment/paymenthub-ee-operator --replicas=0 -n "$PH_NAMESPACE" > /dev/null 2>&1 || true
+  kubectl wait --for=delete pod -l app=paymenthub-ee-operator -n "$PH_NAMESPACE" --timeout=60s > /dev/null 2>&1 || true
+
   kubectl get paymenthubdeployments -n "$PH_NAMESPACE" -o name 2>/dev/null \
     | xargs -r -I{} kubectl patch {} -n "$PH_NAMESPACE" --type=merge -p '{"metadata":{"finalizers":[]}}' \
     > /dev/null 2>&1 || true
-
-  kubectl scale deployment/ph-ee-operator --replicas=0 -n "$PH_NAMESPACE" > /dev/null 2>&1 || true
 
   if helm status "$PH_INFRA_RELEASE_NAME" -n "$PH_NAMESPACE" > /dev/null 2>&1; then
     helm uninstall "$PH_INFRA_RELEASE_NAME" -n "$PH_NAMESPACE" > /dev/null 2>&1 || true
@@ -170,173 +180,35 @@ deploy_ph_infra_helm() {
 #------------------------------------------------------------------------------
 # Function : deploy_ph_operator
 # Description: Applies the CRD, deploys the operator pod, then applies the
-#              11 PaymentHubDeployment CRs with the Gazelle domain substituted
+#              PaymentHubDeployment CRs with the Gazelle domain substituted
 #              into Ingress hostnames.
-#------------------------------------------------------------------------------
-# Function : write_operator_deployment_local
-# Description: Outputs a complete Deployment YAML for the operator in local-dev
-#              mode — eclipse-temurin:21 image, java -jar command, hostPath
-#              volume mounting the operator source directory at /app.
-#              Requires `./gradlew build -x test` (Shadow fat-jar) first.
-# Parameters:
-#   $1 - operator source directory (hostPath on the node)
-#   $2 - JAR filename (e.g. ph-ee-operator-1.0.0.jar)
-#------------------------------------------------------------------------------
-write_operator_deployment_local() {
-  local src_dir="$1"
-  local jar_name="$2"
-  cat <<-YAML
-	apiVersion: apps/v1
-	kind: Deployment
-	metadata:
-	  name: ph-ee-operator
-	  namespace: paymenthub
-	  labels:
-	    app: ph-ee-operator
-	spec:
-	  replicas: 1
-	  selector:
-	    matchLabels:
-	      app: ph-ee-operator
-	  template:
-	    metadata:
-	      labels:
-	        app: ph-ee-operator
-	    spec:
-	      serviceAccountName: ph-ee-operator-sa
-	      containers:
-	        - name: operator
-	          image: eclipse-temurin:21
-	          imagePullPolicy: IfNotPresent
-	          command: ["java", "-jar", "/app/build/libs/${jar_name}"]
-	          env:
-	            - name: WATCH_NAMESPACE
-	              valueFrom:
-	                fieldRef:
-	                  fieldPath: metadata.namespace
-	            - name: LOG_LEVEL
-	              value: INFO
-	          resources:
-	            requests:
-	              memory: "256Mi"
-	              cpu: "250m"
-	            limits:
-	              memory: "512Mi"
-	              cpu: "500m"
-	          volumeMounts:
-	            - name: local-operator
-	              mountPath: /app
-	      volumes:
-	        - name: local-operator
-	          hostPath:
-	            path: ${src_dir}
-	            type: Directory
-	YAML
-}
-
-#------------------------------------------------------------------------------
-# Function : write_operator_deployment_image
-# Description: Outputs a complete Deployment YAML for the operator in image
-#              mode — uses the published Docker image with its own ENTRYPOINT.
-# Parameters:
-#   $1 - operator Docker image (e.g. openmf/paymenthub-operator:1.0.0)
-#------------------------------------------------------------------------------
-write_operator_deployment_image() {
-  local image="$1"
-  cat <<-YAML
-	apiVersion: apps/v1
-	kind: Deployment
-	metadata:
-	  name: ph-ee-operator
-	  namespace: paymenthub
-	  labels:
-	    app: ph-ee-operator
-	spec:
-	  replicas: 1
-	  selector:
-	    matchLabels:
-	      app: ph-ee-operator
-	  template:
-	    metadata:
-	      labels:
-	        app: ph-ee-operator
-	    spec:
-	      serviceAccountName: ph-ee-operator-sa
-	      containers:
-	        - name: operator
-	          image: ${image}
-	          imagePullPolicy: Always
-	          env:
-	            - name: WATCH_NAMESPACE
-	              valueFrom:
-	                fieldRef:
-	                  fieldPath: metadata.namespace
-	            - name: LOG_LEVEL
-	              value: INFO
-	          resources:
-	            requests:
-	              memory: "256Mi"
-	              cpu: "250m"
-	            limits:
-	              memory: "512Mi"
-	              cpu: "500m"
-	YAML
-}
-
 #------------------------------------------------------------------------------
 deploy_ph_operator() {
   local deploy_dir="$RUN_DIR/src/deployer/operators/paymenthub"
-  local jar_name="paymenthub-operator-1.0.0.jar"
 
   log_step "Applying PaymentHub operator CRD"
-  kubectl apply -f "$deploy_dir/config/crd/ph-ee-CustomResourceDefinition.yaml" > /dev/null || { log_failed "CRD apply failed"; return 1; }
+  kubectl apply -f "$deploy_dir/config/crd/paymenthub-ee-CustomResourceDefinition.yaml" > /dev/null || { log_failed "CRD apply failed"; return 1; }
   kubectl wait --for=condition=Established crd/paymenthubdeployments.gazelle.mifos.io --timeout=60s > /dev/null 2>&1
   log_ok
 
-  # Resolve local operator source dir — expand $HOME / ~ to the actual user home
-  local operator_src_dir=""
-  if [ -n "$PH_OPERATOR_SOURCE_DIR" ]; then
-    operator_src_dir="${PH_OPERATOR_SOURCE_DIR/\$HOME/$k8s_user_home}"
-    operator_src_dir="${operator_src_dir/#\~/$k8s_user_home}"
-  fi
-
   # Apply RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding, Role, RoleBinding).
-  # Deployment is applied separately below based on mode — never applied here.
+  # Deployment is applied separately below.
   log_step "Applying PaymentHub operator RBAC"
   kubectl apply -f "$deploy_dir/operator_rbac.yaml" -n "$PH_NAMESPACE" > /dev/null || { log_failed "Operator RBAC apply failed"; return 1; }
   log_ok
 
-  # Determine deployment mode and generate the correct Deployment manifest.
-  local dep_manifest
-  dep_manifest=$(mktemp /tmp/ph-op-dep.XXXXXX)
-  mv "$dep_manifest" "${dep_manifest}.yaml"
-  dep_manifest="${dep_manifest}.yaml"
-  chmod 644 "$dep_manifest"
+  # Apply the operator's own Deployment manifest (image lives in the file
+  # itself — see operator_deployment.yaml — same as every other component's
+  # image lives in its own CR yaml, not in config.ini). To run from a local
+  # build instead, use ./localdev.py --setup --component paymenthub-operator.
+  log_step "Deploying PaymentHub operator"
+  kubectl apply -f "$deploy_dir/operator_deployment.yaml" -n "$PH_NAMESPACE" > /dev/null || { log_failed "Operator Deployment apply failed"; return 1; }
 
-  if [ -n "$operator_src_dir" ] && [ -d "$operator_src_dir" ]; then
-    # Local mode selected (PH_OPERATOR_SOURCE_DIR set and directory exists).
-    # Fat JAR (Shadow) must be built before running deploy.
-    if [ ! -f "$operator_src_dir/build/libs/$jar_name" ]; then
-      log_failed "Local operator JAR not found: $operator_src_dir/build/libs/$jar_name"
-      log_failed "Build it first:  cd $operator_src_dir && ./gradlew build -x test"
-      rm -f "$dep_manifest"; return 1
-    fi
-    log_step "Deploying PaymentHub operator (local JAR + hostPath)"
-    write_operator_deployment_local "$operator_src_dir" "$jar_name" > "$dep_manifest"
-  else
-    # Image mode — PH_OPERATOR_SOURCE_DIR not set or directory absent.
-    log_step "Deploying PaymentHub operator ($PH_OPERATOR_IMAGE)"
-    write_operator_deployment_image "$PH_OPERATOR_IMAGE" > "$dep_manifest"
+  if ! kubectl rollout status deployment/paymenthub-ee-operator -n "$PH_NAMESPACE" --timeout=300s > /dev/null 2>&1; then
+    log_failed "Operator pod did not start — check: kubectl logs deployment/paymenthub-ee-operator -n $PH_NAMESPACE"
+    return 1
   fi
-
-  kubectl apply -f "$dep_manifest" > /dev/null || { log_failed "Operator Deployment apply failed"; rm -f "$dep_manifest"; return 1; }
-  rm -f "$dep_manifest"
-
-  if ! kubectl rollout status deployment/ph-ee-operator -n "$PH_NAMESPACE" --timeout=300s > /dev/null 2>&1; then
-    log_warn "Operator pod did not start — check: kubectl logs deployment/ph-ee-operator -n $PH_NAMESPACE"
-  else
-    log_ok
-  fi
+  log_ok
 
   # Apply CRs — the operator reconciles them once running.
   log_step "Applying PaymentHubDeployment CRs"
@@ -375,7 +247,8 @@ generate_phee_crs() {
 #------------------------------------------------------------------------------
 # Function : wait_for_phee_crs_ready
 # Description: Polls until all PaymentHubDeployment CRs in the paymenthub
-#              namespace report status.ready == true, or until STARTUP_TIMEOUT.
+#              namespace report status.ready == true, or until
+#              ${startup_timeout:-600}s elapses.
 #------------------------------------------------------------------------------
 wait_for_phee_crs_ready() {
   local timeout="${startup_timeout:-600}"
@@ -473,31 +346,31 @@ deploy_bpmns() {
 #   0 if the required number of BPMNs are loaded, 1 otherwise.
 #------------------------------------------------------------------------------
 are_bpmns_loaded() {
-    local MIN_REQUIRED=${1:-1}
-    ES_URL="http://elasticsearch.$GAZELLE_DOMAIN"
-    INDEX="zeebe-record_process_*"
+  local MIN_REQUIRED=${1:-1}
+  local ES_URL="http://elasticsearch.$GAZELLE_DOMAIN"
+  local INDEX="zeebe-record_process_*"
 
-    local COUNT
-    COUNT=$(curl -s "$ES_URL/$INDEX/_search" \
-        -H 'Content-Type: application/json' \
-        -d '{
-          "size": 0,
-          "query": { "term": { "valueType": "PROCESS" } },
-          "aggs": {
-            "by_bpmn_id": {
-              "composite": {
-                "size": 1000,
-                "sources": [ { "bpmn_id": { "terms": { "field": "value.bpmnProcessId" } } } ]
-              },
-              "aggs": { "latest_version": { "max": { "field": "value.version" } } }
-            }
+  local COUNT
+  COUNT=$(curl -s "$ES_URL/$INDEX/_search" \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "size": 0,
+        "query": { "term": { "valueType": "PROCESS" } },
+        "aggs": {
+          "by_bpmn_id": {
+            "composite": {
+              "size": 1000,
+              "sources": [ { "bpmn_id": { "terms": { "field": "value.bpmnProcessId" } } } ]
+            },
+            "aggs": { "latest_version": { "max": { "field": "value.version" } } }
           }
-        }' 2>/dev/null | jq -r '.aggregations.by_bpmn_id.buckets | length // 0')
+        }
+      }' 2>/dev/null | jq -r '.aggregations.by_bpmn_id.buckets | length // 0')
 
-    [[ "$COUNT" =~ ^[0-9]+$ ]] || { log_with_verbose_check "$debug" "$DEBUG" "ES query failed — assuming BPMNs not loaded"; return 1; }
+  [[ "$COUNT" =~ ^[0-9]+$ ]] || { log_with_verbose_check "$debug" "$DEBUG" "ES query failed — assuming BPMNs not loaded"; return 1; }
 
-    log_with_verbose_check "$debug" "$DEBUG" "Unique BPMNs already deployed: $COUNT"
-    (( COUNT >= MIN_REQUIRED )) && return 0 || return 1
+  log_with_verbose_check "$debug" "$DEBUG" "Unique BPMNs already deployed: $COUNT"
+  (( COUNT >= MIN_REQUIRED )) && return 0 || return 1
 }
 
 #------------------------------------------------------------------------------
@@ -506,30 +379,31 @@ are_bpmns_loaded() {
 #              testing. Called from generate_mifosx_and_vnext_data() after Fineract is ready.
 #------------------------------------------------------------------------------
 generate_sample_csvs() {
-    local csv_generator="$RUN_DIR/src/utils/data-loading/generate-example-csv-files.py"
-    local output_dir="$RUN_DIR/src/utils/batch"
+  local csv_generator="$RUN_DIR/src/utils/data-loading/generate-example-csv-files.py"
+  local output_dir="$RUN_DIR/src/utils/batch"
 
-    if [ ! -f "$csv_generator" ]; then
-        log_with_verbose_check "$debug" "$WARNING" "CSV generator not found: $csv_generator"
-        return 0
-    fi
+  if [ ! -f "$csv_generator" ]; then
+    log_with_verbose_check "$debug" "$WARNING" "CSV generator not found: $csv_generator"
+    return 0
+  fi
 
-    log_step "Generating sample CSV files"
+  log_step "Generating sample CSV files"
 
-    > /tmp/ph-csv-gen.log
+  local csv_log
+  csv_log=$(mktemp /tmp/ph-csv-gen.XXXXXX)
 
-    local csv_exit=0
-    if [ "$debug" == "true" ]; then
-        "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode closedloop --num-rows 4 --output-dir "$output_dir" 2>&1 | tee -a /tmp/ph-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
-        "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode mojaloop --num-rows 4 --output-dir "$output_dir" 2>&1 | tee -a /tmp/ph-csv-gen.log; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
-    else
-        "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode closedloop --num-rows 4 --output-dir "$output_dir" >> /tmp/ph-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
-        "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode mojaloop --num-rows 4 --output-dir "$output_dir" >> /tmp/ph-csv-gen.log 2>&1; csv_exit=$((csv_exit + $?))
-    fi
+  local csv_exit=0
+  if [ "$debug" == "true" ]; then
+    "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode closedloop --num-rows 4 --output-dir "$output_dir" 2>&1 | tee -a "$csv_log"; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
+    "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode mojaloop --num-rows 4 --output-dir "$output_dir" 2>&1 | tee -a "$csv_log"; csv_exit=$((csv_exit + ${PIPESTATUS[0]}))
+  else
+    "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode closedloop --num-rows 4 --output-dir "$output_dir" >> "$csv_log" 2>&1; csv_exit=$((csv_exit + $?))
+    "$PYTHON3" "$csv_generator" -c "$CONFIG_FILE_PATH" --mode mojaloop --num-rows 4 --output-dir "$output_dir" >> "$csv_log" 2>&1; csv_exit=$((csv_exit + $?))
+  fi
 
-    if [ "$csv_exit" -ne 0 ]; then
-        log_warn "CSV generation failed — see /tmp/ph-csv-gen.log"
-    else
-        log_ok
-    fi
+  if [ "$csv_exit" -ne 0 ]; then
+    log_warn "CSV generation failed — see $csv_log"
+  else
+    log_ok
+  fi
 }

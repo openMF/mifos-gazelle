@@ -1,0 +1,54 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: paymenthub-ee-connector-mm-gsma
+  namespace: paymenthub
+spec:
+  enabled: false
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: true
+    name: ph-ee-config
+  replicas: 1
+  # Renamed upstream from ph-ee-connector-gsma-mm to openMF/paymenthub-ee-connector-mm-gsma
+  # (not a straight prefix swap -- "gsma" reordered to "mm-gsma"). That repo has CI wired
+  # up (.circleci/config.yml) but no tags published on Docker Hub yet -- pinned to the
+  # last working image until openmf/paymenthub-ee-connector-mm-gsma actually has a build.
+  #
+  # NOTE: this previously read openmf/ph-ee-connector-gsma:v1.3.0-gazelle-1.1.0, which is
+  # not a real tag -- "ph-ee-connector-gsma" (no "-mm") never published that version (see
+  # 00-configmap.yaml's now-stale comment, and confirmed against Docker Hub directly). The
+  # actual image lives in the separate "ph-ee-connector-gsma-mm" repo, matching what
+  # src/utils/localdev/localdev.ini already documented.
+  image: docker.io/openmf/ph-ee-connector-gsma-mm:v1.3.0-gazelle-1.1.0
+  containerPort: 5000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512M
+    requests:
+      cpu: 100m
+      memory: 256M
+  services:
+    - name: paymenthub-ee-connector-mm-gsma
+      ports:
+        - name: port
+          port: 80
+          targetPort: 5000
+          protocol: TCP
+        - name: actuator
+          port: 8080
+          targetPort: 8080
+          protocol: TCP
+      selector:
+        app: paymenthub-ee-connector-mm-gsma
+      type: ClusterIP
+      sessionAffinity: None
+  environment:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "bb"
+    - name: ZEEBE_BROKER_CONTACTPOINT
+      value: "paymenthub-infra-zeebe-gateway:26500"

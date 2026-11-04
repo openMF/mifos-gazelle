@@ -4,17 +4,24 @@
 # The ph-ee-config ConfigMap is defined first so it exists before the operator
 # reconciles any PaymentHubDeployment CRs that mount it.
 #
-# Enabled (11 core components managed by the operator):
-#   ph-ee-importer-rdbms, ph-ee-connector-channel, ph-ee-operations-app,
-#   ph-ee-connector-mojaloop-java, ph-ee-connector-notifications, ph-ee-zeebe-ops,
-#   ph-ee-connector-bulk, ph-ee-bulk-processor,
-#   ph-ee-connector-mock-payment-schema, ph-ee-identity-account-mapper,
-#   ph-ee-connector-ams-mifos
+# Enabled (13 core components managed by the operator; naming reflects each
+# component's current image — components still on old ph-ee-* images keep
+# that naming until they migrate):
+#   paymenthub-ee-importer-rdbms, paymenthub-ee-connector-channel, paymenthub-ee-bff,
+#   paymenthub-ee-connector-mojaloop, paymenthub-ee-notifications, paymenthub-ee-zeebe-ops,
+#   paymenthub-ee-connector-bulk, paymenthub-ee-bulk-processor,
+#   paymenthub-ee-connector-mock-payment-schema, paymenthub-ee-account-mapper,
+#   paymenthub-ee-connector-ams-mifosx, paymenthub-ee-p2g, paymenthub-ee-vouchers
 #
 # Disabled (operator can enable via CR toggle when needed):
-#   ph-ee-connector-gsma (image openmf/ph-ee-connector-gsma:v1.3.0-gazelle-1.1.0 not on Docker Hub),
-#   ph-ee-importer-es, message-gateway, ph-ee-connector-crm,
-#   ph-ee-connector-bill-pay, ph-ee-vouchers,
+#   paymenthub-ee-connector-mm-gsma (CR renamed to match the upstream repo rename;
+#     image still pinned to the old openmf/ph-ee-connector-gsma-mm build --
+#     openmf/ph-ee-connector-gsma (no "-mm") never published that tag despite the CR
+#     historically pointing at it -- and openmf/paymenthub-ee-connector-mm-gsma has no
+#     published image yet either),
+#   paymenthub-ee-importer-es, message-gateway, paymenthub-ee-connector-crm (CR renamed;
+#     image still pinned to the old openmf/ph-ee-connector-crm build -- no
+#     openmf/paymenthub-ee-connector-crm image published yet),
 #   ph-ee-operations-web
 # =============================================================================
 apiVersion: v1
@@ -42,7 +49,7 @@ data:
     rest.authorization.host=http://ops-bk.GAZELLE_DOMAIN
 
     # Override JAR defaults that point to external hostnames not resolvable inside the cluster
-    operations-app.contactpoint=http://ph-ee-operations-app:80
+    operations-app.contactpoint=http://paymenthub-ee-bff:80
 
   application-fin12.properties: |
     # FIN12 / AMS (Account Management System) configuration

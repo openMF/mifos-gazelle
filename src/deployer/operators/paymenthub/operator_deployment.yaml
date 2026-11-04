@@ -1,0 +1,49 @@
+# PaymentHub operator's own Deployment — not a PaymentHubDeployment CR, since
+# the operator is what reconciles those; applied directly by deploy_ph_operator()
+# in src/deployer/paymenthub.sh, the same way operator_rbac.yaml is.
+#
+# TEMPORARY: openmf/paymenthub-ee-k8s-operators has no published image yet, and
+# the old openmf/paymenthub-ee-k8s-operators:dev-dd9ac20 can't parse the CRD's
+# volMount.mounts field (added after that image was built) — its informer
+# crashes on startup, so no CR reconciles at all. Pointed at a locally built
+# image in the meantime (built + imported via build-and-import-image.sh from
+# ~/paymenthub-ee-k8s-operators/paymenthub-operator — see that repo's
+# build-local-image.sh). Swap the image below to a real published
+# openmf/paymenthub-ee-k8s-operators tag (and imagePullPolicy back to Always)
+# once one exists — a ":local" tag only exists on machines that built it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paymenthub-ee-operator
+  namespace: paymenthub
+  labels:
+    app: paymenthub-ee-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paymenthub-ee-operator
+  template:
+    metadata:
+      labels:
+        app: paymenthub-ee-operator
+    spec:
+      serviceAccountName: paymenthub-ee-operator-sa
+      containers:
+        - name: operator
+          image: docker.io/openmf/paymenthub-ee-k8s-operators:dev-fd987dd
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LOG_LEVEL
+              value: INFO
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

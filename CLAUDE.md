@@ -61,7 +61,7 @@ src/utils/kibana-dashboard-setup.sh
 
 ### Local Development
 ```bash
-# Patches Helm Deployment.yaml files for local dev (no live cluster needed)
+# Patches live Kubernetes Deployments (hostPath + local JAR) for local dev — requires a live cluster
 python src/utils/localdev/localdev.py
 ```
 
@@ -140,7 +140,7 @@ At deploy time, `mifosx.sh` and `vnext.sh` copy these into `/tmp/gazelle-deploy/
 
 ### Kubernetes Operators
 
-Operator CRs and configs live in `src/deployer/operators/`. The Mastercard CBS connector deployment (`mastercard.sh`) uses a K8s operator rather than raw manifests. `src/utils/apply-crs.sh` re-applies modified CRs without a full redeploy.
+Operator CRs and configs live in `src/deployer/operators/`. PaymentHub EE (`paymenthub.sh`) runs a Java operator (`paymenthub-ee-k8s-operators`) that reconciles `PaymentHubDeployment` CRs into Deployments/Services/Ingresses/RBAC. The Mastercard CBS connector deployment (`mastercard.sh`) uses a separate K8s operator rather than raw manifests. `src/utils/apply-crs.sh` re-applies modified CRs without a full redeploy.
 
 ### Python Virtualenv
 

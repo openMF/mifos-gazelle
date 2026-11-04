@@ -1,0 +1,43 @@
+{{- if .Values.ingress.enabled }}
+# Exposes Odoo via the shared NGINX ingress. Two paths: /websocket goes to the longpolling
+# port (8072, Odoo's live bus), everything else to HTTP (8069). ingress-nginx handles the
+# WebSocket upgrade automatically; only the long timeouts below are needed.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "openspp.fullname" . }}
+  labels:
+    {{- include "openspp.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /websocket
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "openspp.fullname" . }}-odoo
+                port:
+                  name: longpolling
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "openspp.fullname" . }}-odoo
+                port:
+                  name: http
+{{- end }}

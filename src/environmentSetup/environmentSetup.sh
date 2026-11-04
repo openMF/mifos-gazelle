@@ -51,6 +51,18 @@ install_os_prerequisites() {
     else
         log_with_verbose_check "$debug" debug "jq is already installed\n"
     fi
+    # Install Python venv + pip -- ensurepip (needed by `python3 -m venv`) ships in the versioned python3.X-venv pkg, not base python3; without it setup aborts before k3s. Metapackages + derived versioned pkg cover both Ubuntu 22.04 and 24.04.
+    if ! python3 -c "import ensurepip" >/dev/null 2>&1 || ! command -v pip3 &> /dev/null; then
+        log_with_verbose_check "$debug" debug "Python venv/pip support is missing. Installing..."
+        local py_ver
+        py_ver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)"
+        apt-get update >> /dev/null 2>&1
+        apt-get install -y python3-venv python3-pip >> /dev/null 2>&1
+        [[ -n "$py_ver" ]] && apt-get install -y "python${py_ver}-venv" >> /dev/null 2>&1
+        log_ok
+    else
+        log_with_verbose_check "$debug" debug "Python venv/pip support already present.\n"
+    fi
     log_ok
 }
 
@@ -76,6 +88,13 @@ ensure_python_venv() {
             log_error "Failed to create Python venv at $venv_dir"
             exit 1
         fi
+    fi
+
+    # Fail fast if the venv has no pip (missing python3.X-venv/ensurepip) instead of a cryptic "pip: command not found" further down.
+    if [[ ! -x "$venv_dir/bin/pip" ]]; then
+        log_error "Python venv at $venv_dir has no pip -- the python3-venv / ensurepip bootstrap is missing."
+        log_error "Install it and re-run setup-env.sh: sudo apt-get install -y python3-venv python3-pip python3.X-venv (X matching 'python3 --version')."
+        exit 1
     fi
 
     # Install/upgrade requirements (pip will skip packages already at the right version)
@@ -126,7 +145,8 @@ add_hosts() {
 
         local VNEXTHOSTS=( mongohost.$DOMAIN mongo-express.$DOMAIN \
             vnextadmin.$DOMAIN elasticsearch.$DOMAIN kibana.$DOMAIN redpanda-console.$DOMAIN \
-            mongoexpress.$DOMAIN fspiop.$DOMAIN bluebank.$DOMAIN greenbank.$DOMAIN )
+            mongoexpress.$DOMAIN fspiop.$DOMAIN bluebank.$DOMAIN greenbank.$DOMAIN \
+            keycloak-ops.$DOMAIN )
 
         local PHEEHOSTS=( ops.$DOMAIN ops-bk.$DOMAIN \
             bulk-processor.$DOMAIN connector-bulk.$DOMAIN messagegateway.$DOMAIN \
@@ -136,11 +156,13 @@ add_hosts() {
             zeebeops.$DOMAIN zeebe-operate.$DOMAIN zeebe-gateway.$DOMAIN \
             notifications.$DOMAIN )
 
-        local MIFOSXHOSTS=( mifos.$DOMAIN )
-        local ALL_GAZELLE_HOSTS=( "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" )
+        local MIFOSXHOSTS=( mifos.$DOMAIN workflow.$DOMAIN credit-bureau.$DOMAIN \
+            loan-module.$DOMAIN message-gateway.$DOMAIN )
+        local OPENSPPHOSTS=( openspp.$DOMAIN )
         local OPENG2PHOSTS=( openg2p.$DOMAIN social-registry.$DOMAIN \
             pbms.$DOMAIN spar.$DOMAIN g2p-bridge.$DOMAIN \
-            keycloak.$DOMAIN minio.$DOMAIN )
+            keycloak.$DOMAIN )
+        local ALL_GAZELLE_HOSTS=( "${MIFOSXHOSTS[@]}" "${PHEEHOSTS[@]}" "${VNEXTHOSTS[@]}" "${OPENSPPHOSTS[@]}" "${OPENG2PHOSTS[@]}" )
 
         # Determine which IP to use.
         #

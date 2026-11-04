@@ -47,7 +47,7 @@ spec:
               done
       containers:
         - name: jobworker
-          image: "{{ .Values.odoo.image.repository }}:{{ .Values.odoo.image.tag }}"
+          image: "{{ .Values.odoo.image.repository }}:{{ .Values.odoo.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.odoo.image.pullPolicy }}
           # args (not command): keep the image entrypoint, which generates /etc/odoo/odoo.conf before
           # running the runner (without it the addons_path is wrong and job_worker won't import).

@@ -151,6 +151,16 @@ operationsmysql:
 minio:
   enabled: true
   fullnameOverride: "minio"
+  # Upstream MinIO images (quay.io/minio/minio, quay.io/minio/mc) now return 401 to
+  # anonymous pulls. Interim: Pigsty's community fork (github.com/pgsty/silo, pgsty/mc),
+  # AGPLv3, multi-arch. Its entrypoint accepts the chart's "minio server ..." argv.
+  # Long-term replacement tracked separately.
+  image:
+    repository: docker.io/pgsty/silo
+    tag: RELEASE.2026-10-18T00-00-00Z
+  mcImage:
+    repository: docker.io/pgsty/mc
+    tag: RELEASE.2026-10-18T00-00-00Z
   replicas: 1
   mode: standalone
   rootUser: root
@@ -252,7 +262,7 @@ camunda-platform:
         memory: 1200Mi
       limits:
         cpu: 960m
-        memory: 1920Mi
+        memory: 2560Mi
     affinity: {}
     # extraInitContainers: set in ph_values.yaml — downloads the kafka exporter JAR
     # from JFrog at deploy time; URL/version changes with each release.
@@ -284,10 +294,10 @@ camunda-platform:
     resources:
       requests:
         cpu: 200m
-        memory: 512Mi
+        memory: 768Mi
       limits:
         cpu: 1000m
-        memory: 1536Mi
+        memory: 2560Mi
     affinity: {}
     ingress:
       enabled: true

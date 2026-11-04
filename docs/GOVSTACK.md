@@ -129,7 +129,7 @@ The `payment_mode` column in the batch CSV determines the **routing mechanism**:
 
 ### How Payment Mode Affects Routing
 
-**Location:** [ph-ee-connector-bulk/.../BatchTransferWorker.java:123-139](../ph-ee-connector-bulk/src/main/java/org/mifos/connector/phee/zeebe/workers/implementation/BatchTransferWorker.java#L123-L139)
+**Location:** [paymenthub-ee-connector-bulk/.../BatchTransferWorker.java:123-139](../paymenthub-ee-connector-bulk/src/main/java/org/mifos/connector/phee/zeebe/workers/implementation/BatchTransferWorker.java#L123-L139)
 
 ```java
 if("closedloop".equalsIgnoreCase(paymentMode)){
@@ -163,7 +163,7 @@ When this header is present, the bulk-processor:
 
 Without this header, the `bulk_processor-{tenant}` workflow runs and payer/payee values come from the CSV.
 
-**Code reference:** `ph-ee-bulk-processor/.../ProcessorStartRouteService.java:168-173`
+**Code reference:** `paymenthub-ee-bulk-processor/.../ProcessorStartRouteService.java:168-173`
 ```java
 if (!(StringUtils.hasText(registeringInstituteId) && StringUtils.hasText(programId))) {
     // Headers missing — use CSV payer values as-is
@@ -186,7 +186,7 @@ Both workflows are deployed at startup and selected at runtime:
 - Standard: `orchestration/feel/bulk_processor-DFSPID.bpmn`
 - GovStack: `orchestration/feel/bulk_processor_account_lookup-DFSPID.bpmn`
 
-**Configuring which workflow a tenant uses** (in `ph-ee-bulk-processor/src/main/resources/application.yaml`):
+**Configuring which workflow a tenant uses** (in `paymenthub-ee-bulk-processor/src/main/resources/application.yaml`):
 
 GovStack mode uses a **separate key** `batch-transactions-govstack` — the standard `batch-transactions` key is not overwritten:
 ```yaml
@@ -228,7 +228,7 @@ In GovStack mode with `X-Program-ID` header, the payer bank account is looked up
 
 ### Configuration
 
-**File:** `ph-ee-bulk-processor/src/main/resources/application.yaml`
+**File:** `paymenthub-ee-bulk-processor/src/main/resources/application.yaml`
 
 ```yaml
 budget-account:
@@ -342,7 +342,7 @@ See `src/utils/batch/bulk-gazelle-mojaloop-4.csv` and `src/utils/batch/bulk-gaze
 
 ### 2. Batch De-bulking (GovStack Requirement)
 
-**Location:** [ph-ee-bulk-processor/.../SplittingRoute.java:74-109](../ph-ee-bulk-processor/src/main/java/org/mifos/processor/bulk/camel/routes/SplittingRoute.java#L74-L109)
+**Location:** [paymenthub-ee-bulk-processor/.../SplittingRoute.java:74-109](../paymenthub-ee-bulk-processor/src/main/java/org/mifos/processor/bulk/camel/routes/SplittingRoute.java#L74-L109)
 
 **How it works:**
 - Original batch: 10 transactions to 3 different FSPs
@@ -368,7 +368,7 @@ MSISDN: 0495822412 → fspId: "bluebank", currency: "USD"
 
 ### 4. The debulkingDfspid Configuration
 
-**Location:** `ph-ee-bulk-processor/src/main/resources/application.yaml`
+**Location:** `paymenthub-ee-bulk-processor/src/main/resources/application.yaml`
 
 ```yaml
 payment-modes:
@@ -381,7 +381,7 @@ payment-modes:
 - When `debulkingDfspid` is null, the submitting tenant is used (correct behavior)
 - Hardcoding this causes ALL closedloop batches to use the same tenant workflows
 
-**Code reference:** `ph-ee-bulk-processor/.../InitSubBatchRoute.java:128`
+**Code reference:** `paymenthub-ee-bulk-processor/.../InitSubBatchRoute.java:128`
 ```java
 variables.put(DEBULKINGDFSPID,
     mapping.getDebulkingDfspid() == null ? tenantName : mapping.getDebulkingDfspid());
@@ -391,24 +391,20 @@ variables.put(DEBULKINGDFSPID,
 
 ## Tenant Configuration
 
-### Primary Configuration: Helm Chart Properties Files
+### Primary Configuration: Operator ConfigMap
 
-For standard (non-hostPath) deployments, tenant configuration is managed entirely through `.properties` files in the Gazelle Helm chart. These are bundled into a Kubernetes ConfigMap (`ph-ee-config`) at deploy time and injected as Spring Boot configuration into each component.
+For standard (non-hostPath) deployments, tenant configuration is managed entirely through the shared `ph-ee-config` ConfigMap, defined in `src/deployer/operators/paymenthub/config/cr/00-configmap.yaml` and applied by the PaymentHub Kubernetes operator. Its `.properties` entries are injected as Spring Boot configuration into each component. (This ConfigMap predates the `ph-ee-` → `paymenthub-ee-` repo rename and has intentionally kept its original name.)
 
-**Key files:**
+> This replaces the older Helm-chart-based configuration (`repos/ph_template/helm/gazelle/...`, cloned from the now-retired `ph-ee-env-template` repo) — that chart is no longer cloned or used by Gazelle.
 
-| File | Controls |
+**Key entries in `00-configmap.yaml`:**
+
+| Entry | Controls |
 |------|---------|
-| `repos/ph_template/helm/gazelle/config/application-tenants.properties` | BPMN workflow mappings per tenant (bulk-processor and connector-channel) |
-| `repos/ph_template/helm/gazelle/config/application-tenantsConnection.properties` | Per-tenant MySQL database connections for operations-app |
+| `application-tenants.properties` | BPMN workflow mappings per tenant (bulk-processor and connector-channel) |
+| `application-tenantsConnection.properties` | Per-tenant MySQL database connections for operations-app |
 
-The ConfigMap template at `repos/ph_template/helm/gazelle/templates/config.yml` bundles all `config/*.properties` files automatically:
-```yaml
-data:
-{{ (.Files.Glob "config/**.properties").AsConfig | nindent 2 }}
-```
-
-**`application-tenants.properties`** — this is the primary file to edit for tenant workflow configuration:
+**`application-tenants.properties`** — this is the primary entry to edit for tenant workflow configuration:
 ```properties
 # Greenbank — Payer using Mojaloop switch
 bpmns.tenants[0].id=greenbank
@@ -430,9 +426,9 @@ bpmns.tenants[2].flows.payment-transfer=minimal_mock_fund_transfer-{dfspid}
 bpmns.tenants[2].flows.batch-transactions=bulk_processor-{dfspid}
 ```
 
-To add a new tenant or change a workflow mapping, edit this file and redeploy:
+To add a new tenant or change a workflow mapping, edit `00-configmap.yaml` and re-apply the CRs:
 ```bash
-helm upgrade phee repos/ph_template/helm/gazelle -n paymenthub -f config/ph_values.yaml
+src/utils/apply-crs.sh --wait
 ```
 
 > **Note:** When using hostPath mounts for local development, the ConfigMap has no effect — changes must be made to the source YAML files and the JAR rebuilt. See [Applying Configuration Changes](#applying-configuration-changes-hostpath-mounts) below.
@@ -445,7 +441,7 @@ When developing with hostPath mounts, the same configuration must be set in two 
 
 ### Bulk-Processor Configuration
 
-**File:** `ph-ee-bulk-processor/src/main/resources/application.yaml`
+**File:** `paymenthub-ee-bulk-processor/src/main/resources/application.yaml`
 
 Uses `@ConfigurationProperties` — reads YAML, NOT .properties files.
 
@@ -477,7 +473,7 @@ bpmns:
 
 ### Connector-Channel Configuration
 
-**File:** `ph-ee-connector-channel/src/main/resources/application.yml`
+**File:** `paymenthub-ee-connector-channel/src/main/resources/application.yml`
 
 ```yaml
 bpmns:
@@ -498,7 +494,7 @@ bpmns:
 
 **Key Point:** The `payment-transfer` workflow is determined by the **payer tenant**, not the `payment_mode` in the CSV.
 
-**Workflow selection logic:** `ph-ee-connector-channel/.../ChannelRouteBuilder.java:304-367`
+**Workflow selection logic:** `paymenthub-ee-connector-channel/.../ChannelRouteBuilder.java:304-367`
 ```java
 String tenantId = exchange.getIn().getHeader("Platform-TenantId", String.class);
 // tenantId="greenbank" → "PayerFundTransfer-greenbank"
@@ -513,16 +509,16 @@ See [Primary Configuration: Helm Chart Properties Files](#primary-configuration-
 
 ```bash
 # 1. Edit source YAML files
-nano ~/ph-ee-bulk-processor/src/main/resources/application.yaml
-nano ~/ph-ee-connector-channel/src/main/resources/application.yml
+nano ~/paymenthub-ee-bulk-processor/src/main/resources/application.yaml
+nano ~/paymenthub-ee-connector-channel/src/main/resources/application.yml
 
 # 2. Rebuild JARs
-cd ~/ph-ee-bulk-processor && ./gradlew clean build -x test
-cd ~/ph-ee-connector-channel && ./gradlew clean build -x test
+cd ~/paymenthub-ee-bulk-processor && ./gradlew clean build -x test
+cd ~/paymenthub-ee-connector-channel && ./gradlew clean build -x test
 
 # 3. Restart pods
-kubectl delete pod -n paymenthub -l app=ph-ee-bulk-processor
-kubectl delete pod -n paymenthub -l app=ph-ee-connector-channel
+kubectl delete pod -n paymenthub -l app=paymenthub-ee-bulk-processor
+kubectl delete pod -n paymenthub -l app=paymenthub-ee-connector-channel
 ```
 
 ConfigMap updates alone do NOT work with hostPath mounts.
@@ -613,7 +609,7 @@ kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword identity_account_mappe
    LIMIT 5"
 ```
 
-**No configuration change needed** — greenbank already has `batch-transactions-govstack: "bulk_processor_account_lookup-{dfspid}"` in `~/ph-ee-bulk-processor/src/main/resources/application.yaml`. The `--govstack` flag in `submit-batch.py` automatically routes to this workflow via the `X-Registering-Institution-ID` header.
+**No configuration change needed** — greenbank already has `batch-transactions-govstack: "bulk_processor_account_lookup-{dfspid}"` in `~/paymenthub-ee-bulk-processor/src/main/resources/application.yaml`. The `--govstack` flag in `submit-batch.py` automatically routes to this workflow via the `X-Registering-Institution-ID` header.
 
 **Submit:**
 ```bash
@@ -677,13 +673,13 @@ kubectl exec -n paymenthub operationsmysql-0 -- mysql -uroot -pmysql operations_
    FROM transfers ORDER BY id DESC LIMIT 5"
 
 # Check bulk-processor logs for de-bulking
-kubectl logs -n paymenthub -l app=ph-ee-bulk-processor --tail=100 | grep -i splitting
+kubectl logs -n paymenthub -l app=paymenthub-ee-bulk-processor --tail=100 | grep -i splitting
 
 # Check which workflow was used
-kubectl logs -n paymenthub -l app=ph-ee-connector-channel --tail=100 | grep -i "starting workflow"
+kubectl logs -n paymenthub -l app=paymenthub-ee-connector-channel --tail=100 | grep -i "starting workflow"
 
 # Verify identity mapper was called (--govstack submissions)
-kubectl logs -n paymenthub -l app=ph-ee-identity-account-mapper --tail=50
+kubectl logs -n paymenthub -l app=paymenthub-ee-account-mapper --tail=50
 
 # Verify identity mapper has entries for your institution
 kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword identity_account_mapper -e \
@@ -705,11 +701,11 @@ kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword identity_account_mappe
 
 | Symptom | Likely Cause | Solution |
 |---------|--------------|----------|
-| "Process definition not found" (412 error) | Tenant missing from `bpmns.tenants[]` in bulk-processor | Add tenant to `~/ph-ee-bulk-processor/src/main/resources/application.yaml`, rebuild JAR |
-| PARTY_NOT_FOUND errors | Tenant missing from channel-connector config | Add tenant to `~/ph-ee-connector-channel/src/main/resources/application.yml`, rebuild JAR |
+| "Process definition not found" (412 error) | Tenant missing from `bpmns.tenants[]` in bulk-processor | Add tenant to `~/paymenthub-ee-bulk-processor/src/main/resources/application.yaml`, rebuild JAR |
+| PARTY_NOT_FOUND errors | Tenant missing from channel-connector config | Add tenant to `~/paymenthub-ee-connector-channel/src/main/resources/application.yml`, rebuild JAR |
 | Wrong workflow triggered despite correct tenant | Hardcoded `debulkingDfspid` in payment-mode config | Remove `debulkingDfspid` from CLOSEDLOOP payment-mode in bulk-processor application.yaml |
 | Changes not taking effect | Using hostPath mounts | Rebuild JAR files and restart pods after config changes |
-| Payer account wrong after config change | Pod not restarted | `kubectl delete pod -n paymenthub -l app=ph-ee-bulk-processor` |
+| Payer account wrong after config change | Pod not restarted | `kubectl delete pod -n paymenthub -l app=paymenthub-ee-bulk-processor` |
 
 ### Verifying Payer Configuration
 
@@ -781,10 +777,10 @@ kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword \
 ## File References
 
 ### Configuration
-- Bulk-processor workflows + budget-account: `ph-ee-bulk-processor/src/main/resources/application.yaml`
-- Connector-channel tenants: `ph-ee-connector-channel/src/main/resources/application.yml`
+- Bulk-processor workflows + budget-account: `paymenthub-ee-bulk-processor/src/main/resources/application.yaml`
+- Connector-channel tenants: `paymenthub-ee-connector-channel/src/main/resources/application.yml`
 - Helm template tenants: `repos/ph_template/helm/gazelle/config/application-tenants.properties`
-- Connector-mojaloop switch config: `ph-ee-connector-mojaloop-java/src/main/resources/application.yml:40`
+- Connector-mojaloop switch config: `paymenthub-ee-connector-mojaloop/src/main/resources/application.yml:40`
 
 ### BPMN Workflows
 - GovStack batch: `orchestration/feel/bulk_processor_account_lookup-DFSPID.bpmn`
@@ -793,12 +789,12 @@ kubectl exec -n infra mysql-0 -- mysql -umifos -ppassword \
 - Closedloop transfer: `orchestration/feel/minimal_mock_fund_transfer-DFSPID.bpmn`
 
 ### Code
-- GovStack header processing + payer config lookup: `ph-ee-bulk-processor/.../ProcessorStartRouteService.java:140-213`
-- Budget-account config classes: `ph-ee-bulk-processor/.../config/BudgetAccountConfig.java`
-- Batch de-bulking: `ph-ee-bulk-processor/.../SplittingRoute.java:74-109`
-- Payment mode routing: `ph-ee-connector-bulk/.../BatchTransferWorker.java:123-139`
-- Workflow selection (channel): `ph-ee-connector-channel/.../ChannelRouteBuilder.java:304-367`
-- Mojaloop switch call: `ph-ee-connector-mojaloop-java/.../TransferRoutes.java:214-216`
+- GovStack header processing + payer config lookup: `paymenthub-ee-bulk-processor/.../ProcessorStartRouteService.java:140-213`
+- Budget-account config classes: `paymenthub-ee-bulk-processor/.../config/BudgetAccountConfig.java`
+- Batch de-bulking: `paymenthub-ee-bulk-processor/.../SplittingRoute.java:74-109`
+- Payment mode routing: `paymenthub-ee-connector-bulk/.../BatchTransferWorker.java:123-139`
+- Workflow selection (channel): `paymenthub-ee-connector-channel/.../ChannelRouteBuilder.java:304-367`
+- Mojaloop switch call: `paymenthub-ee-connector-mojaloop/.../TransferRoutes.java:214-216`
 
 ### Test Data / Utilities
 - CSV generator: `src/utils/data-loading/generate-example-csv-files.py`

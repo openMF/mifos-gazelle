@@ -1,0 +1,50 @@
+apiVersion: gazelle.mifos.io/v1
+kind: PaymentHubDeployment
+metadata:
+  name: paymenthub-ee-importer-es
+  namespace: paymenthub
+spec:
+  enabled: false
+  rbacEnabled: false
+  secretEnabled: false
+  configMapEnabled: false
+  ingressEnabled: false
+  volMount:
+    enabled: false
+  replicas: 1
+  # Migrated to paymenthub-ee-importer-es (module of paymenthub-ee-data-pipeline,
+  # Java 21/Spring Boot 3.4). Tag downgrades from pinned v1.14.0 to a commit
+  # sha — no floating/semver tag exists yet for this repo (see the note in
+  # ph-ee-importer-rdbms.yaml). Still headless (no EXPOSE in the new
+  # Dockerfile either) — no containerPort/probes, unchanged. Kafka default
+  # "kafka:9092" and the explicit importer_elasticsearch_url override both
+  # confirmed to match this cluster's real Service names.
+  image: docker.io/openmf/paymenthub-ee-importer-es:dev-d5fda31
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512M
+    requests:
+      cpu: 100m
+      memory: 256M
+  environment:
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
+    - name: importer_elasticsearch_url
+      value: "http://infra-elasticsearch.infra.svc.cluster.local:9200/"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Xmx256M"
+    - name: ELASTICSEARCH_SECURITY_ENABLED
+      value: "false"
+    - name: ELASTICSEARCH_SSLVERIFICATION
+      value: "false"
+    - name: ELASTICSEARCH_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: elastic-credentials
+          key: username
+    - name: ELASTICSEARCH_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: elastic-credentials
+          key: password
