@@ -24,6 +24,11 @@ TARGET_NAMESPACE=""
 while getopts ":n:h" opt; do
     case "$opt" in
         n)
+            if [[ "$OPTARG" == -* ]]; then
+                echo "Error: Option -n requires a valid namespace argument, got '$OPTARG'." >&2
+                echo "Run '$(basename "$0") -h' for usage." >&2
+                exit 1
+            fi
             TARGET_NAMESPACE="$OPTARG"
             ;;
         h)
@@ -40,6 +45,12 @@ while getopts ":n:h" opt; do
             ;;
     esac
 done
+
+shift $((OPTIND - 1))
+if [ $# -gt 0 ]; then
+    echo "Error: unexpected argument '$1'. Did you mean: -n $1" >&2
+    exit 1
+fi
 
 # Check if kubectl is installed
 if ! command -v kubectl &> /dev/null; then
@@ -59,6 +70,12 @@ if [ -n "$TARGET_NAMESPACE" ]; then
 else
     NAMESPACE=$(kubectl config view --minify --output 'jsonpath={..namespace}' 2>/dev/null)
     NAMESPACE=${NAMESPACE:-default}
+fi
+
+# Verify that the namespace exists in the cluster
+if ! kubectl get namespace "$NAMESPACE" &> /dev/null; then
+    echo "Error: could not find namespace '$NAMESPACE'" >&2
+    exit 1
 fi
 
 echo "Scanning pods in namespace: $NAMESPACE"
