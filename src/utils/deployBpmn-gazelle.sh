@@ -6,7 +6,7 @@ default_config_ini="$config_dir/config.ini"
 config_ini="$default_config_ini"  # Will be overridden if -c is specified
 BPMN_DIR="$( cd "$(dirname "$SCRIPT_DIR")/../orchestration/" ; pwd )"
 DEBUG=false
-TENANT="greenbank"  # Default tenant TODO does this actually do anything 
+TENANT="greenbank"  # Legacy Platform-TenantId header value (Note: zeebe-ops /zeebe/upload deploys to all configured TENANTS regardless of this header)
 
 deploy() {
     local file="$1"
@@ -64,7 +64,7 @@ Usage: $(basename "$0") [options]
 Options:
   -c <config> Specify the config.ini file to use (default: $default_config_ini).
   -f <file>   Specify a single file to upload.
-  -t <tenant> Specify the tenant name (default: greenbank).
+  -t <tenant> Specify the tenant header value (default: greenbank; note: zeebe-ops deploys to all configured TENANTS).
   -d          Enable debug mode for detailed output.
   -h          Show this help message.
 
