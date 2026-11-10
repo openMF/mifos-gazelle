@@ -152,7 +152,7 @@ add_hosts() {
             bulk-processor.$DOMAIN connector-bulk.$DOMAIN messagegateway.$DOMAIN \
             minio-console.$DOMAIN bill-pay.$DOMAIN channel.$DOMAIN \
             channel-gsma.$DOMAIN crm.$DOMAIN mockpayment.$DOMAIN \
-            mojaloop.$DOMAIN identity-mapper.$DOMAIN vouchers.$DOMAIN \
+            mojaloop.$DOMAIN vouchers.$DOMAIN \
             zeebeops.$DOMAIN zeebe-operate.$DOMAIN zeebe-gateway.$DOMAIN \
             notifications.$DOMAIN )
 
