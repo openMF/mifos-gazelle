@@ -26,7 +26,7 @@ spec:
   # confirmed via source (Healthcheck.java): a plain HttpServer on port 5000
   # answering "/" with 200 (anything else 404), independent of Spring's
   # server.port/actuator entirely.
-  image: docker.io/openmf/paymenthub-ee-importer-rdbms:dev-9dfd119
+  image: docker.io/openmf/paymenthub-ee-importer-rdbms:dev-d5fda31
   containerPort: 8000
   livenessProbe:
     path: /
@@ -71,7 +71,7 @@ spec:
       value: "%d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M - %msg%n"
     - name: JAVA_TOOL_OPTIONS
       value: "-Xms128m -Xmx256m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=128m"
-    - name: APPLICATION_BUCKET-NAME
+    - name: APPLICATION_BUCKETNAME
       value: paymenthub-ee
     - name: CLOUD_AWS_S3BASEURL
       value: "http://minio:9000"
