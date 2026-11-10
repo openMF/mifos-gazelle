@@ -244,7 +244,7 @@ flowchart TD
         ALO_RB["MSISDN → redbank\n(DFSP)"]
     end
 
-    subgraph IAM["Identity Account Mapper\nidentity-mapper.mifos.gazelle.test"]
+    subgraph IAM["Identity Account Mapper\n(in-cluster only, no ingress)"]
         IAM_BB["bluebank beneficiaries\nregistered as payees"]
     end
 
