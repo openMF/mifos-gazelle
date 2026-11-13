@@ -83,6 +83,7 @@ HELM_VERSION="v3.14.4"
 show_setup_env_usage() {
     echo "
     USAGE: sudo $0 [-e environment] [-u user] [-m mode] [-f config_file] [-d true|false]
+           sudo $0 -m join -N node-host [-U ssh-user] [-i identity_file] [-r role]
 
     Privileged environment setup and teardown (run before ./run.sh).
 
@@ -91,15 +92,29 @@ show_setup_env_usage() {
     Example 3 : sudo $0 -e remote -u \$USER      # /etc/hosts only for a remote cluster
     Example 4 : sudo $0 -m cleanall              # full environment teardown
     Example 5 : sudo $0 -y                       # non-interactive (CI/pipeline — auto-accept changes)
+    Example 6 : sudo $0 -m join -N 192.168.1.108 -U ubuntu -r openg2p
+                                                  # join a 2nd node, dedicate it to the openg2p role
 
     Options:
-    -m mode .............. setup (default) | cleanall
+    -m mode .............. setup (default) | cleanall | join
     -e environment ....... local (default) | remote
     -u user .............. non-root user for k8s operations (defaults to invoking user)
     -f config_file ....... path to config.ini (optional, defaults to config/config.ini)
     -d debug ............. true|false (optional, default=false)
     -y ................... auto-accept planned changes without prompting (for CI/pipelines)
     -h ................... display this message
+
+    Options for -m join (run on the EXISTING k3s server, joins a NEW node to it):
+    -N node-host .......... required — SSH-reachable IP/hostname of the node to join
+    -U ssh-user ........... SSH user on that node (default: same as -u)
+    -i identity_file ...... SSH private key for that node (default: ssh's own resolution)
+    -r role ............... optional — taint+label the new node so ONLY workloads that
+                             explicitly tolerate 'dedicated=<role>' schedule there. Useful
+                             to isolate one heavy component (e.g. 'openg2p') on whichever
+                             physical machine you choose — this is your call, not
+                             auto-detected, since node hardware varies (e.g. a 16GB Pi 5
+                             paired with an 8GB Pi 5, not two identical boards).
+                             Omit -r to join it as a plain, untainted worker node.
     "
 }
 
@@ -127,19 +142,23 @@ main_setup_env() {
 
     local -A cmd_args
     OPTIND=1
-    while getopts "f:m:e:u:d:yhH" OPT; do
+    while getopts "f:m:e:u:d:N:U:i:r:yhH" OPT; do
         case "$OPT" in
             f) cmd_args["config_file_path"]="${OPTARG}" ;;
             m) cmd_args["mode"]="${OPTARG}" ;;
             e) cmd_args["environment"]="${OPTARG}" ;;
             u) cmd_args["k8s_user"]="${OPTARG}" ;;
             d) cmd_args["debug"]="${OPTARG}" ;;
+            N) join_node_host="${OPTARG}" ;;
+            U) join_ssh_user="${OPTARG}" ;;
+            i) join_identity_file="${OPTARG}" ;;
+            r) join_role="${OPTARG}" ;;
             y) auto_yes="true" ;;
             h|H) show_setup_env_usage; exit 0 ;;
             *) show_setup_env_usage; exit 1 ;;
         esac
     done
-    export auto_yes
+    export auto_yes join_node_host join_ssh_user join_identity_file join_role
 
     if [[ -n "${cmd_args["config_file_path"]}" ]]; then
         CONFIG_FILE_PATH="${cmd_args["config_file_path"]}"
@@ -170,8 +189,8 @@ main_setup_env() {
     fi
 
     # Validate
-    if [[ "$mode" != "setup" && "$mode" != "cleanall" ]]; then
-        log_error "Invalid mode '$mode'. setup-env.sh accepts: setup (default) | cleanall"
+    if [[ "$mode" != "setup" && "$mode" != "cleanall" && "$mode" != "join" ]]; then
+        log_error "Invalid mode '$mode'. setup-env.sh accepts: setup (default) | cleanall | join"
         show_setup_env_usage
         exit 1
     fi
@@ -193,6 +212,8 @@ main_setup_env() {
 
     if [[ "$mode" == "setup" ]]; then
         env_setup_main
+    elif [[ "$mode" == "join" ]]; then
+        env_join_node_main
     elif [[ "$mode" == "cleanall" ]]; then
         if [[ "$environment" != "remote" && "${auto_yes:-false}" != "true" ]]; then
             printf "\n*** WARNING: cleanall will remove the Kubernetes cluster (%s),\n" "$environment"

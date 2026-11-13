@@ -145,6 +145,37 @@ pbms:
   # 'odoo.minio.hostname' below stays set — the odoo subchart resolves it when
   # building S3_URL, so removing it would fall back to an upstream default.
   ############################################################
+        nodeSelector:
+          dedicated: openg2p
+        tolerations:
+          - key: dedicated
+            operator: Equal
+            value: openg2p
+            effect: NoSchedule
+      backup:
+        cronjob:
+          nodeSelector:
+            dedicated: openg2p
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: openg2p
+              effect: NoSchedule
+      readReplicas:
+        nodeSelector:
+          dedicated: openg2p
+        tolerations:
+          - key: dedicated
+            operator: Equal
+            value: openg2p
+            effect: NoSchedule
+    nodeSelector:
+      dedicated: openg2p
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: openg2p
+        effect: NoSchedule
   minio:
     enabled: false
 
@@ -153,6 +184,21 @@ pbms:
   # only) to bitnamilegacy/redis at the same tag: same image, published
   # multi-arch (amd64+arm64), so PBMS Redis runs on ARM.
   ############################################################
+    nodeSelector:
+      dedicated: openg2p
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: openg2p
+        effect: NoSchedule
+    provisioning:
+      nodeSelector:
+        dedicated: openg2p
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: openg2p
+          effect: NoSchedule
   redis:
     image:
       registry: docker.io
@@ -174,6 +220,22 @@ pbms:
   # postgres:16-alpine (ships pg_isready on PATH; runs fine as the pod's non-root
   # user). One swap fixes the ARM gap and the supply-chain/pinning concerns.
   # Applied identically to all three bg-task subcharts.
+    master:
+      nodeSelector:
+        dedicated: openg2p
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: openg2p
+          effect: NoSchedule
+    replica:
+      nodeSelector:
+        dedicated: openg2p
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: openg2p
+          effect: NoSchedule
   openg2p-pbms-bg-task-api:
     postgresCheckerInit:
       image:
@@ -187,6 +249,13 @@ pbms:
       limits:
         memory: 512Mi
 
+    nodeSelector:
+      dedicated: openg2p
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: openg2p
+        effect: NoSchedule
   openg2p-pbms-bg-task-celery-beat-producers:
     postgresCheckerInit:
       image:
@@ -200,6 +269,13 @@ pbms:
       limits:
         memory: 768Mi
 
+    nodeSelector:
+      dedicated: openg2p
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: openg2p
+        effect: NoSchedule
   openg2p-pbms-bg-task-celery-workers:
     postgresCheckerInit:
       image:
@@ -212,3 +288,60 @@ pbms:
         memory: 256Mi
       limits:
         memory: 768Mi
+    nodeSelector:
+      dedicated: openg2p
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: openg2p
+        effect: NoSchedule
+  keymanager:
+    nodeSelector:
+      dedicated: openg2p
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: openg2p
+        effect: NoSchedule
+    artifactory:
+      nodeSelector:
+        dedicated: openg2p
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: openg2p
+          effect: NoSchedule
+    postgresql:
+      backup:
+        cronjob:
+          nodeSelector:
+            dedicated: openg2p
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: openg2p
+              effect: NoSchedule
+      primary:
+        nodeSelector:
+          dedicated: openg2p
+        tolerations:
+          - key: dedicated
+            operator: Equal
+            value: openg2p
+            effect: NoSchedule
+      readReplicas:
+        nodeSelector:
+          dedicated: openg2p
+        tolerations:
+          - key: dedicated
+            operator: Equal
+            value: openg2p
+            effect: NoSchedule
+    softhsm:
+      nodeSelector:
+        dedicated: openg2p
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: openg2p
+          effect: NoSchedule
