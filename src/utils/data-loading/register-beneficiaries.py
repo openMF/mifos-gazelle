@@ -10,6 +10,7 @@ import configparser
 import argparse
 from pathlib import Path
 import urllib3
+from account_mapper import account_mapper_url
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -117,16 +118,16 @@ def fetch_all_clients_from_mifos(domain, tenants, payer_tenant):
 # ----------------------------------------------------------------------
 # Identity Mapper Registration
 # ----------------------------------------------------------------------
-def register_with_identity_mapper(domain, client, registering_institution):
+def register_with_identity_mapper(namespace, client, registering_institution):
     """
     Register a client as a beneficiary with identity-account-mapper.
 
     Args:
-        domain: Gazelle domain
+        namespace: PaymentHub namespace, where account-mapper runs (reached through kubectl port-forward)
         client: Client dictionary with mobile, account_id, tenant
         registering_institution: Institution ID registering the beneficiary (e.g., 'greenbank')
     """
-    url = f"https://identity-mapper.{domain}/beneficiary"
+    url = f"{account_mapper_url(namespace)}/beneficiary"
 
     # Generate simple request ID (12 chars)
     import uuid
@@ -228,6 +229,7 @@ How it works:
     cfg = load_config(args.config)
     domain = get_gazelle_domain(cfg)
     tenants = get_tenants(cfg)
+    namespace = cfg.get('paymenthub', 'PH_NAMESPACE', fallback='paymenthub')
 
     print(f"Domain: {domain}", file=sys.stderr)
     print(f"All tenants: {', '.join(tenants)}", file=sys.stderr)
@@ -248,7 +250,7 @@ How it works:
     print("Registering beneficiaries with identity-account-mapper...", file=sys.stderr)
     success_count = 0
     for beneficiary in beneficiaries:
-        if register_with_identity_mapper(domain, beneficiary, args.registering_institution):
+        if register_with_identity_mapper(namespace, beneficiary, args.registering_institution):
             success_count += 1
 
     print(f"\n✓ Registered {success_count}/{len(beneficiaries)} beneficiaries", file=sys.stderr)

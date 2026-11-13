@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Verifies all Gazelle ingress endpoints are reachable.
+# Verifies all Gazelle ingress endpoints are reachable, plus the services that
+# have no ingress (checked through the Kubernetes API server).
 # Exits non-zero if any critical endpoint is down — use as a CI gate before
 # running make-payment.sh or cucumber tests.
 set -uo pipefail
@@ -24,6 +25,9 @@ if [[ -z "$GAZELLE_DOMAIN" ]]; then
     exit 1
 fi
 
+PH_NAMESPACE=$(grep '^PH_NAMESPACE' "$CONFIG_INI" | cut -d'=' -f2 | tr -d ' ')
+PH_NAMESPACE="${PH_NAMESPACE:-paymenthub}"
+
 TIMEOUT=10   # seconds per request
 PASS=0
 FAIL=0
@@ -43,6 +47,30 @@ check_endpoint() {
     http_code=$(curl -sk -o /dev/null -w "%{http_code}" \
         --max-time "$TIMEOUT" --connect-timeout "$TIMEOUT" \
         -L "$url" 2>/dev/null) || true
+
+    report "$label" "$http_code" "$critical"
+}
+
+# check_service <label> <namespace> <service:port> <path> <critical: true|false>
+# For services with no ingress (account-mapper, GAZ-366): GETs the path through
+# the Kubernetes API server's service proxy, so no port-forward is needed.
+# Passes when it answers 2xx; kubectl doesn't print the status, so a failure
+# is reported as 000.
+check_service() {
+    local label="$1" namespace="$2" service="$3" path="$4" critical="$5"
+    local http_code="000"
+    if kubectl get --raw "/api/v1/namespaces/$namespace/services/$service/proxy$path" \
+        --request-timeout="${TIMEOUT}s" >/dev/null 2>&1; then
+        http_code="200"
+    fi
+    report "$label" "$http_code" "$critical"
+}
+
+# report <label> <http_code> <critical: true|false>
+report() {
+    local label="$1"
+    local http_code="$2"
+    local critical="$3"
 
     # Strip non-digits and force base-10 to avoid octal interpretation of "000"
     local numeric
@@ -77,7 +105,7 @@ check_endpoint "vNext Admin UI"               "http://vnextadmin.${GAZELLE_DOMAI
 check_endpoint "PHEE Operations Web"          "https://ops.${GAZELLE_DOMAIN}"                             true
 check_endpoint "PHEE Channel Connector"       "https://channel.${GAZELLE_DOMAIN}"                         true
 check_endpoint "PHEE Operations App (API)"    "https://ops-bk.${GAZELLE_DOMAIN}/actuator/health"          true
-check_endpoint "PHEE Identity Account Mapper" "https://identity-mapper.${GAZELLE_DOMAIN}/actuator/health" true
+check_service  "PHEE Identity Account Mapper" "$PH_NAMESPACE" "paymenthub-ee-account-mapper:80" "/actuator/health" true
 
 echo ""
 echo -e "${BLUE}--- Informational (reported but do not block CI) ---${RESET}"

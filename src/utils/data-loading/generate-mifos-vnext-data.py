@@ -16,6 +16,10 @@ import configparser
 import argparse
 import urllib3
 
+# account_mapper.py sits next to this file; the OpenSPP scripts load this file from elsewhere
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from account_mapper import account_mapper_url  # noqa: E402
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------------------------------------------------------------
@@ -78,7 +82,8 @@ SAVINGS_API_URL = None
 SAVINGS_PRODUCTS_API_URL = None
 INTEROP_PARTIES_API_URL = None
 VNEXT_BASE_URL = None
-IDENTITY_MAPPER_URL = None
+# account-mapper is reached through kubectl port-forward (account_mapper.py)
+PH_NAMESPACE = "paymenthub"
 
 AUTH_HEADER_VALUE = "Basic bWlmb3M6cGFzc3dvcmQ="   # mifos:password
 HEADERS = {
@@ -558,7 +563,7 @@ def register_beneficiary_with_identity_mapper(tenant_id, mobile_number, account_
     if not mobile_number or not account_id:
         return False
 
-    url = f"{IDENTITY_MAPPER_URL}/beneficiary"
+    url = f"{account_mapper_url(PH_NAMESPACE)}/beneficiary"
     # Request ID must be exactly 12 characters (matching register-and-generate-csv.py)
     request_id = str(uuid.uuid4()).replace('-', '')[:12]
 
@@ -630,14 +635,13 @@ def get_gazelle_domain(cfg):
 
 def set_global_urls(domain):
     global API_BASE_URL, CLIENTS_API_URL, SAVINGS_API_URL, SAVINGS_PRODUCTS_API_URL
-    global INTEROP_PARTIES_API_URL, VNEXT_BASE_URL, IDENTITY_MAPPER_URL
+    global INTEROP_PARTIES_API_URL, VNEXT_BASE_URL
     API_BASE_URL = f"https://mifos.{domain}/fineract-provider/api/v1"
     CLIENTS_API_URL = f"{API_BASE_URL}/clients"
     SAVINGS_API_URL = f"{API_BASE_URL}/savingsaccounts"
     SAVINGS_PRODUCTS_API_URL = f"{API_BASE_URL}/savingsproducts"
     INTEROP_PARTIES_API_URL = f"{API_BASE_URL}/interoperation/parties/MSISDN"
     VNEXT_BASE_URL = f"http://vnextadmin.{domain}/_interop/participants/MSISDN/"
-    IDENTITY_MAPPER_URL = f"https://identity-mapper.{domain}"
 
 
 # ----------------------------------------------------------------------
@@ -662,6 +666,7 @@ if __name__ == "__main__":
     # ----- config & URLs -----
     cfg = load_config(args.config)
     domain = get_gazelle_domain(cfg)
+    PH_NAMESPACE = cfg.get('paymenthub', 'PH_NAMESPACE', fallback=PH_NAMESPACE)
     set_global_urls(domain)
 
     # ----- regenerate mode (query existing clients) -----
