@@ -425,6 +425,9 @@ env_setup_local_cluster() {
     fi
     check_and_load_helm_repos
     install_nginx_local_cluster
+    if [[ -n "${join_node_host:-}" ]]; then
+        env_join_node_main
+    fi
     log_section "local kubernetes v${k8s_version} configured for ${k8s_user}"
     print_end_message
 }
