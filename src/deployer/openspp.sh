@@ -49,6 +49,19 @@ openspp_detect_arch() {
     return 0
 }
 
+# Detect any "dedicated=<role>:NoSchedule" taints in the cluster (applied by e.g.
+# `setup-env.sh -m join -r <role>` to reserve a node for one heavy component) and
+# build a matching toleration list, so OpenSPP can still overflow onto that node
+# when the default node runs out of capacity. Prints a JSON array (possibly "[]");
+# a no-op on a single-node or otherwise-untainted cluster.
+openspp_detect_dedicated_tolerations() {
+    kubectl get nodes -o json 2>/dev/null | jq -c '
+        [.items[].spec.taints[]? | select(.key == "dedicated" and .effect == "NoSchedule") | .value]
+        | unique
+        | map({key: "dedicated", operator: "Equal", value: ., effect: "NoSchedule"})
+    ' 2>/dev/null
+}
+
 # Image name as the kubelet reports it: a name without a registry host resolves to Docker Hub,
 # and a single-segment name lives under library/.
 openspp_qualified_image() {
@@ -267,6 +280,9 @@ openspp_deploy_chart() {
     # Ingress host, formed like every other Gazelle service: <name>.${GAZELLE_DOMAIN}.
     local openspp_host="openspp.${GAZELLE_DOMAIN:-mifos.gazelle.test}"
 
+    local dedicated_tolerations
+    dedicated_tolerations=$(openspp_detect_dedicated_tolerations)
+
     local helm_args=(
         upgrade --install "$OPENSPP_RELEASE_NAME" "$chart_dir"
         -n "$OPENSPP_NAMESPACE" --create-namespace
@@ -283,6 +299,11 @@ openspp_deploy_chart() {
         --set "ingress.tls.secretName=openspp-tls"
         --set "odoo.env.PROXY_MODE=true"
     )
+
+    if [[ -n "$dedicated_tolerations" && "$dedicated_tolerations" != "[]" ]]; then
+        helm_args+=(--set-json "tolerations=${dedicated_tolerations}")
+        log_with_verbose_check "$debug" "$INFO" "Tolerating dedicated-node taint(s) so OpenSPP can overflow there if needed: ${dedicated_tolerations}"
+    fi
 
     if [[ "$debug" == "true" ]]; then
         helm "${helm_args[@]}"
