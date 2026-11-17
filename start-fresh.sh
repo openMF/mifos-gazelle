@@ -28,11 +28,6 @@ fi
 echo "==> Rebuilding environment from scratch"
 sudo ./setup-env.sh -u "$k8s_user" -y
 
-if [[ -n "$node_host" ]]; then
-    echo "==> Joining 2nd node"
-    sudo ./setup-env.sh -m join -N "$node_host" -U "$node_user" -r openg2p -u "$k8s_user"
-fi
-
 echo "==> Deploying the 3 core DPGs"
 ./run.sh -m deploy -a all
 
