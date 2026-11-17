@@ -9,7 +9,12 @@ spec:
   rbacEnabled: false
   secretEnabled: true
   configMapEnabled: false
-  ingressEnabled: true
+  # No ingress (GAZ-366): account-mapper has no authentication and trusts the
+  # X-Registering-Institution-ID header, so publishing it lets anyone on the
+  # network read and change where payments go. Payment Hub calls it in-cluster,
+  # the Ops UI through the BFF, and the data-loading scripts through
+  # kubectl port-forward. Set true only on a private dev cluster.
+  ingressEnabled: false
   initContainerEnabled: true
   volMount:
     enabled: false
@@ -32,10 +37,6 @@ spec:
     className: nginx
     annotations:
       kubernetes.io/ingress.class: nginx
-      nginx.ingress.kubernetes.io/cors-allow-headers: 'x-registering-institution-id, content-type, X-CallbackURL'
-      nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS, DELETE
-      nginx.ingress.kubernetes.io/cors-allow-origin: '*'
-      nginx.ingress.kubernetes.io/enable-cors: "true"
     tls:
       - secretName: sandbox-secret
     rules:
