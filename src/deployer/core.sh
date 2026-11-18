@@ -114,15 +114,11 @@ create_ingress_secret() {
     local sans="$4"
     local key_dir="$k8s_user_home/.ssh"
 
-    mkdir -p "$key_dir"
-
-    # Convert comma-separated SANs → OpenSSL format
     local san_config="DNS.1 = $primary_domain"
     local index=2
     if [[ -n "$sans" ]]; then
         IFS=',' read -ra san_list <<< "$sans"
         for san in "${san_list[@]}"; do
-            # Trim whitespace from san
             san=$(echo "$san" | xargs)
             san_config="${san_config}"$'\n'"DNS.${index} = ${san}"
             ((index++))
@@ -132,18 +128,25 @@ create_ingress_secret() {
     log_step "Creating TLS secret '$secret_name' ($((index-1)) SANs) "
     log_with_verbose_check "$debug" "$DEBUG" "SANs:\n$san_config"
 
-    # Generate private key
-    openssl genrsa -out "$key_dir/$primary_domain.key" 2048 >/dev/null 2>&1
-    chmod 600 "$key_dir/$primary_domain.key"
+    if [[ -z "$k8s_user_home" ]]; then
+        log_failed "create_ingress_secret: k8s_user_home is unset"
+        return 1
+    fi
 
-    # X.509 CN field is limited to 64 characters; truncate if needed.
-    # SANs handle actual hostname matching — CN is informational only.
-    local cn="${primary_domain:0:64}"
+    if ! mkdir -p "$key_dir"; then
+        log_failed "create_ingress_secret: could not create $key_dir"
+        return 1
+    fi
 
-    # Write OpenSSL config to a temp file (process substitution is non-seekable;
-    # openssl reads the config multiple times and fails silently with <(...))
     local config_file
     config_file=$(mktemp /tmp/openssl-san-XXXXXX.conf)
+
+    # Trap ensures the temp config is removed on any exit path from this function.
+    local _cleanup_done=false
+    cleanup_config() { [[ "$_cleanup_done" == false ]] && rm -f "$config_file"; _cleanup_done=true; }
+    trap cleanup_config RETURN
+
+    local cn="${primary_domain:0:64}"
     cat > "$config_file" <<EOF
 [req]
 distinguished_name=req_distinguished_name
@@ -162,16 +165,27 @@ extendedKeyUsage=serverAuth
 ${san_config}
 EOF
 
-    # Generate certificate with SANs
-    openssl req -x509 -new -nodes \
+    if ! openssl genrsa -out "$key_dir/$primary_domain.key" 2048 >/dev/null 2>&1; then
+        log_failed "openssl genrsa failed for $primary_domain"
+        return 1
+    fi
+    chmod 600 "$key_dir/$primary_domain.key"
+
+    if ! openssl req -x509 -new -nodes \
         -key "$key_dir/$primary_domain.key" \
         -sha256 -days 365 \
         -out "$key_dir/$primary_domain.crt" \
         -subj "/CN=$cn" \
         -extensions v3_req \
-        -config "$config_file" >/dev/null 2>&1
+        -config "$config_file" >/dev/null 2>&1; then
+        log_failed "openssl req failed for $primary_domain"
+        return 1
+    fi
 
-    rm -f "$config_file"
+    if [[ ! -s "$key_dir/$primary_domain.key" || ! -s "$key_dir/$primary_domain.crt" ]]; then
+        log_failed "Generated key or certificate is empty for $primary_domain"
+        return 1
+    fi
 
     chmod 644 "$key_dir/$primary_domain.crt"
 
@@ -179,7 +193,6 @@ EOF
         log_warn "Certificate created but no SANs found for $primary_domain"
     fi
 
-    # Create/replace TLS secret
     kubectl -n "$namespace" delete secret "$secret_name" --ignore-not-found >/dev/null 2>&1
 
     if kubectl -n "$namespace" create secret tls "$secret_name" \
