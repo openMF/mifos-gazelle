@@ -138,15 +138,19 @@ create_ingress_secret() {
         return 1
     fi
 
+    # X.509 CN field is limited to 64 characters; truncate if needed.
+    # SANs handle actual hostname matching — CN is informational only.
+    local cn="${primary_domain:0:64}"
+
+    # Write OpenSSL config to a temp file (process substitution is non-seekable;
+    # openssl reads the config multiple times and fails silently with <(...))
     local config_file
     config_file=$(mktemp /tmp/openssl-san-XXXXXX.conf)
 
-    # Trap ensures the temp config is removed on any exit path from this function.
     local _cleanup_done=false
-    cleanup_config() { [[ "$_cleanup_done" == false ]] && rm -f "$config_file"; _cleanup_done=true; }
+    cleanup_config() { [[ "$_cleanup_done" == false ]] && rm -f "$config_file"; _cleanup_done=true; trap - RETURN; }
     trap cleanup_config RETURN
 
-    local cn="${primary_domain:0:64}"
     cat > "$config_file" <<EOF
 [req]
 distinguished_name=req_distinguished_name
@@ -193,11 +197,10 @@ EOF
         log_warn "Certificate created but no SANs found for $primary_domain"
     fi
 
-    kubectl -n "$namespace" delete secret "$secret_name" --ignore-not-found >/dev/null 2>&1
-
     if kubectl -n "$namespace" create secret tls "$secret_name" \
         --cert="$key_dir/$primary_domain.crt" \
-        --key="$key_dir/$primary_domain.key" >/dev/null 2>&1; then
+        --key="$key_dir/$primary_domain.key" \
+        --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1; then
         log_ok
     else
         log_failed "kubectl create secret tls '$secret_name'"
