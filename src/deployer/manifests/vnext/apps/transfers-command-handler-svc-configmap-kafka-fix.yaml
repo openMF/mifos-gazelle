@@ -1,0 +1,478 @@
+# Patched Kafka consumer for Mojaloop vNext Beta1 transfers-command-handler-svc (GAZ-377).
+#
+# The 0.5.1 image bundles @mojaloop/platform-shared-lib-nodejs-kafka-client-lib 0.5.2,
+# whose consume loop can run twice after start-up (once on "subscribed", once on the first
+# rebalance) because its _consuming guard is set too late. Two loops hand the transfers
+# aggregate two batches at once; it keeps batch state in shared fields, throws "Could not
+# find corresponding request for checkLiquidAndReserve" and the service exits, leaving
+# transfers stuck in RECEIVED.
+#
+# This file is dist/raw/rdkafka_raw_consumer.js from the 0.5.1 image
+# (sha256 of the original: 1b425d5ff9cbecbf3cdc09c32febff0e9bd2b281e1fbbec02de78324f6f7f86d)
+# with only the upstream fix applied: mojaloop/platform-shared-lib 542e7d99 (2024-04-13),
+# published in kafka-client-lib 0.5.13. Mojaloop no longer maintains Mojaloop vNext Beta1, so no
+# fixed 0.5.x image will come. The deployment mounts this over the file in the image.
+# To check it: diff it against the file in the image; only the lines marked
+# "GAZELLE PATCH" differ.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: transfers-command-handler-svc-kafka-fix
+  labels:
+    mojaloop.service: transfers-command-handler-svc
+    mojaloop.layer: apps
+data:
+  rdkafka_raw_consumer.js: |
+    /*****
+     License
+     --------------
+     Copyright © 2017 Bill & Melinda Gates Foundation
+     The Mojaloop files are made available by the Bill & Melinda Gates Foundation under the Apache License, Version 2.0 (the "License") and you may not use these files except in compliance with the License. You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, the Mojaloop files are distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+
+     Contributors
+     --------------
+     This is the official list (alphabetical ordering) of the Mojaloop project contributors for this file.
+     Names of the original copyright holders (individuals or organizations)
+     should be listed with a '*' in the first column. People who have
+     contributed from an organization can be listed under the organization
+     that actually holds the copyright for their contributions (see the
+     Gates Foundation organization for an example). Those individuals should have
+     their names indented and be marked with a '-'. Email address can be added
+     optionally within square brackets <email>.
+
+     * Gates Foundation
+     - Name Surname <name.surname@gatesfoundation.com>
+
+     * Crosslake
+     - Pedro Sousa Barreto <pedrob@crosslaketech.com>
+
+     --------------
+     ******/
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.MLKafkaRawConsumer = exports.MLKafkaRawConsumerOptions = exports.MLKafkaRawConsumerOutputType = void 0;
+    const tslib_1 = require("tslib");
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unused-vars */
+    const events_1 = require("events");
+    const RDKafka = tslib_1.__importStar(require("node-rdkafka"));
+    const crypto = tslib_1.__importStar(require("crypto"));
+    var MLKafkaRawConsumerOutputType;
+    (function (MLKafkaRawConsumerOutputType) {
+        MLKafkaRawConsumerOutputType[MLKafkaRawConsumerOutputType["Raw"] = 0] = "Raw";
+        MLKafkaRawConsumerOutputType[MLKafkaRawConsumerOutputType["String"] = 1] = "String";
+        MLKafkaRawConsumerOutputType[MLKafkaRawConsumerOutputType["Json"] = 2] = "Json";
+    })(MLKafkaRawConsumerOutputType = exports.MLKafkaRawConsumerOutputType || (exports.MLKafkaRawConsumerOutputType = {}));
+    const defaultOptions = {
+        useSyncCommit: false,
+        outputType: MLKafkaRawConsumerOutputType.Json,
+        batchSize: 1,
+        batchTimeoutMs: 1000
+    };
+    class MLKafkaRawConsumerOptions {
+        kafkaBrokerList;
+        kafkaGroupId;
+        consumerClientId;
+        useSyncCommit;
+        outputType;
+        autoOffsetReset; // default is latest
+        messageMaxBytes;
+        sessionTimeoutMs; //Client group session and failure detection timeout, default is 45 secs
+        batchSize;
+        batchTimeoutMs;
+    }
+    exports.MLKafkaRawConsumerOptions = MLKafkaRawConsumerOptions;
+    class MLKafkaRawConsumer extends events_1.EventEmitter {
+        _logger;
+        _options;
+        _globalConfig;
+        _topicConfig;
+        _topics;
+        _client;
+        _handlerCallback = null;
+        _batchHandlerCallback = null;
+        _batchSize = defaultOptions.batchSize;
+        constructor(options, logger = null) {
+            super();
+            this._options = options;
+            this._logger = logger;
+            // parse options and apply defaults
+            this._parseOptionsAndApplyDefault();
+            this._client = new RDKafka.KafkaConsumer(this._globalConfig, this._topicConfig);
+            if (this._options.batchTimeoutMs) {
+                this._client.setDefaultConsumeTimeout(this._options.batchTimeoutMs);
+            }
+            else {
+                this._client.setDefaultConsumeTimeout(defaultOptions.batchTimeoutMs);
+            }
+            this._client.on("ready", this._onReady.bind(this));
+            this._client.on("rebalance", this._onRebalance.bind(this));
+            this._client.on("rebalance.error", this._onRebalanceError.bind(this));
+            this._client.on("event.event", this._onEvent.bind(this));
+            this._client.on("event.log", this._onLog.bind(this));
+            this._client.on("event.error", this._onError.bind(this));
+            this._client.on("event.throttle", this._onThrottle.bind(this));
+            this._client.on("event.stats", this._onStats.bind(this));
+            this._client.on("disconnected", this._onDisconnect.bind(this));
+            //this._client.on("data", this._onData.bind(this));
+            this._logger?.isInfoEnabled() && this._logger.info("MLRawKafkaConsumer - instance created");
+            this._logger?.isInfoEnabled() && this._logger.info(`MLRawKafkaConsumer - features: ${RDKafka.features.toString()}`);
+        }
+        on(event, listener) {
+            return super.on(event, listener);
+        }
+        once(event, listener) {
+            return super.once(event, listener);
+        }
+        _parseOptionsAndApplyDefault() {
+            this._globalConfig = {};
+            this._topicConfig = {};
+            // we want to always receive the rebalance events
+            this._globalConfig.rebalance_cb = true;
+            // we want to always receive the event events
+            this._globalConfig.event_cb = true;
+            // apply local defaults - if not provided by options
+            if (this._options.useSyncCommit === undefined) {
+                this._options.useSyncCommit = defaultOptions.useSyncCommit;
+            }
+            if (this._options.outputType === undefined) {
+                this._options.outputType = defaultOptions.outputType;
+            }
+            if (this._options.batchSize === undefined) {
+                this._options.batchSize = defaultOptions.batchSize;
+            }
+            if (this._options.autoOffsetReset === undefined) {
+                this._options.autoOffsetReset = "latest";
+            }
+            if (this._options.batchTimeoutMs === undefined) {
+                this._options.batchTimeoutMs = defaultOptions.batchTimeoutMs;
+            }
+            // apply rddkafka required
+            if (this._options.consumerClientId !== undefined) {
+                this._globalConfig["client.id"] = this._options.consumerClientId;
+            }
+            if (this._options.messageMaxBytes !== undefined) {
+                this._globalConfig["message.max.bytes"] = this._options.messageMaxBytes;
+            }
+            if (this._options.sessionTimeoutMs !== undefined) {
+                this._globalConfig["session.timeout.ms"] = this._options.sessionTimeoutMs;
+            }
+            // group.id is required, if not provided, generate a random one
+            this._globalConfig["group.id"] = this._options.kafkaGroupId || crypto.randomUUID();
+            // topic configs
+            this._topicConfig["auto.offset.reset"] = this._options.autoOffsetReset;
+            // global client options
+            this._globalConfig["metadata.broker.list"] = this._options.kafkaBrokerList;
+            this._globalConfig["fetch.wait.max.ms"] = this._options.batchTimeoutMs;
+            // apply local defaults
+            this._batchSize = this._options.batchSize;
+        }
+        _onReady(info, metadata) {
+            this._logger?.isInfoEnabled() && this._logger.info(`MLRawKafkaConsumer - event.ready - info: ${JSON.stringify(info, null, 2)}`);
+            // this a huge
+            //this._logger?.isDebugEnabled() && this._logger.debug(`MLRawKafkaConsumer - event.ready - metadata: ${JSON.stringify(metadata, null, 2)}`);
+            setImmediate(() => {
+                this.emit("ready", info, metadata);
+            });
+        }
+        /* istanbul ignore next */
+        _onError(error) {
+            this._logger?.isErrorEnabled() && this._logger.error(`MLRawKafkaConsumer - event.error - ${JSON.stringify(error, null, 2)}`);
+        }
+        /* istanbul ignore next */
+        _onRebalance(error, assignments) {
+            if (error && error.code != -175 /*ERR__ASSIGN_PARTITIONS*/ && error.code !== -174 /*ERR__REVOKE_PARTITIONS*/) {
+                // Ignore rebalance errors (other error codes), these will emit a dedicated the "rebalance.error"
+                return;
+            }
+            // rdkafka library code emits the event as it receives it from the cluster and
+            // before actually calling the assign() or unassign(), we need to wait a bit
+            // half a second is enough and this is not a performance issue
+            // https://github.com/Blizzard/node-rdkafka/blob/aba2011d6c1ae2a0ae745b5d71bef77aa42180cc/lib/kafka-consumer.js#L59
+            setTimeout(() => {
+                this._logger?.isDebugEnabled() && this._logger?.debug(`MLRawKafkaConsumer - event.rebalance - ${JSON.stringify(assignments, null, 2)}`);
+                const type = error.code == -175 ? "assign" : "revoke";
+                this.emit("rebalance", type, assignments);
+            }, 500);
+        }
+        /* istanbul ignore next */
+        _onRebalanceError(error) {
+            // same as above in _onRebalance()
+            setTimeout(() => {
+                this._logger?.isWarnEnabled() && this._logger?.warn(`MLRawKafkaConsumer - event.rebalance error - ${JSON.stringify(error, null, 2)}`);
+                this.emit("rebalance.error", error);
+            }, 500);
+        }
+        /* istanbul ignore next */
+        _onEvent(eventData) {
+            this._logger?.isDebugEnabled() && this._logger.debug(`MLRawKafkaConsumer - event.event - ${JSON.stringify(eventData, null, 2)}`);
+            this.emit("event", eventData);
+        }
+        /* istanbul ignore next */
+        _onThrottle(eventData) {
+            this._logger?.isWarnEnabled() && this._logger.warn(`MLRawKafkaConsumer - event.throttle - ${JSON.stringify(eventData, null, 2)}`);
+            this.emit("throttle", eventData);
+        }
+        /* istanbul ignore next */
+        _onLog(eventData) {
+            this._logger?.isDebugEnabled() && this._logger.debug(`MLRawKafkaConsumer - event.log - ${JSON.stringify(eventData, null, 2)}`);
+        }
+        /* istanbul ignore next */
+        _onStats(eventData) {
+            this._logger?.isDebugEnabled() && this._logger.debug(`MLRawKafkaConsumer - event.stats - ${eventData.message}`);
+            this.emit("stats", eventData);
+        }
+        _onDisconnect(metrics) {
+            /* istanbul ignore else */
+            if (metrics?.connectionOpened) {
+                this._logger?.isInfoEnabled() && this._logger.info(`MLRawKafkaConsumer - event.disconnected - connected for ${(Date.now() - metrics.connectionOpened) / 1000} secs`);
+            }
+            else {
+                this._logger?.isInfoEnabled() && this._logger.info(`MLRawKafkaConsumer - event.disconnected - ${JSON.stringify(metrics, null, 2)}`);
+            }
+            this.emit("disconnected");
+        }
+        _consuming = false;
+        _consumeLoop() {
+            if (!this._client.isConnected() || this._consuming)
+                return;
+            const callContinue = () => {
+                setImmediate(() => {
+                    this._consuming = false;
+                    this._consumeLoop();
+                });
+            };
+            // GAZELLE PATCH (GAZ-377): set the guard before consume(), not in its callback, so a
+            // second _consumeLoop() call can't start a parallel loop. Upstream fix: mojaloop/
+            // platform-shared-lib 542e7d99 (nodejs-kafka-client-lib 0.5.13).
+            this._consuming = true;
+            this._client.consume(this._batchSize, (err, kafkaMessages) => {
+                if (err) {
+                    if (!this._client.isConnected() || err.code == -172 /* not connected or wrong state */ || err.code == 3 /* Broker: Unknown topic or partition */)
+                        return;
+                    this._logger?.error(err, `MLKafkaRawConsumer got callback with err: ${err.message}`);
+                    return callContinue();
+                }
+                if (kafkaMessages.length <= 0)
+                    return callContinue();
+                // use the batch handler if we have a batchHandlerCallback
+                if (this._batchHandlerCallback) {
+                    const commitAndContinue = (msgs) => {
+                        this._commitMsg(kafkaMessages);
+                        return callContinue();
+                    };
+                    const msgs = kafkaMessages.map(this._toIMessage.bind(this));
+                    this._batchHandlerCallback(msgs).finally(() => {
+                        return commitAndContinue(msgs);
+                    });
+                }
+                else if (this._handlerCallback) {
+                    for (const kafkaMessage of kafkaMessages) {
+                        const msg = this._toIMessage(kafkaMessage);
+                        // call the provided handler and then commit
+                        this._handlerCallback(msg).finally(() => {
+                            this._commitMsg(kafkaMessage);
+                        });
+                    }
+                    return callContinue();
+                }
+                else {
+                    // maybe no handler was set yet
+                    return callContinue();
+                }
+            });
+        }
+        _toIMessage(kafkaMsg) {
+            const msg = {
+                topic: kafkaMsg.topic,
+                partition: kafkaMsg.partition,
+                offset: kafkaMsg.offset,
+                timestamp: kafkaMsg.timestamp ?? null,
+                key: null,
+                value: null,
+                headers: null
+            };
+            // parse msg key
+            if (kafkaMsg.key) {
+                if (this._options.outputType === MLKafkaRawConsumerOutputType.Raw) {
+                    msg.key = kafkaMsg.key;
+                }
+                else {
+                    msg.key = kafkaMsg.key.toString();
+                }
+            }
+            // parse msg headers
+            if (kafkaMsg.headers != null) {
+                msg.headers = [];
+                kafkaMsg.headers.forEach((kafkaHeader) => {
+                    // NOTE: kafka headers are key/value pairs, only one pair will ever exist per header rec
+                    for (const key in kafkaHeader) {
+                        if (!Object.prototype.hasOwnProperty.call(kafkaHeader, key))
+                            continue;
+                        if (this._options.outputType === MLKafkaRawConsumerOutputType.Json || this._options.outputType === MLKafkaRawConsumerOutputType.String) {
+                            msg.headers.push({ [key]: kafkaHeader[key].toString() });
+                        }
+                        else {
+                            msg.headers.push({ [key]: kafkaHeader[key] });
+                        }
+                    }
+                });
+            }
+            // parse msg value
+            if (kafkaMsg.value != null) {
+                if (this._options.outputType === MLKafkaRawConsumerOutputType.Json) {
+                    try {
+                        msg.value = JSON.parse(kafkaMsg.value.toString());
+                    }
+                    catch (err) {
+                        /* istanbul ignore next */
+                        this._logger?.isErrorEnabled() && this._logger.error(err, "MLRawKafkaConsumer - error converting msg value to JSON");
+                    }
+                }
+                else if (this._options.outputType === MLKafkaRawConsumerOutputType.String) {
+                    msg.value = kafkaMsg.value.toString();
+                }
+                else {
+                    msg.value = kafkaMsg.value;
+                }
+            }
+            /// TODO parse msg timestamp to datetime obj
+            return msg;
+        }
+        /*	// commit all read offsets
+            private _commitMessages(kafkaMessages: RDKafka.Message[]): void {
+                if (this._globalConfig["enable.auto.commit"]===true) return;
+        
+                if (this._options.useSyncCommit) {
+                    this._client.commitSync(kafkaMessages);
+                } else {
+                    this._client.commit(kafkaMessages);
+                }
+            }*/
+        _commitMsg(kafkaMessage) {
+            if (this._globalConfig["enable.auto.commit"] === true)
+                return;
+            if (this._options.useSyncCommit) {
+                this._client.commitSync(kafkaMessage);
+            }
+            else {
+                this._client.commit(kafkaMessage);
+            }
+        }
+        setBatchSize(size) {
+            this._batchSize = size;
+        }
+        setCallbackFn(handlerCallback) {
+            this._batchHandlerCallback = null;
+            this._handlerCallback = handlerCallback;
+        }
+        setBatchCallbackFn(batchHandlerCallback) {
+            this._batchHandlerCallback = batchHandlerCallback;
+        }
+        setTopics(topics) {
+            this._topics = topics;
+        }
+        async destroy(force) {
+            this._logger?.isInfoEnabled() && this._logger.info("MLKafkaProducer - destroy called...");
+            return await this.disconnect();
+        }
+        async connect() {
+            return new Promise((resolve, reject) => {
+                this._client.connect({
+                // topic: this._topics[0],
+                // allTopics: false
+                }, (err, metadata) => {
+                    /* istanbul ignore if */
+                    if (err) {
+                        this._logger?.isErrorEnabled() && this._logger.error(err, "MLRawKafkaConsumer - error connecting to cluster");
+                        return reject(new Error(`MLRawKafkaConsumer - error connecting to cluster: ${err.message}`));
+                    }
+                    // throw if topics not found in metadata
+                    if (this._topics) {
+                        this._topics.forEach(topicName => {
+                            const found = metadata.topics.find(value => value.name.toUpperCase() === topicName.toUpperCase());
+                            if (!found) {
+                                throw new Error(`Topic "${topicName}" not found in kafka, cannot continue`);
+                            }
+                        });
+                    }
+                    // metadata is handled by the onReady event
+                    this._logger?.isInfoEnabled() && this._logger.info("MLRawKafkaConsumer - connected!");
+                    resolve();
+                });
+            });
+        }
+        async disconnect() {
+            return new Promise((resolve, reject) => {
+                this._logger?.isInfoEnabled() && this._logger.info("MLRawKafkaConsumer - disconnect called...");
+                if (!this._client.isConnected()) {
+                    this._logger?.isWarnEnabled() && this._logger.warn("MLRawKafkaConsumer - disconnect called but consumer is not connected");
+                    return resolve();
+                }
+                this._client.disconnect((err, _data) => {
+                    /* istanbul ignore if */
+                    if (err) {
+                        this._logger?.isErrorEnabled() && this._logger.error("MLRawKafkaConsumer - disconnect failed", err);
+                        return reject(err);
+                    }
+                    this._logger?.isInfoEnabled() && this._logger.info("MLRawKafkaConsumer - disconnected.");
+                    resolve();
+                });
+            });
+        }
+        startAndWaitForRebalance() {
+            // eslint-disable-next-line no-async-promise-executor
+            return new Promise(async (resolve, reject) => {
+                this.prependOnceListener("rebalance", (type, assignments) => {
+                    if (type !== "assign") {
+                        throw new Error("MLRawKafkaConsumer - got revoke in first rebalance event");
+                    }
+                    this._logger?.isInfoEnabled() && this._logger.info("MLRawKafkaConsumer - got rebalance on startAndWaitForRebalance()");
+                    setImmediate(() => {
+                        this._consumeLoop();
+                    });
+                    resolve();
+                });
+                // manually reject (so we don't lose this because of the async executor function
+                await this.start().catch(reason => reject(reason));
+            });
+        }
+        start() {
+            return new Promise((resolve, reject) => {
+                if (!Array.isArray(this._topics) || this._topics.length == 0) {
+                    this._logger?.isInfoEnabled() && this._logger.warn("MLRawKafkaConsumer - no topics subscribed on start()");
+                    resolve();
+                    return;
+                }
+                this._client.once("subscribed", async (topics) => {
+                    this._logger?.isInfoEnabled() && this._logger.info("MLRawKafkaConsumer - subscribed");
+                    setImmediate(() => {
+                        this._consumeLoop();
+                    });
+                    resolve();
+                });
+                this._logger?.isInfoEnabled() && this._logger.info(`MLRawKafkaConsumer - Subscribing to topics ${JSON.stringify(this._topics)}`);
+                this._client.subscribe(this._topics);
+            });
+        }
+        async stop() {
+            this._client.unsubscribe();
+            this._logger?.isInfoEnabled() && this._logger.info("MLRawKafkaConsumer - stop called, unsubscribed from previously subscribed topics");
+        }
+        async getMetadata() {
+            return new Promise((resolve, reject) => {
+                this._client.getMetadata({ allTopics: true }, (err, data) => {
+                    if (err) {
+                        this._logger?.isErrorEnabled() && this._logger.error(`MLRawKafkaConsumer - error requesting metadata from RDKafka client - errorno: ${err.errno} message: ${err.message}`);
+                        return reject(err);
+                    }
+                    return resolve(data);
+                });
+            });
+        }
+    }
+    exports.MLKafkaRawConsumer = MLKafkaRawConsumer;
+    //# sourceMappingURL=rdkafka_raw_consumer.js.map
