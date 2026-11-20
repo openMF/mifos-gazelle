@@ -6,6 +6,13 @@ controller:
   watchNamespace: ""
   ingressClassResource:
     name: nginx
+  # Pinned to the k3s control-plane node (by role label, not a specific hostname
+  # — works regardless of what the server node is actually called) so klipper-lb's
+  # hostPort binding, and therefore the IP that /etc/hosts points *.mifos.gazelle.test
+  # at (see add_hosts() in environmentSetup.sh), never migrates to another node
+  # after a pod reschedule.
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
   # extraArgs:
   #   default-ssl-certificate: "paymenthub/toms-secret-2"
   # config:
