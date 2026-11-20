@@ -359,7 +359,7 @@ configure_k8s_user_env() {
             echo "export KUBECONFIG=$kubeconfig_path" >> "$shell_profile"
         fi
 
-        chown "$k8s_user":"$k8s_user" "$shell_rc" "$shell_profile"
+        chown "$k8s_user":"$(id -gn "$k8s_user")" "$shell_rc" "$shell_profile"
         log_ok
     else
         log_step "user's shell already configured for k8s"
