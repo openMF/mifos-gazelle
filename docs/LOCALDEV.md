@@ -28,6 +28,12 @@
 
 All PHEE components are **operator-managed**: the PaymentHub Kubernetes operator deploys them from `PaymentHubDeployment` CRs in `src/deployer/operators/paymenthub/config/cr/`. `localdev.py` sets `spec.localDev` on a component's CR, and the operator renders the hostPath Deployment itself. The operator keeps it on every reconcile, so there's nothing to scale down and nothing gets reverted ([CR mode](#how-cr-mode-works)). The operator's own Deployment has no CR, so it's patched directly ([k8s-direct mode](#how-k8s-direct-mode-works)).
 
+### Images, and when you need a local jar
+
+Each CR pins an exact image: a `dev-<sha>` tag, or a digest where the repo publishes only floating tags (account-mapper). Kubernetes pulls a pinned image once per node (pull policy `IfNotPresent`), so a deploy always runs the build the CR names, never a stale cached `dev-latest`. Each pin is the newest image built from that repo's openMF `dev`. To move a component to a newer build, change its tag in the CR.
+
+So a fresh deploy runs everything merged to openMF `dev` at the time the pins were last updated. Use `localdev.py` (a local jar via `spec.localDev`) for code that isn't in those images yet: an unmerged PR, a fix you're working on, or a merge whose image hasn't been published or pinned.
+
 > **Naming note:** the services now live in `openMF/paymenthub-ee-*` repos (some consolidated: `paymenthub-ee-data-pipeline` holds importer-rdbms, importer-es and zeebe-ops). Always verify Deployment names with `kubectl get deployments -n paymenthub`.
 
 ### Files
@@ -129,7 +135,7 @@ The operator renders the same Deployment it always does (env vars, ConfigMaps, p
 kubectl apply -f ~/mifos-gazelle/src/deployer/operators/paymenthub/config/crd/paymenthub-ee-CustomResourceDefinition.yaml
 kubectl set env deployment/paymenthub-ee-operator -n paymenthub LOCALDEV_ENABLED=true
 ```
-This also needs an operator build that includes PHEE-455 (openMF/paymenthub-ee-k8s-operators). Until a published image has it, run the operator from a local build ([below](#running-the-operator-from-a-local-build)).
+This also needs an operator build that includes PHEE-455 (openMF/paymenthub-ee-k8s-operators). The pinned image (`dev-7350a2c` or later, in `operator_deployment.yaml`) has it. To test operator changes of your own, run it from a local build ([below](#running-the-operator-from-a-local-build)).
 
 A full redeploy (`./run.sh -m deploy`) reapplies the CR files with `kubectl apply`, which keeps a `localDev` that `localdev.py` added. `cleanapps` deletes the CRs, so a fresh deploy starts on images.
 

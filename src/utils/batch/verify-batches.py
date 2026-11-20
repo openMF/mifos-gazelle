@@ -15,6 +15,11 @@ Usage:
   ./verify-batches.py -c ~/tomconfig.ini
   ./verify-batches.py --timeout 180
   ./verify-batches.py -I                 # interactive — choose scenarios + options
+
+Exit status:
+  0  every scenario passed
+  1  a scenario failed, timed out or wasn't submitted
+  2  setup problem (config or CSV file missing, MifosX data not loaded)
 """
 
 import contextlib
@@ -50,6 +55,7 @@ FALLBACK_TENANTS      = _utils.FALLBACK_TENANTS
 check_data_loaded     = _utils.check_data_loaded
 count_zeebe_incidents = _utils.count_zeebe_incidents
 get_k8s_error_pods    = _utils.get_k8s_error_pods
+get_pod_states        = _utils.get_pod_states
 run_submit            = _submit.run_submit
 DEFAULT_SECRET_KEY    = _submit.DEFAULT_SECRET_KEY
 
@@ -217,11 +223,12 @@ def fetch_batch_transfers(domain, batch_id, tenant, page_size=20):
 # ---------------------------------------------------------------------------
 
 def wait_for_batch(domain, batch_id, tenant, timeout=600, poll_interval=5, stall_timeout=120,
-                   on_progress=None):
+                   on_progress=None, namespaces=("paymenthub",), pod_baseline=None):
     """
     Poll until ongoing==0, hard timeout, or stall with cluster errors.
     on_progress(successful, total) called each poll when summary is available.
-    On stall: checks Zeebe incidents + K8s pod errors; resets timer if healthy.
+    On stall: checks Zeebe incidents, and pods in `namespaces` that are in an error state
+    or have restarted since `pod_baseline` was taken; resets the timer if all is healthy.
     """
     hard_deadline    = time.time() + timeout
     batch_start      = time.time()
@@ -258,7 +265,7 @@ def wait_for_batch(domain, batch_id, tenant, timeout=600, poll_interval=5, stall
 
         if stalled:
             incidents  = count_zeebe_incidents(domain)
-            error_pods = get_k8s_error_pods()
+            error_pods = get_k8s_error_pods(namespaces, pod_baseline)
 
             zeebe_ok = incidents is not None and incidents == 0
             k8s_ok   = error_pods is not None and len(error_pods) == 0
@@ -440,6 +447,9 @@ Scenarios (default: all 4):
 Prerequisites for GovStack scenarios:
   identity-account-mapper must be populated — run:
     generate-mifos-vnext-data.py --regenerate
+
+Exit status: 0 all scenarios passed; 1 a scenario failed, timed out or wasn't
+submitted; 2 setup problem (config or CSV missing, MifosX data not loaded).
         """,
     )
     parser.add_argument("-c", "--config", type=lambda p: Path(p).expanduser(), default=DEFAULT_CFG,
@@ -465,13 +475,13 @@ Prerequisites for GovStack scenarios:
 
     if not args.config.exists():
         print(fail(f"Config file not found: {args.config}"))
-        sys.exit(1)
+        sys.exit(2)
 
     for csv_path in (MOJALOOP_CSV, CLOSEDLOOP_CSV):
         if not csv_path.exists():
             print(fail(f"CSV not found: {csv_path}"))
             print("  Run generate-example-csv-files.py first.")
-            sys.exit(1)
+            sys.exit(2)
 
     cfg    = load_config(args.config)
     domain = get_gazelle_domain(cfg)
@@ -482,7 +492,17 @@ Prerequisites for GovStack scenarios:
         for issue in data_issues:
             print(f"  • {issue}")
         print(data_hint)
-        sys.exit(1)
+        sys.exit(2)
+
+    # Namespaces the batch flows through. A restart in any of them while a batch is
+    # stalled (e.g. a Mojaloop vNext Beta1 service that crashed and came back) counts
+    # as a cluster error, so take a baseline of restart counts before submitting.
+    namespaces = tuple(dict.fromkeys(
+        cfg.get(section, key, fallback=default)
+        for section, key, default in (("paymenthub", "PH_NAMESPACE", "paymenthub"),
+                                      ("vnext", "VNEXT_NAMESPACE", "vnext"),
+                                      ("mifosx", "MIFOSX_NAMESPACE", "mifosx"))))
+    pod_baseline = get_pod_states(namespaces)
 
     print(bold(f"\nBULK BATCH VERIFICATION — {domain}"))
     print(f"Config: {args.config}  |  {len(args.scenarios)} scenario(s)\n")
@@ -567,6 +587,7 @@ Prerequisites for GovStack scenarios:
             domain, bid, tenant,
             timeout=args.timeout, poll_interval=args.poll_interval,
             stall_timeout=stall, on_progress=_on_progress,
+            namespaces=namespaces, pod_baseline=pod_baseline,
         )
         return sub, summary, time.time() - t0
 
@@ -663,12 +684,22 @@ Prerequisites for GovStack scenarios:
 
         print(f"  {r['name']:<35} {total_s:>5} {ok_s:>5} {fail_s:>5}  {verdict}")
 
+    # Pods that restarted during the run don't fail it on their own (the batches are the
+    # verdict), but they explain stuck or slow batches, so name them.
+    restarted = get_k8s_error_pods(namespaces, pod_baseline) if pod_baseline is not None else None
+    if restarted:
+        print()
+        print(warn("  Pods that restarted or are failing since the run started:"))
+        for p in restarted:
+            print(warn(f"    {p}"))
+
     print()
     if all_passed:
         print(ok(bold("  ALL SCENARIOS PASSED")))
     else:
         print(fail(bold("  ONE OR MORE SCENARIOS FAILED — see details above")))
     print()
+    sys.exit(0 if all_passed else 1)
 
 
 if __name__ == "__main__":

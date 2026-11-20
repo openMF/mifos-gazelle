@@ -6,6 +6,7 @@ batch_utils.py — shared utilities for submit-batch.py and verify-batches.py
 import base64
 import configparser
 import csv as csv_module
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -278,28 +279,61 @@ def count_zeebe_incidents(domain):
         return None
 
 
-def get_k8s_error_pods(namespace="paymenthub"):
+_POD_ERROR_STATES = {"Error", "CrashLoopBackOff", "OOMKilled", "ImagePullBackOff", "ErrImagePull"}
+
+
+def get_pod_states(namespaces=("paymenthub",)):
     """
-    Return list of strings describing pods in error state in the given namespace.
-    Returns a list (possibly empty), or None if the check could not run.
-    Error states checked: CrashLoopBackOff, Error, OOMKilled, ImagePullBackOff, ErrImagePull.
+    Return {"<namespace>/<pod>": (restart_count, problem)} for every pod in the given
+    namespaces, or None if kubectl could not be run. restart_count is summed over the
+    pod's containers; problem is the waiting/terminated reason of a container in one of
+    _POD_ERROR_STATES, or "".
     """
-    error_states = {"Error", "CrashLoopBackOff", "OOMKilled", "ImagePullBackOff", "ErrImagePull"}
+    states = {}
     try:
-        result = subprocess.run(
-            ["kubectl", "get", "pods", "-n", namespace, "--no-headers"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode != 0:
-            return None
-        error_pods = []
-        for line in result.stdout.split("\n"):
-            parts = line.split()
-            if len(parts) >= 3 and parts[2] in error_states:
-                error_pods.append(f"{parts[0]} ({parts[2]})")
-        return error_pods
+        for ns in namespaces:
+            result = subprocess.run(
+                ["kubectl", "get", "pods", "-n", ns, "-o", "json"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode != 0:
+                return None
+            for pod in json.loads(result.stdout).get("items", []):
+                restarts, problem = 0, ""
+                for cs in pod.get("status", {}).get("containerStatuses", []) or []:
+                    restarts += cs.get("restartCount", 0)
+                    state = cs.get("state", {})
+                    reason = (state.get("waiting") or state.get("terminated") or {}).get("reason", "")
+                    if reason in _POD_ERROR_STATES:
+                        problem = reason
+                states[f"{ns}/{pod['metadata']['name']}"] = (restarts, problem)
+        return states
     except Exception:
         return None
+
+
+def get_k8s_error_pods(namespaces=("paymenthub",), baseline=None):
+    """
+    Return a list of strings describing problem pods in the given namespaces, or None if
+    the check could not run. A pod is a problem if a container is in an error state
+    (CrashLoopBackOff, Error, OOMKilled, ImagePullBackOff, ErrImagePull), or, when
+    baseline (a get_pod_states() result taken earlier) is given, if its containers have
+    restarted since then. The restart check catches a service that crashed and is
+    Running again by the time anyone looks.
+    """
+    if isinstance(namespaces, str):
+        namespaces = (namespaces,)
+    states = get_pod_states(namespaces)
+    if states is None:
+        return None
+    problems = []
+    for pod, (restarts, problem) in sorted(states.items()):
+        before = baseline.get(pod, (0, ""))[0] if baseline is not None else restarts
+        if problem:
+            problems.append(f"{pod} ({problem})")
+        elif restarts > before:
+            problems.append(f"{pod} (restarted {restarts - before}x since the batch was submitted)")
+    return problems
 
 
 def check_identity_mapper(registering_institution, debug=False):
