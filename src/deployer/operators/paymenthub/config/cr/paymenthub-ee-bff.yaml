@@ -105,6 +105,9 @@ spec:
       value: "https://keycloak-ops.GAZELLE_DOMAIN/realms/paymenthub"
     - name: REST_AUTHORIZATION_KEYCLOAK_JWKSETURI
       value: "http://keycloak.infra.svc.cluster.local/realms/paymenthub/protocol/openid-connect/certs"
+    # /api/v1/beneficiaries (Ops UI Account Mapper) proxies to account-mapper (PHEE-469)
+    - name: ACCOUNT_MAPPER_URL
+      value: "http://paymenthub-ee-account-mapper.paymenthub.svc.cluster.local"
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"
     - name: LOGGING_PATTERN_CONSOLE
