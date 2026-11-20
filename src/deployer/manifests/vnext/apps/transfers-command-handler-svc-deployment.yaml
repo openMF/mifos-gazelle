@@ -53,5 +53,16 @@ spec:
         image: mojaloop/transfers-bc-command-handler-svc:0.5.1
         name: transfers-command-handler-svc
         resources: {}
+        volumeMounts:
+        # GAZ-377: replaces the Kafka client's consumer with one carrying the upstream
+        # consume-loop fix; see transfers-command-handler-svc-configmap-kafka-fix.yaml.
+        - name: kafka-fix
+          mountPath: /app/node_modules/@mojaloop/platform-shared-lib-nodejs-kafka-client-lib/dist/raw/rdkafka_raw_consumer.js
+          subPath: rdkafka_raw_consumer.js
+          readOnly: true
       restartPolicy: Always
+      volumes:
+      - name: kafka-fix
+        configMap:
+          name: transfers-command-handler-svc-kafka-fix
 status: {}
