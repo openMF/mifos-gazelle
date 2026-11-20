@@ -18,7 +18,7 @@ spec:
   # Port topology unchanged: 5000 is the Camel/Undertow REST port, actuator
   # still lives on a separate Tomcat port 8080 — confirmed live (Docker
   # `EXPOSE 5000` in the image was incomplete; both ports are actually bound).
-  image: docker.io/openmf/paymenthub-ee-connector-mojaloop:dev-8685c4f
+  image: docker.io/openmf/paymenthub-ee-connector-mojaloop:dev-latest
   containerPort: 5000
   resources:
     limits:

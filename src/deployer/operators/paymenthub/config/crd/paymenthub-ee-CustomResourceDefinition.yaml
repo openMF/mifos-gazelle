@@ -258,6 +258,21 @@ spec:
                   additionalProperties:
                     type: string # Literal (plaintext) key/value pairs for the generated Secret's stringData;
                                  # falls back to a single database-password key when omitted
+                localDev:
+                  type: object # Local development only: run from a host directory instead of the image.
+                               # Honoured only when the operator runs with LOCALDEV_ENABLED=true.
+                               # Set and cleared by src/utils/localdev/localdev.py.
+                  properties:
+                    enabled:
+                      type: boolean
+                    hostPath:
+                      type: string # Directory on the node (single-node clusters only)
+                    mountPath:
+                      type: string # Where hostPath is mounted; default /app
+                    jarPath:
+                      type: string # Jar to run with java -jar, as a container path; omit to keep the image's command
+                    image:
+                      type: string # Default eclipse-temurin:21 when jarPath is set, otherwise the spec image
             status:
               type: object
               properties:

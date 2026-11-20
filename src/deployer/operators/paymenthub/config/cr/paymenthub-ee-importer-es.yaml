@@ -19,7 +19,7 @@ spec:
   # Dockerfile either) — no containerPort/probes, unchanged. Kafka default
   # "kafka:9092" and the explicit importer_elasticsearch_url override both
   # confirmed to match this cluster's real Service names.
-  image: docker.io/openmf/paymenthub-ee-importer-es:dev-d5fda31
+  image: docker.io/openmf/paymenthub-ee-importer-es:dev-badbe2b
   resources:
     limits:
       cpu: 500m

@@ -22,7 +22,7 @@ spec:
   # despite docker inspect only showing one EXPOSE), and Camel/Undertow on
   # 5000 hosts the beneficiary CRUD rest() routes only. Verified end-to-end
   # live: POST /channel/transfer on 8443 returns 200 with a transactionId.
-  image: docker.io/openmf/paymenthub-ee-connector-channel:dev-5e61700
+  image: docker.io/openmf/paymenthub-ee-connector-channel:dev-latest
   containerPort: 8443
   resources:
     limits:

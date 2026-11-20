@@ -16,7 +16,7 @@ spec:
   # Migrated to paymenthub-ee-bff (Java 21/Spring Boot 3.4; renamed "bff",
   # also absorbs ph-ee-operations-g2p-service). Port unchanged (5000, single
   # exposed port confirmed via `docker inspect`).
-  image: docker.io/openmf/paymenthub-ee-bff:dev-6bd6fac
+  image: docker.io/openmf/paymenthub-ee-bff:dev-latest
   containerPort: 5000
   resources:
     limits:
@@ -99,6 +99,12 @@ spec:
       value: ""
     - name: TENANTS
       value: "greenbank,bluebank,redbank"
+    # Accept access tokens from the ops UI's Keycloak realm (infra chart). Tokens carry
+    # the public issuer; the keys are fetched from the in-cluster service.
+    - name: REST_AUTHORIZATION_KEYCLOAK_ISSUERURI
+      value: "https://keycloak-ops.GAZELLE_DOMAIN/realms/paymenthub"
+    - name: REST_AUTHORIZATION_KEYCLOAK_JWKSETURI
+      value: "http://keycloak.infra.svc.cluster.local/realms/paymenthub/protocol/openid-connect/certs"
     - name: LOGGING_LEVEL_ROOT
       value: "INFO"
     - name: LOGGING_PATTERN_CONSOLE

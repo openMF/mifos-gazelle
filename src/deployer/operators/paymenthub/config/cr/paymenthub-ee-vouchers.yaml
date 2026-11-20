@@ -22,7 +22,7 @@ spec:
     enabled: true
     name: ph-ee-config
   replicas: 1
-  image: docker.io/openmf/paymenthub-ee-vouchers:dev-d9d03b7
+  image: docker.io/openmf/paymenthub-ee-vouchers:dev-latest
   containerPort: 8080
   resources:
     limits:

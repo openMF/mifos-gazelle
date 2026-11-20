@@ -14,7 +14,7 @@ spec:
   # topology unchanged: the app's real listen port is still 8443 (confirmed
   # live — Docker `EXPOSE 5000` in the image was misleading/unused; Tomcat
   # logs "initialized with port 8443" on boot).
-  image: docker.io/openmf/paymenthub-ee-bulk-processor:dev-53bccf9
+  image: docker.io/openmf/paymenthub-ee-bulk-processor:dev-latest
   containerPort: 8443
   resources:
     limits:

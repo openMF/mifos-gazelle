@@ -13,7 +13,7 @@ spec:
   # absorbs the old message-gateway image into the same process (port 9191 =
   # gateway API, port 5000 = Camel notification routes; both confirmed via
   # `docker inspect`). 
-  image: docker.io/openmf/paymenthub-ee-notifications:dev-f64d57c
+  image: docker.io/openmf/paymenthub-ee-notifications:dev-latest
   containerPort: 5000
   resources:
     limits:

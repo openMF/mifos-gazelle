@@ -19,7 +19,7 @@ spec:
   # Migrated to paymenthub-ee-connector-ams-mifosx (Java 21/Spring Boot 3.4).
   # Main port unchanged (5000); the old 7070 "http" port no longer exists —
   # confirmed via `docker inspect` (single EXPOSE 5000).
-  image: docker.io/openmf/paymenthub-ee-connector-ams-mifosx:dev-23f7f54
+  image: docker.io/openmf/paymenthub-ee-connector-ams-mifosx:dev-latest
   containerPort: 5000
   resources:
     limits:
