@@ -105,6 +105,16 @@ spec:
       value: ""
     - name: SWITCH_ORACLE_HOST
       value: ""
+    # PHEE-476: a short transfer expiry for the demo. At expiry the switch rolls back a
+    # transfer that wasn't committed and tells the payer (3303), so a stuck transfer is
+    # released about a minute after it was sent. With no answer by expiry + grace the
+    # payer flow goes to its unknown-status path. Payment Hub's own default, when unset,
+    # is the quote's expiry plus one hour; a production deployment sets these from its
+    # scheme rules.
+    - name: MOJALOOP_EXPIRY_TRANSFER
+      value: "60s"
+    - name: MOJALOOP_EXPIRY_FINALQUERYGRACE
+      value: "30s"
     - name: parties_0_domain
       value: "paymenthub-ee-connector-mojaloop.paymenthub.svc.cluster.local"
     - name: parties_1_domain
