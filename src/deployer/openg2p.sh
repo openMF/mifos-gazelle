@@ -66,12 +66,10 @@ deploy_openg2p() {
   create_namespace "$OPENG2P_NAMESPACE"
   log_ok
 
-  log_step "Creating OpenG2P TLS secret"
   create_ingress_secret "$OPENG2P_NAMESPACE" \
     "openg2p.$GAZELLE_DOMAIN" \
     "openg2p-tls" \
-    "social-registry.$GAZELLE_DOMAIN,pbms.$GAZELLE_DOMAIN,spar.$GAZELLE_DOMAIN,g2p-bridge.$GAZELLE_DOMAIN,keycloak.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN"
-  log_ok
+    "social-registry.$GAZELLE_DOMAIN,pbms.$GAZELLE_DOMAIN,spar.$GAZELLE_DOMAIN,g2p-bridge.$GAZELLE_DOMAIN,keycloak.$GAZELLE_DOMAIN,*.$GAZELLE_DOMAIN" || return 1
 
   # The charts emit Istio/logging/monitoring objects Gazelle has no controllers for.
   # Installing just the CRDs lets them apply harmlessly; traffic routes via NGINX.
