@@ -18,7 +18,7 @@ not deduplicate, so the payment is recorded before it is sent and a later run lo
 record up by its reference instead of sending a second transfer.
 
 NOTE: channel/transfer needs no extra OpenSPP module. The bulk /batchtransactions rail
-ends up on the same one: ph-ee-connector-bulk posts each payment to /channel/transfer,
+ends up on the same one: paymenthub-ee-connector-bulk posts each payment to /channel/transfer,
 which runs PayerFundTransfer for the payer tenant greenbank and books in Fineract.
 Payments go one at a time, each confirmed before the next, so the single-instance
 switch and connectors are not overwhelmed.
@@ -54,6 +54,11 @@ AUDIT_ROWS_SCANNED = 25
 # The connector sends one batch per cron run, so it waits longer than the bridge.
 CONNECTOR_POLL_TRIES = 45   # -> up to 6 min per payment
 CONNECTOR_MODULE = "spp_payment_phee"
+# Payment Hub service names, as the operator's Custom Resources create them. The module
+# inside the OpenSPP image still defaults to the older names, so the demo sets the
+# addresses on the payment manager it creates instead of relying on those defaults.
+PHEE_BULK_URL = "http://paymenthub-ee-bulk-processor.paymenthub:80/batchtransactions"
+PHEE_STATUS_URL = "http://paymenthub-ee-bff.paymenthub:80/api/v1/batch"
 # Connection closed while idle. The request fails on send, so a retry cannot duplicate it.
 DROPPED = (ssl.SSLEOFError, ssl.SSLZeroReturnError, http.client.RemoteDisconnected,
            http.client.CannotSendRequest, ConnectionResetError, BrokenPipeError)
@@ -406,7 +411,8 @@ def ensure_payer_funds(headers, payer_msisdn, total_needed):
 
 
 def pay_via_connector(call, payee_headers, payable, program_id, program_name,
-                      payer_msisdn, writeback=True):
+                      payer_msisdn, writeback=True,
+                      bulk_url=PHEE_BULK_URL, status_url=PHEE_STATUS_URL):
     """Let OpenSPP send the payments itself, through its native payment manager.
 
     The whole cycle leaves in one call and a cron drains the queue, so this waits longer
@@ -436,9 +442,19 @@ def pay_via_connector(call, payee_headers, payable, program_id, program_name,
     # The cycle needs a payment manager before it can send, and it is wired here rather
     # than by the loader, which also runs on images without the module. One payment per
     # batch: the payer position is shared, and bigger batches ran into timeouts.
-    ensure_manager(call, program_id, "spp.program.payment.manager.phee",
-                   "payment_manager_ids", f"{program_name} PHEE payments",
-                   {"payer_id": payer_msisdn, "max_batch_size": 1})
+    vals = {"payer_id": payer_msisdn, "max_batch_size": 1,
+            "payment_endpoint_url": bulk_url, "status_endpoint_url": status_url}
+    if ensure_manager(call, program_id, "spp.program.payment.manager.phee",
+                      "payment_manager_ids", f"{program_name} PHEE payments",
+                      vals) is None:
+        # The program already had a manager, which ensure_manager leaves alone, so its
+        # addresses are the ones it was created with. Writing them again is what makes
+        # this reach a database loaded before the services were renamed.
+        found = call("spp.program.payment.manager.phee", "search",
+                     [["program_id", "=", program_id]])
+        if found:
+            call("spp.program.payment.manager.phee", "write", [found[0]],
+                 {"payment_endpoint_url": bulk_url, "status_endpoint_url": status_url})
     print(f"Connector: prepare_payment on cycle {cycle_id}...", file=sys.stderr)
     # A prepare with nothing to do reports a notification, not an error. Counting on both
     # sides tells the new batches from the ones an earlier run left behind, so a run with
@@ -532,6 +548,10 @@ def main():
     ap.add_argument("--no-writeback", action="store_true", help="do not mark entitlements paid in OpenSPP")
     ap.add_argument("--no-payer-topup", action="store_true",
                     help="do not auto-fund the payer even if its balance is short")
+    ap.add_argument("--phee-bulk-url", default=PHEE_BULK_URL,
+                    help="Payment Hub endpoint the native connector posts the batch to")
+    ap.add_argument("--phee-status-url", default=PHEE_STATUS_URL,
+                    help="Payment Hub endpoint the native connector reads the outcome from")
     ap.add_argument("--pay-mode", choices=["auto", "connector", "bridge"], default="auto",
                     help="which rail pays: auto uses OpenSPP's native connector when the "
                          "image carries it and the bridge otherwise (default: auto)")
@@ -587,7 +607,9 @@ def main():
     if choose_pay_mode(call, args.pay_mode) == "connector":
         paid = pay_via_connector(call, payee_headers, payable,
                                  find_program_id(call, args.program_name), args.program_name,
-                                 payer_msisdn, writeback=not args.no_writeback)
+                                 payer_msisdn, writeback=not args.no_writeback,
+                                 bulk_url=args.phee_bulk_url,
+                                 status_url=args.phee_status_url)
         print(f"\nOK: {paid}/{len(payable)} agri subsidies disbursed via the native connector.",
               file=sys.stderr)
         if paid == len(payable) and not args.no_writeback:
