@@ -16,7 +16,7 @@ sudo ./setup-env.sh -e local -u $USER   # one-time: k3s, tools, /etc/hosts
 
 See [Deployment Guide](docs/MIFOS-GAZELLE-README.md) for prerequisites and full instructions.
 
-To also deploy OpenG2P (Government-to-Person payments), enable it in `config/config.ini` and run `./run.sh -m deploy -a openg2p`. With the whole stack up, the PBMS UI runs a full G2P bulk disbursement end to end, from beneficiary registry through Payment Hub into MifosX. See [OpenG2P](docs/OPENG2P.md) for details.
+To also deploy OpenG2P (Government-to-Person payments), enable it in `config/config.ini` and run `./run.sh -m deploy -a openg2p`. With the whole stack up, the PBMS UI runs a full G2P bulk disbursement end to end, from beneficiary registry through Payment Hub into MifosX. See [OpenG2P](docs/OpenG2P/OPENG2P.md) for details.
 
 To deploy OpenSPP (social registry, OpenSPP2 / Odoo 19) run `./run.sh -m deploy -a openspp`. It is off by default and pulls its images, so there is nothing to build on amd64. With the whole stack up, `bash demos/openspp/run_demo.sh` runs an agri subsidy end to end, from OpenSPP through Payment Hub into MifosX. See [OpenSPP](docs/OPENSPP.md) for details.
 
@@ -54,7 +54,7 @@ sudo ./setup-env.sh -e local -u $USER
 ## Additional Resources
 
 - [Contributing Guidelines](CONTRIBUTING.md)
-- [License Information](LICENSE.md)
+- [License Information](LICENSE)
 - [Architecture](ARCHITECTURE.md)
 - [Mifos Slack for Release](https://mifos.slack.com) — join the `#mifos-gazelle` channel
 - [Mifos Slack for Development](https://mifos.slack.com) — join the `#mifos-gazelle-dev` channel
