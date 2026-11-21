@@ -227,6 +227,11 @@ install_k8s_tools() {
         KUBECTL_VERSION="v${k8s_version}.0"
     fi
 
+    # helm_version in config.ini overrides the default pin from run.sh
+    if [[ -n "${helm_version:-}" ]]; then
+        HELM_VERSION="$helm_version"
+    fi
+
     # Detect architecture
     ARCH=$(uname -m)
     case "$ARCH" in
