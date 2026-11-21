@@ -2,7 +2,7 @@
 
 > **Prerequisites**: Payment Hub EE must be deployed before enabling the Mastercard CBS connector.
 > For local development iteration, see [LOCALDEV.md](../LOCALDEV.md).
-> For integration details, see [MIFOS_GAZELLE_INTEGRATION.md](MIFOS_GAZELLE_INTEGRATION.md).
+> For integration details, see [MASTERCARD.md](MASTERCARD.md).
 
 ---
 

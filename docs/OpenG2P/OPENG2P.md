@@ -358,7 +358,7 @@ Docker build.
 
 ### Step 5 — Build
 
-Use Gazelle's image utility — see [BUILDING-IMAGES.md](BUILDING-IMAGES.md). Choose the target
+Use Gazelle's image utility — see [BUILDING-IMAGES.md](../BUILDING-IMAGES.md). Choose the target
 platforms with `--platform`; it is not fixed to any architecture:
 
 ```bash
@@ -565,5 +565,5 @@ the callback defaults are set in both places.
 ---
 
 **See also:**·
-[BUILDING-IMAGES.md](BUILDING-IMAGES.md) · [GOVSTACK.md](GOVSTACK.md) ·
-[MIFOS-GAZELLE-README.md](MIFOS-GAZELLE-README.md)
+[BUILDING-IMAGES.md](../BUILDING-IMAGES.md) · [GOVSTACK.md](../GOVSTACK.md) ·
+[MIFOS-GAZELLE-README.md](../MIFOS-GAZELLE-README.md)
