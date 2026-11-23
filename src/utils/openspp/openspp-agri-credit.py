@@ -727,14 +727,14 @@ def ensure_transfer_mapping(headers):
         return True
 
     accounts = gen.make_api_request("GET", f"{gen.API_BASE_URL}/glaccounts", headers) or []
-    liabilities = [a for a in accounts if (a.get("type") or {}).get("value") == "LIABILITY"]
-    # The suspense account by its code first, since that is the one meant for transfers;
-    # any other liability account still lets the payout through.
-    account = next((a for a in liabilities if a.get("glCode") == TRANSFER_SUSPENSE_GL_CODE),
-                   next(iter(liabilities), None))
+    # Only the suspense account. Any other liability account would also let the payout
+    # through, but it would post the transfers to an account that means something else.
+    account = next((a for a in accounts
+                    if a.get("glCode") == TRANSFER_SUSPENSE_GL_CODE
+                    and (a.get("type") or {}).get("value") == "LIABILITY"), None)
     if not account:
-        print("  WARN: this tenant has no liability account, so the transfer mapping "
-              "cannot be created", file=sys.stderr)
+        print(f"  ERROR: this tenant has no liability account {TRANSFER_SUSPENSE_GL_CODE}, "
+              f"so the transfer mapping cannot be created", file=sys.stderr)
         return False
 
     created = gen.make_api_request("POST", f"{gen.API_BASE_URL}/financialactivityaccounts",
@@ -917,7 +917,9 @@ def main():
     print(f"Lender: {tenant}", file=sys.stderr)
 
     product_id = ensure_loan_product(headers, args.currency)
-    ensure_transfer_mapping(headers)
+    if not ensure_transfer_mapping(headers):
+        sys.exit(f"ERROR: liability transfers are not mapped in {tenant}, so no loan could "
+                 f"pay out into savings")
     purpose_id = ensure_code_value(headers, PURPOSE_CODE, LOAN_PURPOSE)
     collateral_type_id = ensure_code_value(headers, COLLATERAL_CODE, COLLATERAL_TYPE)
     if not ensure_registry_table(headers):
