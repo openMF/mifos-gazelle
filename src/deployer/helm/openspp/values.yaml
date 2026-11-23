@@ -10,6 +10,13 @@ nameOverride: ""
 # Empty means no nodeSelector; src/deployer/openspp.sh sets it to the architecture of the cluster.
 arch: ""
 
+# --- Multi-node scheduling -----------------------------------------------------------------
+# Tolerations so these pods can still land on a node dedicated to another role (e.g. one set
+# up via `setup-env.sh -m join -r openg2p`) when the "default" node is out of spare capacity.
+# Empty by default (no-op on a single-node/untainted cluster); src/deployer/openspp.sh sets
+# this when it detects a dedicated node in the cluster.
+tolerations: []
+
 # --- Odoo / OpenSPP application -----------------------------------------------------------
 odoo:
   # OpenSPP2 image, amd64 and arm64. Upstream publishes none, so this is built from their sources

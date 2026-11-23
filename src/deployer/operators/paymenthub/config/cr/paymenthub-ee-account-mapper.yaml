@@ -20,11 +20,13 @@ spec:
     enabled: false
   replicas: 1
   # Migrated to paymenthub-ee-account-mapper (Java 21/Spring Boot 3.4; also
-  # absorbs ph-ee-id-account-validator-impl as a "validator" module). Tag
-  # downgrades from pinned mifos-v2.0.0 to floating dev-latest — no semver
-  # tags exist yet on the new repo. Port unchanged (8080, confirmed via
-  # `docker inspect`).
-  image: docker.io/openmf/paymenthub-ee-account-mapper:dev-latest
+  # absorbs ph-ee-id-account-validator-impl as a "validator" module). Port
+  # unchanged (8080, confirmed via `docker inspect`).
+  # Pinned by digest: this repo's CI publishes only the floating dev and
+  # dev-latest tags, and with the default IfNotPresent pull policy a node keeps
+  # whatever it pulled first. This digest is dev/dev-latest as of 2026-11-19,
+  # built from openMF dev 17a9b16 (includes PHEE-474's V3 migration).
+  image: docker.io/openmf/paymenthub-ee-account-mapper@sha256:00d349a65de530be9d685afc18bf0e897086a5b90fe7f8fcd38d44a829c5e5c8
   containerPort: 8080
   resources:
     limits:

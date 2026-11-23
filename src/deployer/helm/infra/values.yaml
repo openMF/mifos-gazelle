@@ -277,13 +277,15 @@ elasticsearch:
     replicaCount: 1
     persistence:
       enabled: false
-    heapSize: 512m
+    # 1g heap: ES caps in-flight bulk bytes at 10% of heap, and at 512m (~53MB) Operate's
+    # imports of large PH-EE bulk variables were rejected with HTTP 429.
+    heapSize: 1024m
     resources:
       requests:
-        memory: "768Mi"
+        memory: "1280Mi"
         cpu: "100m"
       limits:
-        memory: "2Gi"
+        memory: "2560Mi"
         cpu: "1000m"
 
 
@@ -438,6 +440,18 @@ keycloak:
       paymenthub.yaml: |
         realm: paymenthub
         enabled: true
+        # The BFF (rest.authorization.keycloak) maps realm roles to its authorities and
+        # needs the request's tenant in the access token's "tenants" claim. Tenants are
+        # groups, not a user attribute: Keycloak 26's declarative user profile drops
+        # attributes it doesn't declare.
+        roles:
+          realm:
+            - name: ALL_FUNCTIONS
+            - name: REFUND
+        groups:
+          - name: greenbank
+          - name: bluebank
+          - name: redbank
         clients:
           - clientId: opsapp
             publicClient: true
@@ -449,6 +463,16 @@ keycloak:
             webOrigins:
               - "http://localhost:5173"
               - "https://ops.mifos.gazelle.test"
+            protocolMappers:
+              - name: tenants
+                protocol: openid-connect
+                protocolMapper: oidc-group-membership-mapper
+                config:
+                  claim.name: tenants
+                  full.path: "false"
+                  access.token.claim: "true"
+                  id.token.claim: "false"
+                  userinfo.token.claim: "false"
         # Demo/test login — mifos-gazelle is a local dev/demo tool, not a production
         # deployment target, so a well-known test credential here is acceptable.
         users:
@@ -458,6 +482,13 @@ keycloak:
             lastName: Admin
             email: mifos@mifos.gazelle.test
             emailVerified: true
+            realmRoles:
+              - ALL_FUNCTIONS
+              - REFUND
+            groups:
+              - /greenbank
+              - /bluebank
+              - /redbank
             credentials:
               - type: password
                 value: password

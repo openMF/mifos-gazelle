@@ -291,6 +291,15 @@ camunda-platform:
       level:
         ROOT: INFO
         io.camunda.operate: INFO
+    # The JVM in this image sizes its heap from host RAM (25% of node memory), not the
+    # container limit, so without an explicit -Xmx it grows past the limit and gets OOMKilled.
+    env:
+      - name: JAVA_OPTS
+        value: "-Xms512m -Xmx1536m"
+      # Importer reads 200 Zeebe records per batch by default; PH-EE bulk variables are large
+      # enough that a batch exceeds the 512m infra ES's indexing-pressure limit (HTTP 429).
+      - name: CAMUNDA_OPERATE_ZEEBEELASTICSEARCH_BATCHSIZE
+        value: "50"
     resources:
       requests:
         cpu: 200m

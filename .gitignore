@@ -204,3 +204,5 @@ src/utils/batch/*.csv
 # AI related metadata
 *.openai
 *.copilot
+# Local working notes, plans and PR/Jira drafts (see tmp/README.md) -- never committed
+/tmp/

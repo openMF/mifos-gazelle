@@ -2,15 +2,10 @@
 # the operator is what reconciles those; applied directly by deploy_ph_operator()
 # in src/deployer/paymenthub.sh, the same way operator_rbac.yaml is.
 #
-# TEMPORARY: openmf/paymenthub-ee-k8s-operators has no published image yet, and
-# the old openmf/paymenthub-ee-k8s-operators:dev-dd9ac20 can't parse the CRD's
-# volMount.mounts field (added after that image was built) — its informer
-# crashes on startup, so no CR reconciles at all. Pointed at a locally built
-# image in the meantime (built + imported via build-and-import-image.sh from
-# ~/paymenthub-ee-k8s-operators/paymenthub-operator — see that repo's
-# build-local-image.sh). Swap the image below to a real published
-# openmf/paymenthub-ee-k8s-operators tag (and imagePullPolicy back to Always)
-# once one exists — a ":local" tag only exists on machines that built it.
+# The image is pinned to an exact dev-<sha> tag, like the PaymentHubDeployment
+# CRs, so IfNotPresent always runs that build. To move to a newer operator,
+# change the tag. Images older than dev-dd9ac20 can't parse the CRD's
+# volMount.mounts field, and images older than PHEE-455 ignore spec.localDev.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,7 +26,7 @@ spec:
       serviceAccountName: paymenthub-ee-operator-sa
       containers:
         - name: operator
-          image: docker.io/openmf/paymenthub-ee-k8s-operators:dev-fd987dd
+          image: docker.io/openmf/paymenthub-ee-k8s-operators:dev-7350a2c
           imagePullPolicy: IfNotPresent
           env:
             - name: WATCH_NAMESPACE
@@ -40,6 +35,10 @@ spec:
                   fieldPath: metadata.namespace
             - name: LOG_LEVEL
               value: INFO
+            # Lets CRs run from a local build (spec.localDev, hostPath). deploy_ph_operator
+            # sets it to "true" on local clusters (k3s/Colima); keep it false anywhere else.
+            - name: LOCALDEV_ENABLED
+              value: "false" # localdev-opt-in
           resources:
             requests:
               memory: "256Mi"

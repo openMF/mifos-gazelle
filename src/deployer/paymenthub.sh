@@ -201,8 +201,15 @@ deploy_ph_operator() {
   # itself — see operator_deployment.yaml — same as every other component's
   # image lives in its own CR yaml, not in config.ini). To run from a local
   # build instead, use ./localdev.py --setup --component paymenthub-operator.
+  # On local clusters the operator honours spec.localDev, which localdev.py uses to
+  # run components from local builds (hostPath). Never on remote clusters.
+  local localdev_enabled=false
+  if [[ "$environment" == "local" || "$environment" == "mac" ]]; then
+    localdev_enabled=true
+  fi
   log_step "Deploying PaymentHub operator"
-  kubectl apply -f "$deploy_dir/operator_deployment.yaml" -n "$PH_NAMESPACE" > /dev/null || { log_failed "Operator Deployment apply failed"; return 1; }
+  sed "s/value: \"false\" # localdev-opt-in/value: \"$localdev_enabled\"/" "$deploy_dir/operator_deployment.yaml" \
+    | kubectl apply -n "$PH_NAMESPACE" -f - > /dev/null || { log_failed "Operator Deployment apply failed"; return 1; }
 
   if ! kubectl rollout status deployment/paymenthub-ee-operator -n "$PH_NAMESPACE" --timeout=300s > /dev/null 2>&1; then
     log_failed "Operator pod did not start — check: kubectl logs deployment/paymenthub-ee-operator -n $PH_NAMESPACE"

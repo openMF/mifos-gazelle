@@ -49,7 +49,70 @@ deploy_vnext() {
     fi
   done
 
+  # The last layers aren't waited on above, and pods can be Running while a service they
+  # depend on is still restarting. Check once, at the end and from outside the cluster,
+  # that vNext serves its participants, so the first payment after a deploy doesn't fail
+  # in account lookup.
+  log_step "Checking vNext serves its participants"
+  local ready_msg
+  if ready_msg=$(vnext_wait_until_ready "$GAZELLE_DOMAIN" "${VNEXT_READY_TIMEOUT:-300}"); then
+    log_ok
+    log_with_verbose_check "$debug" "$DEBUG" "$ready_msg"
+  else
+    log_warn "vNext isn't serving participants yet ($ready_msg). Payments may fail until it is."
+  fi
+
   log_banner "vNext Deployed"
+}
+
+#------------------------------------------------------------------------------
+# Function : vnext_wait_until_ready
+# Description: Waits until vNext serves its participants, checked from outside the
+#   cluster through the admin UI's ingress (vnextadmin.<domain>), the way an
+#   operator or a client would reach it: log in to the authentication service
+#   (/auth_n/token) as the admin UI user, list the participants
+#   (/_participants/participants), and read each non-hub participant by id. Every
+#   one must be active and approved.
+# Parameters:
+#   $1 - Gazelle domain
+#   $2 - timeout in seconds
+# Environment: VNEXT_ADMIN_USER / VNEXT_ADMIN_PASSWORD (default: the admin UI's
+#   demo login, admin / superMegaPass, as documented in MIFOS-GAZELLE-README.md).
+# Output: the last check's result (participant ids, or the reason it failed).
+# Returns: 0 when ready, 1 on timeout.
+#------------------------------------------------------------------------------
+vnext_wait_until_ready() {
+  local base="http://vnextadmin.$1" timeout="$2" elapsed=0 interval=10 msg="not checked"
+  local user="${VNEXT_ADMIN_USER:-admin}" password="${VNEXT_ADMIN_PASSWORD:-superMegaPass}"
+
+  _vnext_participants_ready() {
+    local token ids id p
+    token=$(curl -sf --max-time 10 -X POST "$base/auth_n/token" -H 'content-type: application/json' \
+      -d "$(jq -n --arg u "$user" --arg p "$password" \
+            '{grant_type: "password", client_id: "security-bc-ui", username: $u, password: $p}')" \
+      | jq -r '.access_token // empty') || true
+    [ -n "$token" ] || { echo "no token from $base/auth_n/token"; return 1; }
+    ids=$(curl -sf --max-time 10 -H "authorization: Bearer $token" "$base/_participants/participants" \
+      | jq -r '.items[]? | select(.type != "HUB") | .id') || true
+    [ -n "$ids" ] || { echo "no participants from $base/_participants/participants"; return 1; }
+    for id in $ids; do
+      p=$(curl -sf --max-time 10 -H "authorization: Bearer $token" "$base/_participants/participants/$id") \
+        || { echo "$id: participant read failed"; return 1; }
+      [ "$(jq -r '.isActive and .approved' <<<"$p")" = "true" ] || { echo "$id: not active and approved"; return 1; }
+    done
+    echo "participants ready: $(echo $ids)"
+  }
+
+  while [ "$elapsed" -lt "$timeout" ]; do
+    if msg=$(_vnext_participants_ready); then
+      echo "$msg"
+      return 0
+    fi
+    sleep "$interval"
+    elapsed=$((elapsed + interval))
+  done
+  echo "$msg"
+  return 1
 }
 
 #------------------------------------------------------------------------------

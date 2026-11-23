@@ -83,14 +83,14 @@ HELM_VERSION="v3.14.4"
 show_setup_env_usage() {
     echo "
     USAGE: sudo $0 [-e environment] [-u user] [-m mode] [-f config_file] [-d true|false]
-
+    
     Privileged environment setup and teardown (run before ./run.sh).
 
     Example 1 : sudo $0                          # first-time setup — OS auto-detected (Linux/macOS)
     Example 2 : sudo $0 -u \$USER               # first-time setup with explicit user
     Example 3 : sudo $0 -e remote -u \$USER      # /etc/hosts only for a remote cluster
     Example 4 : sudo $0 -m cleanall              # full environment teardown
-    Example 5 : sudo $0 -y                       # non-interactive (CI/pipeline — auto-accept changes)
+    Example 5 : sudo $0 -y                       # non-interactive (CI/pipeline — auto-accept change
 
     Options:
     -m mode .............. setup (default) | cleanall
@@ -139,7 +139,7 @@ main_setup_env() {
             *) show_setup_env_usage; exit 1 ;;
         esac
     done
-    export auto_yes
+    export auto_yes join_node_host join_ssh_user join_identity_file join_role
 
     if [[ -n "${cmd_args["config_file_path"]}" ]]; then
         CONFIG_FILE_PATH="${cmd_args["config_file_path"]}"

@@ -7,7 +7,7 @@ spec:
   enabled: true
   domain: GAZELLE_DOMAIN
   replicas: 1
-  image: docker.io/openmf/paymenthub-ee-operationsui-react:latest
+  image: docker.io/openmf/paymenthub-ee-operationsui-react:dev-f22a14b
   containerPort: 80
   resources:
     limits:
@@ -80,7 +80,9 @@ spec:
       value: "paymenthub"
     - name: VITE_KEYCLOAK_CLIENT_ID
       value: "opsapp"
+    # The G2P config endpoints (/g2pPaymentConfig, /governmentEntity, /program, /dfsp)
+    # are served by the BFF since PHEE-372 folded ph-ee-operations-g2p-service into it.
     - name: VITE_G2P_SERVICE_URL
-      value: "https://g2p.GAZELLE_DOMAIN"
+      value: "https://ops-bk.GAZELLE_DOMAIN"
     - name: VITE_ENABLE_MSW
       value: "false"

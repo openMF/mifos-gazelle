@@ -153,6 +153,21 @@ load_config_from_file() {
     local config_ubuntu_ok_versions_list=$(crudini --get "$config_path" kubernetes ubuntu_ok_versions_list 2>/dev/null)
     if [[ -n "$config_ubuntu_ok_versions_list" ]]; then ubuntu_ok_versions_list="$config_ubuntu_ok_versions_list"; fi
 
+    local config_node_host=$(crudini --get "$config_path" multinode NODE_HOST 2>/dev/null)
+    if [[ -n "$config_node_host" ]]; then join_node_host="$config_node_host"; fi
+    local config_node_ssh_user=$(crudini --get "$config_path" multinode NODE_SSH_USER 2>/dev/null)
+    if [[ -n "$config_node_ssh_user" ]]; then
+        if [[ "$config_node_ssh_user" == '$USER' ]]; then
+            join_ssh_user="$(resolve_invoker_user)"
+        else
+            join_ssh_user="$config_node_ssh_user"
+        fi
+    fi
+    local config_node_identity_file=$(crudini --get "$config_path" multinode NODE_IDENTITY_FILE 2>/dev/null)
+    if [[ -n "$config_node_identity_file" ]]; then join_identity_file="$config_node_identity_file"; fi
+    local config_node_role=$(crudini --get "$config_path" multinode NODE_ROLE 2>/dev/null)
+    if [[ -n "$config_node_role" ]]; then join_role="$config_node_role"; fi
+
     # Read app enablement flags and construct the 'apps' variable
     local enabled_apps_list=""
     local valid_apps=("infra" "vnext" "paymenthub" "mifosx" "mastercard-demo" "openg2p" "openspp")
