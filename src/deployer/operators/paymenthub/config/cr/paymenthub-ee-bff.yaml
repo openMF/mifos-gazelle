@@ -99,6 +99,10 @@ spec:
       value: ""
     - name: TENANTS
       value: "greenbank,bluebank,redbank"
+    # /api/v1/** needs a token (GAZ-371). Set here rather than in the shared "bb"
+    # profile (00-configmap.yaml), which connector-channel also reads.
+    - name: REST_AUTHORIZATION_ENABLED
+      value: "true"
     # Accept access tokens from the ops UI's Keycloak realm (infra chart). Tokens carry
     # the public issuer; the keys are fetched from the in-cluster service.
     - name: REST_AUTHORIZATION_KEYCLOAK_ISSUERURI

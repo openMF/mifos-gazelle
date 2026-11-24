@@ -7,8 +7,11 @@ import base64
 import configparser
 import csv as csv_module
 import json
+import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 try:
@@ -41,6 +44,74 @@ def get_gazelle_domain(cfg):
     except (configparser.NoSectionError, configparser.NoOptionError) as e:
         print(f"Config error: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Operations API (BFF) authentication
+# ---------------------------------------------------------------------------
+# The BFF (ops-bk.<domain>) runs with rest.authorization.enabled=true (GAZ-371), so
+# /api/v1/** needs a bearer token. The scripts get one from the same Keycloak realm
+# and public client the Ops UI logs in with (infra chart: realm "paymenthub", client
+# "opsapp", direct access grants on). One token covers every tenant listed in its
+# "tenants" claim. Credentials come from [paymenthub] OPS_USERNAME / OPS_PASSWORD
+# in config.ini; GAZELLE_OPS_USERNAME / GAZELLE_OPS_PASSWORD override them.
+
+OPS_KEYCLOAK_REALM = "paymenthub"
+OPS_KEYCLOAK_CLIENT_ID = "opsapp"
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent.parent / "config" / "config.ini"
+
+_ops_config = None
+_ops_token = {"value": None, "expires_at": 0.0, "domain": None}
+_ops_token_lock = threading.Lock()
+
+
+def set_ops_config(cfg):
+    """Use this loaded config.ini for the operations API credentials."""
+    global _ops_config
+    _ops_config = cfg
+
+
+def get_ops_credentials(cfg=None):
+    """(username, password) for the operations API. Exits if none are configured."""
+    cfg = cfg or _ops_config
+    if cfg is None:
+        cfg = configparser.ConfigParser()
+        cfg.read(DEFAULT_CONFIG_PATH)
+    username = os.environ.get("GAZELLE_OPS_USERNAME") or cfg.get("paymenthub", "OPS_USERNAME", fallback=None)
+    password = os.environ.get("GAZELLE_OPS_PASSWORD") or cfg.get("paymenthub", "OPS_PASSWORD", fallback=None)
+    if not username or not password:
+        print("No operations API credentials: set OPS_USERNAME and OPS_PASSWORD in the [paymenthub] "
+              "section of config.ini, or GAZELLE_OPS_USERNAME / GAZELLE_OPS_PASSWORD", file=sys.stderr)
+        sys.exit(1)
+    return username, password
+
+
+def get_ops_token(domain, cfg=None):
+    """A Keycloak access token for the operations API, reused until shortly before it expires."""
+    with _ops_token_lock:
+        if (_ops_token["value"] and _ops_token["domain"] == domain
+                and time.time() < _ops_token["expires_at"] - 30):
+            return _ops_token["value"]
+        username, password = get_ops_credentials(cfg)
+        url = f"https://keycloak-ops.{domain}/realms/{OPS_KEYCLOAK_REALM}/protocol/openid-connect/token"
+        resp = requests.post(url, data={
+            "client_id": OPS_KEYCLOAK_CLIENT_ID,
+            "grant_type": "password",
+            "username": username,
+            "password": password,
+        }, verify=False, timeout=15)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Could not get an operations API token from {url}: "
+                               f"HTTP {resp.status_code} {resp.text[:200]}")
+        body = resp.json()
+        _ops_token.update(value=body["access_token"], domain=domain,
+                          expires_at=time.time() + int(body.get("expires_in", 60)))
+        return _ops_token["value"]
+
+
+def ops_headers(domain, tenant, cfg=None):
+    """Headers for an operations API call: the tenant and a bearer token."""
+    return {"Platform-TenantId": tenant, "Authorization": f"Bearer {get_ops_token(domain, cfg)}"}
 
 
 # ---------------------------------------------------------------------------
