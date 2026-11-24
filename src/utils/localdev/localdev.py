@@ -9,6 +9,7 @@ Also handles checking out GitHub repositories for components
 
 import configparser
 import os
+import shutil
 import re
 import subprocess
 from pathlib import Path
@@ -981,7 +982,89 @@ class LocalDevPatcher:
             return False
         result = subprocess.run(['kubectl', 'wait', '--for=condition=Ready', 'pod', '-l', f'app={name}',
                                  '-n', namespace, '--timeout=300s'])
-        return result.returncode == 0
+        if result.returncode != 0:
+            return False
+        if comp_config.get('app_type') == 'webapp' and comp_config.get('runtime_config_file'):
+            return self._check_runtime_config(component)
+        return True
+
+    # A webapp's image writes its runtime config (API and Keycloak URLs) into the html root when the
+    # container starts. With spec.localDev that root is the host's build output, so a rebuild replaces
+    # the rendered file with the empty placeholder from public/ and the app loses its URLs (the Ops UI
+    # login then fails with "Unable to reach authentication server").
+    RUNTIME_CONFIG_PLACEHOLDER = '__RUNTIME_CONFIG__ = {}'
+
+    def _runtime_config_path(self, component: str) -> Optional[Path]:
+        file = self.config[component].get('runtime_config_file', '').strip()
+        return Path(self._hostpath(component)) / file if file else None
+
+    def _check_runtime_config(self, component: str) -> bool:
+        path = self._runtime_config_path(component)
+        if path is None:
+            return True
+        if not path.is_file():
+            print(f"  ❌ {path} is missing: the pod's runtime config was not written")
+            return False
+        if self.RUNTIME_CONFIG_PLACEHOLDER in path.read_text():
+            print(f"  ❌ {path} is still the build's empty placeholder")
+            print(f"  💡 ./localdev.py --refresh-config --component {component}")
+            return False
+        print(f"  ✅ runtime config in place: {path}")
+        return True
+
+    def refresh_runtime_config(self, component: str) -> bool:
+        """Re-render a webapp's runtime config file by running the image's own script in the pod."""
+        if component not in self.config:
+            print(f"❌ Unknown component '{component}'")
+            return False
+        comp_config = self.config[component]
+        script = comp_config.get('runtime_config_script', '').strip()
+        if comp_config.get('app_type') != 'webapp' or not script:
+            print(f"⏭️  {component}: no runtime_config_script in localdev.ini — nothing to refresh")
+            return True
+        name = comp_config['k8s_deploy_name']
+        namespace = comp_config.get('k8s_namespace', 'paymenthub')
+        print(f"🔧 Re-rendering {component} runtime config ({script} in the pod)...")
+        # every replica mounts the same host directory, so one pod writing it is enough
+        result = self._kubectl('exec', '-n', namespace, f'deployment/{name}', '--', script)
+        if result.returncode != 0:
+            print(f"  ❌ kubectl exec failed: {result.stderr.strip()}")
+            return False
+        return self._check_runtime_config(component)
+
+    def _webapp_build_command(self, repo: Path) -> list:
+        """npm on the host if there is one; else the same build in a node container, as this user."""
+        if shutil.which('npm'):
+            return ['sh', '-c', 'npm run build']
+        image = self.config['DEFAULT'].get('node_build_image', 'node:20-alpine')
+        return ['docker', 'run', '--rm', '-u', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp',
+                '-v', f'{repo}:/app', '-w', '/app', image, 'sh', '-c', 'npm run build']
+
+    def rebuild_component(self, component: str) -> bool:
+        """Build a webapp's dist/ in its checkout, then put the runtime config back."""
+        if component not in self.config:
+            print(f"❌ Unknown component '{component}'")
+            return False
+        comp_config = self.config[component]
+        if comp_config.get('app_type') != 'webapp':
+            print(f"❌ --rebuild handles webapps. For {component}: build the jar, then "
+                  f"./localdev.py --restart --component {component}")
+            return False
+        info = self._repo_info(component)
+        if not info or not (info['path'] / 'package.json').is_file():
+            print(f"❌ {component}: no checkout with a package.json — run --checkout first")
+            return False
+        repo = info['path']
+        if not (repo / 'node_modules').is_dir():
+            print(f"❌ {repo}/node_modules is missing — run npm ci there first")
+            return False
+        cmd = self._webapp_build_command(repo)
+        print(f"🔨 Building {component} in {repo}")
+        print(f"  + {' '.join(cmd)}", flush=True)
+        if subprocess.run(cmd, cwd=repo).returncode != 0:
+            print(f"  ❌ build failed")
+            return False
+        return self.refresh_runtime_config(component)
 
     def _resolve_jarpath(self, component: str, hostpath: str) -> Optional[str]:
         """
@@ -1139,6 +1222,12 @@ Examples:
 
   # Pick up a rebuilt jar
   ./localdev.py --restart --component bulk-processor
+
+  # Rebuild the Ops UI dist/ and put its runtime config (API/Keycloak URLs) back
+  ./localdev.py --rebuild --component operationsui-react
+
+  # Put the runtime config back after building dist/ yourself
+  ./localdev.py --refresh-config --component operationsui-react
         """
     )
     
@@ -1187,6 +1276,16 @@ Examples:
         help='Restart the component pod(s) to pick up a rebuilt jar (use with --component)'
     )
     parser.add_argument(
+        '--rebuild',
+        action='store_true',
+        help="Build a webapp's dist/ and re-render its runtime config (use with --component)"
+    )
+    parser.add_argument(
+        '--refresh-config',
+        action='store_true',
+        help="Re-render a webapp's runtime config after you rebuilt dist/ yourself (use with --component)"
+    )
+    parser.add_argument(
         '--clean-backups',
         action='store_true',
         help='Remove stale localdev backup files whose deployments have been replaced by a full redeploy'
@@ -1199,11 +1298,19 @@ Examples:
 
         if args.clean_backups:
             patcher.clean_backups()
-        elif args.restart:
+        elif args.restart or args.rebuild or args.refresh_config:
+            flag = '--restart' if args.restart else '--rebuild' if args.rebuild else '--refresh-config'
             if not args.component:
-                print("❌ --restart needs --component")
+                print(f"❌ {flag} needs --component")
                 sys.exit(1)
-            patcher.restart_component(args.component)
+            if args.restart:
+                ok = patcher.restart_component(args.component)
+            elif args.rebuild:
+                ok = patcher.rebuild_component(args.component)
+            else:
+                ok = patcher.refresh_runtime_config(args.component)
+            if not ok:
+                sys.exit(1)
         elif args.status:
             patcher.status_all()
         elif args.checkout:

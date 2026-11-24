@@ -28,13 +28,13 @@ sudo ./setup-env.sh
 ## Mifos Gazelle vNext deployment features
 - **Realistic Environment**: Runs a complete Kubernetes stack for realistic testing
 - **Simple Deployment**: Requires minimal command execution
-- **Quick Setup**: Deploys in approximately 5-10 minutes with proper configuration
+- **Quick Setup**: Deploys in approximately 5-20 minutes with proper configuration
 - **Automation-friendly**: Scripts can be integrated with CI/CD pipelines
 - **Resource Efficient**: Optimized resource usage for testing environments
 - **vNext only**: using the -a flag on the Mifos Gazelle installer 
 
 ## Tested Environments
-- the Mifos Gazelle vNext Beta install has been tested on Ubuntu 22.04 and 24.04 LTS on x86_64 or ARM64: nd should run on 
+- the Mifos Gazelle vNext Beta install has been tested on Ubuntu 22.04 and 24.04 LTS on x86_64 or ARM64: and can be run on 
   - Bare metal servers
   - Virtual machines (VirtualBox, Parallels, UTM, QEMU, WSL )
   - Cloud instances of the correct Kubernetes release (AWS, GCP, Azure, etc.)
@@ -43,7 +43,6 @@ sudo ./setup-env.sh
 As listed in the main Mifos Gazelle README.md but additionally this has been tested against 
 - Ubuntu 22.04 or 24.04 LTS 
 - x86_64 or ARM64 architecture 
-
 
 ## Installation Steps for vNext only installation 
 to install vNext only using Mifos Gazelle 
@@ -116,6 +115,39 @@ ipconfig /flushdns
 4. Logging: Log format improvements planned for better CI/CD integration
 5. DNS Configuration: Domain name configuration feature pending implementation localhosts is used currently
 6. Endpoint Testing: Automated service validation to be implemented
+7. Upstream status: vNext is deprecated, and Beta1 has transfer defects that affect a payer DFSP. See the next section.
+
+## vNext status, and what it means for Payment Hub EE work
+
+**vNext is deprecated upstream.** The Mojaloop vNext repositories Gazelle deploys from (transfers-bc, interop-apis-bc, scheduling-bc and the rest) were marked deprecated in October 2025: "no longer maintained, and no longer referenced by any releases of Mojaloop". Gazelle deploys vNext Beta1: fspiop-api-svc and the transfers-bc services at 0.5.1.
+
+**Our position.** The switch is not a Mifos component, Payment Hub EE uses the switch as it is, and vNext defects are recorded, not fixed. Possible later options, none planned:
+- use a later vNext build than Beta1 (the 0.6.x images). This means upgrading vNext as a whole, and fixes only some of the defects below
+- small, narrow patches to vNext Beta1 
+
+**Beta1 transfer defects found during PHEE-476 and PHEE-477 (November 2026):**
+
+| Defect | Effect on a payer DFSP | In later vNext (`main`)? |
+|---|---|---|
+| `GET /transfers/{ID}` always answers `transferState: "COMMITTED"`, with no fulfilment | A `RECEIVED`, `RESERVED` or `ABORTED` transfer is reported committed | Still there (fspiop-api-svc 0.6.14) |
+| A committed fulfil without a `fulfilment` is accepted and forwarded | A commit carries no proof | Not checked |
+| 3208 "not found" is also sent when the switch can't read its own store, or before a prepare is stored | "Not found" doesn't prove the switch never had the transfer | Not checked |
+| A prepare that arrives after its expiry is accepted. If no payee fulfils, it stays `RESERVED` with no expiry. A fulfil after expiry still commits | A transfer can be committed after its expiry, or hold the payer's liquidity indefinitely | The expired prepare is rejected (HTTP 400, 3101) since mid-2024. The fulfil after expiry still commits |
+
+What works: a transfer the switch receives before its expiry, and that no payee fulfils, is aborted about a second after expiry, and the payer gets `PUT /transfers/{ID}/error` with 3303 "Transfer expired".
+
+**How Payment Hub EE handles it:**
+- **PHEE-476** (Gazelle 2.1.0 / Payment Hub EE 2.0.0 candidate):
+  - The payer no longer resends the prepare. It waits until the transfer's expiry plus a grace period, both set in connector-mojaloop (`mojaloop.expiry.transfer`, `mojaloop.expiry.final-query-grace`; Gazelle uses 60 s and 30 s).
+  - The grace also covers a commit that arrives a few seconds after expiry.
+  - As payee, Payment Hub now sends the fulfilment.
+- **PHEE-477** (follow-up):
+  - Payment Hub asks the switch for a stuck transfer's status.
+  - It trusts `COMMITTED` only with a fulfilment, and treats an error answering a query as inconclusive.
+  - A transfer it can't resolve ends `UNKNOWN`, with the hold kept, for an operator.
+  - The mapping lives in connector-mojaloop behind a switch-neutral `transferOutcome`, so a different switch, or a later vNext, changes the connector, not the BPMN.
+
+**Testing limits on Beta1:** the payer's rejection path (error callback → hold released → `FAILED`) can't be triggered on demand. An expired prepare is committed, and changing participant endpoints or limits needs vNext admin rights with maker-checker.
 
 ## Troubleshooting
 1. Verify installation success by accessing http://vnextadmin.mifos.gazelle.test 
@@ -132,4 +164,3 @@ ipconfig /flushdns
 
 ## Community Help
 - Community help with deployment issues is available on the Mifos Gazelle Slack channel https://mifos.slack.com/archives/C082PNLUCRK
-- For vNext Beta 1 issues, reach out to the Mojaloop Development Community.
