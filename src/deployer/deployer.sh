@@ -128,7 +128,7 @@ create_namespace() {
 
   # Create namespace if it still doesn't exist
   if ! kubectl get namespace "$namespace" > /dev/null 2>&1; then
-    kubectl create namespace "$namespace" > /dev/null 2>&1
+    kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f - > /dev/null 2>&1
     check_command_execution $? "kubectl create namespace $namespace"
   fi
 
