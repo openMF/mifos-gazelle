@@ -433,8 +433,11 @@ validate_inputs() {
     environment="${environment:-local}"
     debug="${debug:-false}"
     redeploy="${redeploy:-true}"
+
+    local resolved_user="${k8s_user:-$(resolve_invoker_user)}"
+    k8s_user_home=$(eval echo "~$resolved_user")
+
     if [[ ( "$environment" == "remote" || "$environment" == "mac" ) && -z "$kubeconfig_path" ]]; then
-        k8s_user_home=$(eval echo "~$k8s_user")
         kubeconfig_path="$k8s_user_home/.kube/config"
         log_with_level "$INFO" "No kubeconfig_path specified in config.ini for $environment environment. Defaulting to $kubeconfig_path"
     fi

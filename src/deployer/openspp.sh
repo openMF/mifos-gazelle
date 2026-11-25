@@ -393,7 +393,7 @@ deploy_openspp() {
     local openspp_host="openspp.${GAZELLE_DOMAIN:-mifos.gazelle.test}"
     kubectl create namespace "$OPENSPP_NAMESPACE" --dry-run=client -o yaml 2>/dev/null | kubectl apply -f - > /dev/null 2>&1
     create_ingress_secret "$OPENSPP_NAMESPACE" "$openspp_host" "openspp-tls" \
-        "${openspp_host},*.${GAZELLE_DOMAIN:-mifos.gazelle.test},localhost"
+        "${openspp_host},*.${GAZELLE_DOMAIN:-mifos.gazelle.test},localhost" || return 1
 
     # Docker Hub credentials for this namespace, as the other components get them: the images are
     # pulled from there, and without credentials the node uses the anonymous rate limit. Does
