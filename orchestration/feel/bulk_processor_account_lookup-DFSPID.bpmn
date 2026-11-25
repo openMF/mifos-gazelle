@@ -194,7 +194,7 @@
         <zeebe:taskDefinition type="mergeSubBatch" />
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_10ljkqz</bpmn:incoming>
-      <bpmn:incoming>Flow_10qbvqn</bpmn:incoming>
+      <bpmn:incoming>Flow_WaitedBeforeMerge</bpmn:incoming>
       <bpmn:outgoing>Flow_1kk2jxw</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:exclusiveGateway id="Gateway_05fs96v">
@@ -216,7 +216,7 @@
     <bpmn:sequenceFlow id="Flow_1wsncqq" name="Merge Complete" sourceRef="Gateway_0g1hgl9" targetRef="Gateway_08s50a1">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=mergeCompleted = true</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_10qbvqn" name="Merge Incomplete" sourceRef="Gateway_0g1hgl9" targetRef="mergeSubBatch">
+    <bpmn:sequenceFlow id="Flow_10qbvqn" name="Merge Incomplete" sourceRef="Gateway_0g1hgl9" targetRef="Gateway_MergeAttemptsLeft">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=mergeCompleted = false</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_1hvz4mz" name="Initiating all subbatches" sourceRef="Gateway_13f7hw6" targetRef="initSubBatch">
@@ -517,6 +517,27 @@
     <bpmn:sequenceFlow id="Flow_0t6zlmj" sourceRef="batchStatus" targetRef="Gateway_0acftfq" />
     <bpmn:sequenceFlow id="Flow_0irbmnw" sourceRef="batchAggregate" targetRef="Gateway_0acftfq" />
     <bpmn:sequenceFlow id="Flow_1m61ayg" sourceRef="Gateway_0acftfq" targetRef="Gateway_1mfoqdt" />
+    <bpmn:exclusiveGateway id="Gateway_MergeAttemptsLeft" name="merge attempts left?" default="Flow_MergeFailed">
+      <bpmn:incoming>Flow_10qbvqn</bpmn:incoming>
+      <bpmn:outgoing>Flow_MergeRetry</bpmn:outgoing>
+      <bpmn:outgoing>Flow_MergeFailed</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:intermediateCatchEvent id="Event_WaitBeforeMerge" name="wait 1s">
+      <bpmn:incoming>Flow_MergeRetry</bpmn:incoming>
+      <bpmn:outgoing>Flow_WaitedBeforeMerge</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerEventDefinition_WaitBeforeMerge">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT1S</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:endEvent id="Event_MergeFailed" name="Merge Failed">
+      <bpmn:incoming>Flow_MergeFailed</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_MergeRetry" name="yes" sourceRef="Gateway_MergeAttemptsLeft" targetRef="Event_WaitBeforeMerge">
+      <bpmn:documentation>Each merge iteration combines two files, so N files need at most N-1 iterations. mergeIteration (set by the mergeSubBatch worker) beyond the number of files means an iteration made no progress.</bpmn:documentation>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=mergeIteration &lt;= count(subBatches) + count(initSuccessSubBatches) + count(initFailureSubBatches)</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_WaitedBeforeMerge" sourceRef="Event_WaitBeforeMerge" targetRef="mergeSubBatch" />
+    <bpmn:sequenceFlow id="Flow_MergeFailed" name="no progress" sourceRef="Gateway_MergeAttemptsLeft" targetRef="Event_MergeFailed" />
     <bpmn:group id="Group_1kpigx7" categoryValueRef="CategoryValue_1ow9hi2" />
     <bpmn:group id="Group_0ljs43n" categoryValueRef="CategoryValue_06sjnvc" />
     <bpmn:group id="Group_1dn0u9z" categoryValueRef="CategoryValue_03k1n69" />
@@ -897,11 +918,9 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_10qbvqn_di" bpmnElement="Flow_10qbvqn">
         <di:waypoint x="4538" y="725" />
-        <di:waypoint x="4538" y="603" />
-        <di:waypoint x="4368" y="603" />
-        <di:waypoint x="4368" y="710" />
+        <di:waypoint x="4538" y="628" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="4410" y="585" width="89" height="14" />
+          <dc:Bounds x="4546" y="664" width="48" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_1wsncqq_di" bpmnElement="Flow_1wsncqq">
@@ -1260,6 +1279,43 @@
       <bpmndi:BPMNShape id="Event_0a1bt3s_di" bpmnElement="Event_17kcvwi">
         <dc:Bounds x="6410" y="462" width="36" height="36" />
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_MergeAttemptsLeft_di" bpmnElement="Gateway_MergeAttemptsLeft" isMarkerVisible="true">
+        <dc:Bounds x="4513" y="578" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4568" y="589" width="60" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_WaitBeforeMerge_di" bpmnElement="Event_WaitBeforeMerge">
+        <dc:Bounds x="4435" y="585" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4436" y="626" width="34" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_MergeFailed_di" bpmnElement="Event_MergeFailed">
+        <dc:Bounds x="4520" y="480" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4506" y="456" width="64" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_MergeRetry_di" bpmnElement="Flow_MergeRetry">
+        <di:waypoint x="4513" y="603" />
+        <di:waypoint x="4471" y="603" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4483" y="585" width="18" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_WaitedBeforeMerge_di" bpmnElement="Flow_WaitedBeforeMerge">
+        <di:waypoint x="4435" y="603" />
+        <di:waypoint x="4368" y="603" />
+        <di:waypoint x="4368" y="710" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_MergeFailed_di" bpmnElement="Flow_MergeFailed">
+        <di:waypoint x="4538" y="578" />
+        <di:waypoint x="4538" y="516" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4544" y="540" width="56" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>

@@ -222,6 +222,15 @@ def fetch_batch_transfers(domain, batch_id, tenant, page_size=20):
 # Polling
 # ---------------------------------------------------------------------------
 
+FAILED_BATCH_NOTE = "Failed Batch Request"   # the importer's note on a batch whose flow failed
+
+
+def batch_flow_failed(summary):
+    """True if the batch's own flow failed (e.g. "Merge Failed"), whatever its transfers say."""
+    notes = (summary or {}).get("notes") or ""
+    return str(notes).startswith(FAILED_BATCH_NOTE)
+
+
 def wait_for_batch(domain, batch_id, tenant, timeout=600, poll_interval=5, stall_timeout=120,
                    on_progress=None, namespaces=("paymenthub",), pod_baseline=None):
     """
@@ -326,7 +335,9 @@ def print_batch_result(summary, elapsed):
     print(f"  Elapsed          : {elapsed:.1f}s")
 
     all_done = (ongoing == 0)
-    if all_done and successful == total and failed == 0 and total > 0:
+    if batch_flow_failed(summary):
+        print(fail(f"  Batch flow FAILED: {summary.get('notes')}"))
+    elif all_done and successful == total and failed == 0 and total > 0:
         print(ok(f"  ALL {total} transactions PASSED"))
     elif all_done and failed > 0:
         print(fail(f"  {failed}/{total} transactions FAILED"))
@@ -614,7 +625,7 @@ submitted; 2 setup problem (config or CSV missing, MifosX data not loaded).
             total    = s.get("total",      0)
             succ     = s.get("successful", 0)
             status   = s.get("status",     "?")
-            marker   = f"{GREEN}✓{RESET}" if succ == total and total > 0 else f"{RED}✗{RESET}"
+            marker   = f"{GREEN}✓{RESET}" if succ == total and total > 0 and not batch_flow_failed(s) else f"{RED}✗{RESET}"
             _progress.pop(batch_id, None)
             _print_result(f"  {marker} {name:<38} {succ}/{total} ok  ({elapsed:.0f}s)  [{status}]")
             result_map[batch_id] = {"summary": summary, "elapsed": elapsed}
@@ -677,7 +688,8 @@ submitted; 2 setup problem (config or CSV missing, MifosX data not loaded).
             succ    = s.get("successful", 0)
             failed  = s.get("failed",     0)
             ongoing = s.get("ongoing",    0)
-            passed  = (succ == total and failed == 0 and total > 0 and ongoing == 0)
+            passed  = (succ == total and failed == 0 and total > 0 and ongoing == 0
+                       and not batch_flow_failed(s))
             verdict = ok("PASS") if passed else fail("FAIL")
             if not passed:
                 all_passed = False

@@ -64,6 +64,7 @@ src/utils/kibana-dashboard-setup.sh
 # Runs components from local JARs (hostPath) via spec.localDev on their operator CR — requires a live cluster
 python src/utils/localdev/localdev.py
 python src/utils/localdev/localdev.py --restart --component <name>   # after rebuilding a JAR
+python src/utils/localdev/localdev.py --rebuild --component operationsui-react   # build the Ops UI dist/ and restore its env-config.js
 ```
 
 ### Logging

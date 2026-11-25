@@ -129,6 +129,8 @@ The operator renders the same Deployment it always does (env vars, ConfigMaps, p
 
 - `--restore` removes `spec.localDev`, and the operator puts the image back. There are no backup files.
 - `--restart` deletes the pod and waits for the replacement to be Ready. Use it after rebuilding the jar. Don't use `kubectl rollout restart`: the operator removes its annotation on the next reconcile, which restarts the pod a second time.
+- `--rebuild` (webapps) builds `dist/` with `npm run build`, on the host if it has npm, otherwise in a `node:20-alpine` container. It then puts the runtime config back (next item). The checkout needs `node_modules` first (`npm ci`).
+- `--refresh-config` (webapps) puts the runtime config back after you built `dist/` yourself. The image writes its runtime config (the Ops UI's `env-config.js`, with the API and Keycloak URLs) into the html root when the container starts, so with `spec.localDev` it lands in your `dist/`. A build replaces it with the empty placeholder from `public/`, and the Ops UI login then fails with "Unable to reach authentication server". The refresh runs the image's own script (`runtime_config_script`) in the pod, with no restart. `--restart` also re-renders the file and checks it.
 
 **The operator only honours `spec.localDev` when it runs with `LOCALDEV_ENABLED=true`.** `paymenthub.sh` sets that on local clusters (`environment = local`, k3s or Colima) and never on remote ones. If it isn't set, `localdev.py` warns you, and the operator logs that it's ignoring the field. On a cluster deployed before this change, either redeploy PaymentHub or run:
 ```bash
@@ -267,6 +269,8 @@ The mode is picked at run time by checking whether the CR exists. The operator i
 | `k8s_deploy_name` | k8s-direct | Kubernetes Deployment name (`kubectl get deployments -n paymenthub`) |
 | `k8s_namespace` | k8s-direct | Namespace of the Deployment (default: `paymenthub`) |
 | `app_type` | No | `springboot` (default) or `webapp` |
+| `runtime_config_script` | No | webapp: the image's script that writes its runtime config, run again by `--rebuild` and `--refresh-config` |
+| `runtime_config_file` | No | webapp: that file, relative to the mounted directory; checked after `--restart`, `--rebuild` and `--refresh-config` |
 | `image` | springboot | JDK container image, e.g. `eclipse-temurin:21` |
 | `hostpath` | No | Local path mounted at `/app` (default: `<checkout_to_dir>/<repo>[/<module>]`) |
 | `jarpath` | No | Path to JAR inside the container. Default: the boot jar auto-detected in `<hostpath>/build/libs` (`*-plain.jar` ignored, newest wins) |
