@@ -66,7 +66,7 @@ data:
     gazelle.ph-ee-engine.ph_ee_connector_ams_mifos.dfspids=greenbank,redbank,bluebank
 
     # Tenant credentials for Fineract party/account lookup.
-    # The v1.7.0 jar embeds old tenant names (gorilla/wakanda etc.); these override them.
+    # Gazelle's three tenants (the jar's bb profile lists greenbank only).
     ams.local.tenants[0].name=greenbank
     ams.local.tenants[0].user=mifos
     ams.local.tenants[0].password=password

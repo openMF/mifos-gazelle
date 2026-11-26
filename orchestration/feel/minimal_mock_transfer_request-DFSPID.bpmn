@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_1h1ljac" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Zeebe Modeler" exporterVersion="0.11.0">
-  <bpmn:process id="minimal_mock_transfer_request-rhino" name="minimal_mock_transfer_request-rhino" isExecutable="true">
+  <bpmn:process id="minimal_mock_transfer_request-DFSPID" name="minimal_mock_transfer_request-DFSPID" isExecutable="true">
     <bpmn:startEvent id="StartEvent_1" name="Start">
       <bpmn:outgoing>Flow_1yedu1l</bpmn:outgoing>
     </bpmn:startEvent>
@@ -111,7 +111,7 @@
     </bpmn:extensionElements>
   </bpmn:message>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="minimal_mock_transfer_request-rhino">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="minimal_mock_transfer_request-DFSPID">
       <bpmndi:BPMNEdge id="Flow_1aprvsb_di" bpmnElement="Flow_1aprvsb">
         <di:waypoint x="780" y="395" />
         <di:waypoint x="780" y="120" />
