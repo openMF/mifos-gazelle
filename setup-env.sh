@@ -75,7 +75,7 @@ source "$RUN_DIR/src/commandline/commandline.sh" || { echo "FATAL: Could not sou
 
 ## Dependency versioning (must match run.sh) ##
 KUBECTL_VERSION="v1.30.0"
-HELM_VERSION="v3.14.4"
+HELM_VERSION="v3.22.1"
 
 #------------------------------------------------------------------------------
 # Function: show_setup_env_usage

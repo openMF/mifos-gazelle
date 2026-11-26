@@ -97,7 +97,7 @@ source "$RUN_DIR/src/commandline/commandline.sh"
 
 ## Dependency versioning ##
 KUBECTL_VERSION="v1.30.0"
-HELM_VERSION="v3.14.4"
+HELM_VERSION="v3.22.1"
 
 
 # Call main with all arguments
