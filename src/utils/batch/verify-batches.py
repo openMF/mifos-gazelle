@@ -51,6 +51,8 @@ _submit = _load_module("submit_batch", _SCRIPT_DIR / "submit-batch.py")
 
 load_config           = _utils.load_config
 get_gazelle_domain    = _utils.get_gazelle_domain
+ops_headers           = _utils.ops_headers
+set_ops_config        = _utils.set_ops_config
 FALLBACK_TENANTS      = _utils.FALLBACK_TENANTS
 check_data_loaded     = _utils.check_data_loaded
 count_zeebe_incidents = _utils.count_zeebe_incidents
@@ -154,19 +156,29 @@ def submit_scenario(scenario, config_path):
 # Operations-app API helpers
 # ---------------------------------------------------------------------------
 
-def _ops_get(url, tenant, timeout=15):
-    """GET from ops API with Platform-TenantId header. Returns parsed JSON or None."""
+_ops_auth_warned = set()
+
+
+def _ops_get(url, domain, tenant, timeout=15):
+    """GET from ops API with the tenant header and a bearer token. Returns parsed JSON or None."""
     try:
         resp = requests.get(
             url,
-            headers={"Platform-TenantId": tenant},
+            headers=ops_headers(domain, tenant),
             verify=False,
             timeout=timeout,
         )
         if resp.status_code == 200:
             return resp.json()
+        if resp.status_code in (401, 403) and tenant not in _ops_auth_warned:
+            _ops_auth_warned.add(tenant)
+            print(warn(f"operations API refused the token for tenant {tenant}: HTTP {resp.status_code}"),
+                  file=sys.stderr)
         return None
-    except Exception:
+    except Exception as e:
+        if isinstance(e, RuntimeError) and "operations API token" in str(e) and "token" not in _ops_auth_warned:
+            _ops_auth_warned.add("token")
+            print(warn(str(e)), file=sys.stderr)
         return None
 
 
@@ -206,13 +218,13 @@ def _resolve_ops_api_host(domain, tenant="greenbank"):
 def fetch_batch_summary(domain, batch_id, tenant):
     host = _resolve_ops_api_host(domain, tenant)
     url = f"https://{host}.{domain}/api/v1/batch/{batch_id}?command=aggregate"
-    return _ops_get(url, tenant)
+    return _ops_get(url, domain, tenant)
 
 
 def fetch_batch_transfers(domain, batch_id, tenant, page_size=20):
     host = _resolve_ops_api_host(domain, tenant)
     url = f"https://{host}.{domain}/api/v1/batch/detail?batchId={batch_id}&pageSize={page_size}"
-    data = _ops_get(url, tenant)
+    data = _ops_get(url, domain, tenant)
     if data and "content" in data:
         return data["content"]
     return []
@@ -496,6 +508,7 @@ submitted; 2 setup problem (config or CSV missing, MifosX data not loaded).
 
     cfg    = load_config(args.config)
     domain = get_gazelle_domain(cfg)
+    set_ops_config(cfg)
 
     data_ok, data_issues, data_hint = check_data_loaded(domain, config_path=args.config)
     if not data_ok:
