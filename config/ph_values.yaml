@@ -11,7 +11,14 @@
 camunda-platform:
   zeebe:
     # Downloads the Kafka exporter JAR from JFrog at pod start.
-    # Version and URL are pinned here because they change with each PHEE release.
+    # Pinned to one exact build: a SNAPSHOT is published under a timestamped file
+    # name, so this URL always gets the same jar. The exporter's class name is set
+    # with it, in src/deployer/helm/paymenthub-infra/values.yaml
+    # (ZEEBE_BROKER_EXPORTERS_KAFKA_CLASSNAME); change both together.
+    # paymenthub-ee-exporter 2.0.0.mifos-SNAPSHOT, built from paymenthub-ee-data-pipeline
+    # dev 286ea05 (PHEE-465: org.mifos.phee packages, Zeebe Community License attached).
+    # "&&": a failed download fails the init container, rather than starting the
+    # broker without its exporter.
     extraInitContainers:
       - name: init-ph-ee-kafka-exporter
         image: busybox:1.37.0
@@ -20,8 +27,8 @@ camunda-platform:
         args:
           - >
             wget -O /exporters/ph-ee-kafka-exporter.jar
-            "https://mifos.jfrog.io/artifactory/phee-gradle-local/org/mifos/phee/phee-exporter/exporter-1.1.1-SNAPSHOT.jar";
-            ls -al /exporters/
+            "https://mifos.jfrog.io/artifactory/phee-gradle-local/org/mifos/paymenthub-ee-exporter/2.0.0.mifos-SNAPSHOT/paymenthub-ee-exporter-2.0.0.mifos-20261128.012627-1.jar"
+            && ls -al /exporters/
         volumeMounts:
           - name: exporters
             mountPath: /exporters/
