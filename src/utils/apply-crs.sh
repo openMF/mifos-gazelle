@@ -36,7 +36,7 @@ Examples:
   src/utils/apply-crs.sh --wait
 
 CR files: src/deployer/operators/paymenthub/config/cr/*.yaml
-Config  : config/config.ini  (GAZELLE_DOMAIN, paymenthub.namespace)
+Config  : config/config.ini  (GAZELLE_DOMAIN, paymenthub.PH_NAMESPACE)
 
 See also:
   src/utils/localdev/localdev.py --clean-backups   # remove stale localdev patch backups
@@ -47,6 +47,15 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+WAIT=false
+for arg in "$@"; do
+  case "$arg" in
+    --wait) WAIT=true ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $arg" >&2; usage; exit 1 ;;
+  esac
+done
+
 # Load config to get GAZELLE_DOMAIN and PH_NAMESPACE
 CONFIG_FILE="${RUN_DIR}/config/config.ini"
 if ! command -v crudini &>/dev/null; then
@@ -55,16 +64,7 @@ if ! command -v crudini &>/dev/null; then
 fi
 
 GAZELLE_DOMAIN=$(crudini --get "$CONFIG_FILE" general GAZELLE_DOMAIN 2>/dev/null || echo "mifos.gazelle.test")
-PH_NAMESPACE=$(crudini --get "$CONFIG_FILE" paymenthub namespace 2>/dev/null || echo "paymenthub")
-
-WAIT=false
-for arg in "$@"; do
-  case "$arg" in
-    --wait) WAIT=true ;;
-    -h|--help) usage; exit 0 ;;
-    *) echo "Unknown option: $arg"; usage; exit 1 ;;
-  esac
-done
+PH_NAMESPACE=$(crudini --get "$CONFIG_FILE" paymenthub PH_NAMESPACE 2>/dev/null || echo "paymenthub")
 
 CR_DIR="${RUN_DIR}/src/deployer/operators/paymenthub/config/cr"
 
@@ -75,8 +75,10 @@ if ! kubectl get namespace "$PH_NAMESPACE" &>/dev/null; then
   exit 1
 fi
 
-TMP=$(mktemp /tmp/ph-crs.XXXXXX.yaml)
-trap 'rm -f "$TMP"' EXIT
+TMP=$(mktemp /tmp/ph-crs.XXXXXX)
+trap 'rm -f "$TMP" "${TMP}.yaml"' EXIT
+mv "$TMP" "${TMP}.yaml"
+TMP="${TMP}.yaml"
 
 for f in "$CR_DIR"/*.yaml; do
   echo "---"
