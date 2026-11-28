@@ -45,6 +45,8 @@ data:
     security.oauth2.resource.jwt.key-uri=http://ops-bk.GAZELLE_DOMAIN/oauth/token_key
 
     # REST authorization
+    # The BFF overrides this with REST_AUTHORIZATION_ENABLED=true on its CR (GAZ-371);
+    # connector-channel reads the same key and keeps it off.
     rest.authorization.enabled=false
     rest.authorization.host=http://ops-bk.GAZELLE_DOMAIN
 

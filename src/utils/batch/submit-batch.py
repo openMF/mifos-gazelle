@@ -28,6 +28,8 @@ _spec.loader.exec_module(_mod)
 
 load_config                   = _mod.load_config
 get_gazelle_domain            = _mod.get_gazelle_domain
+ops_headers                   = _mod.ops_headers
+set_ops_config                = _mod.set_ops_config
 get_valid_tenants             = _mod.get_valid_tenants
 FALLBACK_TENANTS              = _mod.FALLBACK_TENANTS
 get_payment_modes_from_csv    = _mod.get_payment_modes_from_csv
@@ -95,8 +97,12 @@ def print_curl_commands(domain, csv_file_path, private_key, tenant, correlation_
     print("EQUIVALENT CURL COMMANDS", file=sys.stderr)
     print(f"{'─'*72}", file=sys.stderr)
 
+    print("\n# 0. Get an operations API token (Keycloak realm paymenthub, client opsapp):", file=sys.stderr)
+    print(f'TOKEN=$(curl -sk -X POST "https://keycloak-ops.{domain}/realms/paymenthub/protocol/openid-connect/token" \\', file=sys.stderr)
+    print(f'  -d client_id=opsapp -d grant_type=password -d username=<OPS_USERNAME> -d password=<OPS_PASSWORD> | jq -r .access_token)', file=sys.stderr)
     print("\n# 1. Generate signature:", file=sys.stderr)
     print(f'curl -k -X POST "https://ops-bk.{domain}/api/v1/util/x-signature" \\', file=sys.stderr)
+    print(f'  -H "Authorization: Bearer $TOKEN" \\', file=sys.stderr)
     print(f'  -H "X-CorrelationID: {correlation_id}" \\', file=sys.stderr)
     print(f'  -H "Platform-TenantId: {tenant}" \\', file=sys.stderr)
     print(f'  -H "privateKey: {key_display}" \\', file=sys.stderr)
@@ -130,8 +136,8 @@ def generate_signature(domain, csv_file_path, private_key, tenant='greenbank', c
         correlation_id = str(uuid.uuid4())
 
     headers = {
+        **ops_headers(domain, tenant),
         "X-CorrelationID": correlation_id,
-        "Platform-TenantId": tenant,
         "privateKey": private_key,
     }
 
@@ -254,6 +260,7 @@ def run_submit(csv_file, config_path, tenant, govstack, registering_institution,
     """
     cfg = load_config(config_path)
     domain = get_gazelle_domain(cfg)
+    set_ops_config(cfg)
 
     print("="*80, file=sys.stderr)
     print(f"PAYMENT HUB BATCH TOOL - {domain}", file=sys.stderr)
